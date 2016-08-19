@@ -136,6 +136,7 @@ SDL_Texture* loadTexture( std::string path )
 	return newTexture;
 }
 
+/*
 int main( int argc, char* args[] )
 {
 	//Start up SDL and create window
@@ -193,3 +194,4 @@ int main( int argc, char* args[] )
 
 	return 0;
 }
+*/

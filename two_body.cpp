@@ -1,6 +1,7 @@
 // Two body representation
 #include <iostream>
 #include <stdio.h>
+#include <cmath> //abs
 #include <math.h>
 #include <vector>
 
@@ -65,19 +66,134 @@ vector<double> rv_coe (vector<double> r, vector<double> v)
     return vector<double> { a, ecc, inc, raan, argp, nu};
 }
 
+double c2(double psi)
+{
+    double res;
+    if (psi > 1.0)
+    {
+        res = (1.0 - cos(sqrt(psi))) / psi;
+    }
+    else if (psi < -1.0)
+    {
+        res = (cosh(sqrt(-1*psi))-1.0) / (-1.0 * psi);
+    }
+    else
+    {
+        res = .5;
+        double delta = (-1.0*psi) / tgamma(5);
+        int k = 1;
+        while (res+delta != res)
+        {
+            res = res + delta;
+            k++;
+            delta = pow((-1.0*psi), k)/tgamma(2*k + 3);
+        }
+    }
+    return res;
+}
+
+double c3(double psi)
+{
+    double res;
+    if (psi > 1.0)
+    {
+        res =  (sqrt(psi) - sin(sqrt(psi))) / pow(psi, 1.5);
+    }
+    else if (psi < -1.0)
+    {
+        res = (sinh(sqrt(-1.0*psi)) - sqrt(-1.0*psi)) / (-1.0 * psi * sqrt(-1.0*psi));
+    }
+    else
+    {
+        res = 1.0 / 6.0;
+        double delta = (-1.0 * psi) / tgamma(6);
+        int k = 1;
+        while (res+delta != res)
+        {
+            res = res + delta;
+            k++;
+            delta = pow((-1.0*psi), k) / tgamma(2*k+4);
+        }
+    }
+    return res;
+}
+
+vector<vector<double>> propagate(vector<double> r0, vector<double> v0, float tof, int numiter, float rtol)
+{
+    //Compute Lagrange coefficients
+    double k = 398600.4415;
+    double dot_r0v0 = dot_product(r0, v0);
+    double norm_r0 = norm(r0);
+    double sqrt_mu = pow(k, .5);
+    double alpha = (2/norm_r0)-(dot_product(v0, v0)/k);
+    double xi_new;
+    if (alpha > 0)
+    {
+        //Elliptical Orbit
+        xi_new = sqrt_mu * tof * alpha;
+    }
+    else if (alpha < 0)
+    {
+        //Hyperbolic Orbit
+        xi_new = sqrt(-1.0/alpha)*log((-2.0*k*alpha*tof)/(dot_r0v0+(sqrt(-1.0*k/alpha)*(1.0-norm_r0*alpha))));
+    }
+    else
+    {
+        //Parabolic Orbit
+        xi_new = sqrt_mu * tof / norm_r0;
+    }
+    //Newton-Raphson iteration on the Kepler equation
+    int count = 0;
+    double xi;
+    double psi;
+    double c2_psi;
+    double c3_psi;
+    double norm_r;
+    while (count < numiter)
+    {
+        xi = xi_new;
+        psi = xi * xi * alpha;
+        c2_psi = c2(psi);
+        c3_psi = c3(psi);
+        norm_r = (xi*xi*c2_psi +
+                dot_r0v0/sqrt_mu*xi * (1.0-psi*c3_psi) +
+                norm_r0 * (1.0 - psi * c2_psi));
+        xi_new = xi + (sqrt_mu * tof - xi*xi*xi*c3_psi -
+                dot_r0v0 / sqrt_mu * xi * xi * c2_psi -
+                norm_r0 * xi * (1 - psi * c3_psi)) / norm_r;
+        if (abs((xi_new - xi)/xi_new) < rtol || abs( xi_new - xi) < rtol)
+        {
+            break;
+        }
+        else
+        {
+            count ++;
+        }
+        // TODO: raise error when too many iterations reached
+    }
+    double f = 1.0 - pow(xi, 2) / norm_r0 * c2_psi;
+    double g = tof - pow(xi, 3) / sqrt_mu * c3_psi;
+    double gdot = 1.0 - pow(xi, 2) / norm_r * c2_psi;
+    double fdot = sqrt_mu / (norm_r * norm_r0) * xi * (psi * c3_psi - 1.0);
+    printf("Tolerance: %f\n", f*gdot - fdot*g - 1.0);
+    vector<double> r = vec_add(vec_scale(f, r0), vec_scale(g, v0));
+    vector<double> v = vec_add(vec_scale(fdot, r0), vec_scale(gdot, v0));
+    return vector<vector<double>> {r, v};
+}
+
 vector<double> earth_orbit()
 {
     vector<double> r = {-6045., -3490., 2500.};
     vector<double> v = {-3.457, 6.618, 2.533};
+    vector<vector<double>> rv_new = propagate(r, v, 5.0, 35, 1e-10);
+    dump_vector("R", rv_new[0]);
+    dump_vector("V", rv_new[1]);
     return rv_coe(r, v);
 }
 
-/*
 int main()
 {
-    vector<double> r = {-6045., -3490., 2500.};
-    vector<double> v = {-3.457, 6.618, 2.533};
-    vector<double>orbital_coe = rv_coe(r, v);
+    vector<double>orbital_coe = earth_orbit();
     printf ("Semi-major Axis: %f\n", orbital_coe[0]);
     printf ("Eccentricity: %f\n", orbital_coe[1]);
     printf ("Inclination: %f\n", orbital_coe[2]);
@@ -85,4 +201,3 @@ int main()
     printf ("Argument of Pericenter: %f\n", orbital_coe[4]);
     printf ("True anomoly: %f\n", orbital_coe[5]);
 }
-*/

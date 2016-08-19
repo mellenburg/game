@@ -9,6 +9,7 @@
 
 # Tasks:
 * Write classical orbital coefficient equations from poliastro in C++
+* Implement keplerian propogation
 * Implement orbital maneuvers in C++
 * Render an ellipse derived from \<R,V\>
 * Render the orbit with the planet from an inertial reference frame
