@@ -160,8 +160,10 @@ int main( int argc, char* args[] )
             vector<double> backward = {-1.0*DV, 0, 0, DT};
             vector<double> left = {0, DV, 0, DT};
             vector<double> right = {0, -1.0*DV, 0, DT};
-            vector<double> r = {2500.0, 0.0, 0.0};
-            vector<double> v = {0.0, 5, 0.0};
+            //vector<double> r = {6754, 0.0, 0.0};
+            //vector<double> v = {0.0, 7.66, 0.0};
+            vector<double> r = {-6045, -3490, 2500};
+            vector<double> v = {-3.56, 6.618, 2.533};
             EarthOrbit orbit (r, v);
 
             Axis xAxis (50, SCREEN_WIDTH-50, -1.0*orbit.r_a, orbit.r_a);
@@ -202,6 +204,10 @@ int main( int argc, char* args[] )
 							case SDLK_RIGHT:
                             orbit.relative_maneuver(right);
 							break;
+
+                            case SDLK_SPACE:
+                            orbit.dump_state();
+                            break;
 						}
 					}
 				}
@@ -211,7 +217,8 @@ int main( int argc, char* args[] )
 				SDL_RenderClear( gRenderer );
 
 
-                aaellipseColor(gRenderer, xAxis.center, yAxis.center, xAxis.scale(orbit.a), yAxis.scale(orbit.b), 0xFF0000FF);
+                filledCircleColor(gRenderer, xAxis.center, yAxis.center, xAxis.scale(6371.), 0xFF0000FF);
+                aaellipseColor(gRenderer, xAxis.center+xAxis.scale(orbit.a-orbit.r_p), yAxis.center, xAxis.scale(orbit.a), yAxis.scale(orbit.b), 0xFF0000FF);
                 // Define subwindow. Scale ellipse relative to sub window size
                 // Create library to handle coordinates
 

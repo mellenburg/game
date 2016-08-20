@@ -23,8 +23,10 @@ class EarthOrbit
     double raan;
     double argp;
     double nu;
+    double norm_r;
     EarthOrbit(vector<double>, vector<double>);
     void propagate(double);
     void maneuver(vector<double>);
     void relative_maneuver(vector<double> dv);
+    void dump_state();
 };

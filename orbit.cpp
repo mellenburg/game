@@ -125,6 +125,7 @@ void EarthOrbit::rv2coe()
     nu = atan2(dot_product(r, vec_scale(1.0/norm_h, cross_product(h, e))), dot_product(r, e));
     r_a = a * (1.0 + ecc);
     r_p = a * (1.0 - ecc);
+    norm_r = norm(r);
 }
 
 void EarthOrbit::propagate(double tof)
@@ -209,29 +210,15 @@ void EarthOrbit::relative_maneuver(vector<double> dv){
     maneuver(man);
 }
 
-/*
-int main()
+
+void EarthOrbit::dump_state()
 {
-    vector<double> r = {-6045., -3490., 2500.};
-    vector<double> v = {-3.457, 6.618, 2.533};
-    EarthOrbit ship_orbit (r, v);
-    printf ("Semi-major Axis: %f\n", ship_orbit.a);
-    printf ("Eccentricity: %f\n", ship_orbit.ecc);
-    printf ("Inclination: %f\n", ship_orbit.inc);
-    printf ("Right Ascension of Ascending Node: %f\n", ship_orbit.raan);
-    printf ("Argument of Pericenter: %f\n", ship_orbit.argp);
-    printf ("True anamoly: %f\n", ship_orbit.nu);
-    ship_orbit.propagate(5.0);
-    dump_vector("R", ship_orbit.r);
-    dump_vector("V", ship_orbit.v);
-    vector<double> dv = {.05, 0.0, 0.0, 10.0};
-    ship_orbit.maneuver(dv);
-    dump_vector("R", ship_orbit.r);
-    dump_vector("V", ship_orbit.v);
-    printf ("Semi-major Axis: %f\n", ship_orbit.a);
-    printf ("Eccentricity: %f\n", ship_orbit.ecc);
-    printf ("Inclination: %f\n", ship_orbit.inc);
-    printf ("Right Ascension of Ascending Node: %f\n", ship_orbit.raan);
-    printf ("Argument of Pericenter: %f\n", ship_orbit.argp);
-    printf ("True anamoly: %f\n", ship_orbit.nu);
-}*/
+    printf ("Semi-major Axis: %f\n", a);
+    printf ("Eccentricity: %f\n", ecc);
+    printf ("Inclination: %f\n", inc);
+    printf ("Right Ascension of Ascending Node: %f\n", raan);
+    printf ("Argument of Pericenter: %f\n", argp);
+    printf ("True anomaly: %f\n", nu);
+    dump_vector("R", r);
+    dump_vector("V", v);
+}
