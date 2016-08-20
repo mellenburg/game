@@ -9,7 +9,7 @@ and may not be redistributed without written permission.*/
 #include <string>
 #include <vector>
 #include <math.h>
-#include "two_body.h"
+#include "orbit.h"
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 600;
