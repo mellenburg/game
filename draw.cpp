@@ -12,6 +12,8 @@ and may not be redistributed without written permission.*/
 #include "orbit.h"
 #include "axis.h"
 
+#define PI 3.14159265
+
 //Screen dimension constants
 const int SCREEN_WIDTH = 600;
 const int SCREEN_HEIGHT = 600;
@@ -19,23 +21,22 @@ const int SCREEN_HEIGHT = 600;
 //Starts up SDL and creates window
 bool init();
 
-//Loads media
-bool loadMedia();
-
 //Frees media and shuts down SDL
 void close();
-
-//Loads individual image as texture
-SDL_Texture* loadTexture( std::string path );
 
 //The window we'll be rendering to
 SDL_Window* gWindow = NULL;
 
 //The window renderer
 SDL_Renderer* gRenderer = NULL;
+//
+//Current displayed texture
+SDL_Texture* gTexture = NULL;
 
 const double DV = .05;
 const double DT = 10.0;
+double angle_degrees;
+
 bool init()
 {
 	//Initialization flag
@@ -56,7 +57,7 @@ bool init()
 		}
 
 		//Create window
-		gWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN );
+		gWindow = SDL_CreateWindow( "Oribital Simulation", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN );
 		if( gWindow == NULL )
 		{
 			printf( "Window could not be created! SDL Error: %s\n", SDL_GetError() );
@@ -90,15 +91,6 @@ bool init()
 	return success;
 }
 
-bool loadMedia()
-{
-	//Loading success flag
-	bool success = true;
-
-	//Nothing to load
-	return success;
-}
-
 void close()
 {
 	//Destroy window
@@ -112,34 +104,6 @@ void close()
 	SDL_Quit();
 }
 
-SDL_Texture* loadTexture( std::string path )
-{
-	//The final texture
-	SDL_Texture* newTexture = NULL;
-
-	//Load image at specified path
-	SDL_Surface* loadedSurface = IMG_Load( path.c_str() );
-	if( loadedSurface == NULL )
-	{
-		printf( "Unable to load image %s! SDL_image Error: %s\n", path.c_str(), IMG_GetError() );
-	}
-	else
-	{
-		//Create texture from surface pixels
-        newTexture = SDL_CreateTextureFromSurface( gRenderer, loadedSurface );
-		if( newTexture == NULL )
-		{
-			printf( "Unable to create texture from %s! SDL Error: %s\n", path.c_str(), SDL_GetError() );
-		}
-
-		//Get rid of old loaded surface
-		SDL_FreeSurface( loadedSurface );
-	}
-
-	return newTexture;
-}
-
-
 int main( int argc, char* args[] )
 {
 	//Start up SDL and create window
@@ -149,13 +113,6 @@ int main( int argc, char* args[] )
 	}
 	else
 	{
-		//Load media
-		if( !loadMedia() )
-		{
-			printf( "Failed to load media!\n" );
-		}
-		else
-		{
             vector<double> forward = {DV, 0, 0, DT};
             vector<double> backward = {-1.0*DV, 0, 0, DT};
             vector<double> left = {0, DV, 0, DT};
@@ -174,6 +131,9 @@ int main( int argc, char* args[] )
 
 			//Event handler
 			SDL_Event e;
+
+            //Point Render at off screen texture
+            gTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
 
 			//While application is running
 			while( !quit )
@@ -212,6 +172,7 @@ int main( int argc, char* args[] )
 					}
 				}
 
+                SDL_SetRenderTarget(gRenderer, gTexture);
 				//Clear screen
 				SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
 				SDL_RenderClear( gRenderer );
@@ -219,12 +180,12 @@ int main( int argc, char* args[] )
 
                 filledCircleColor(gRenderer, xAxis.center, yAxis.center, xAxis.scale(6371.), 0xFF0000FF);
                 aaellipseColor(gRenderer, xAxis.center+xAxis.scale(orbit.a-orbit.r_p), yAxis.center, xAxis.scale(orbit.a), yAxis.scale(orbit.b), 0xFF0000FF);
-                // Define subwindow. Scale ellipse relative to sub window size
-                // Create library to handle coordinates
 
+                SDL_SetRenderTarget(gRenderer, NULL);
+                angle_degrees = orbit.argp*180.0/PI;
+	            SDL_RenderCopyEx( gRenderer, gTexture, NULL, NULL, angle_degrees, NULL, SDL_FLIP_NONE);
 				//Update screen
 				SDL_RenderPresent( gRenderer );
-			}
 		}
 	}
 
