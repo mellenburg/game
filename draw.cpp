@@ -34,6 +34,8 @@ SDL_Window* gWindow = NULL;
 //The window renderer
 SDL_Renderer* gRenderer = NULL;
 
+const double DV = .05;
+const double DT = 10.0;
 bool init()
 {
 	//Initialization flag
@@ -154,6 +156,17 @@ int main( int argc, char* args[] )
 		}
 		else
 		{
+            vector<double> forward = {DV, 0, 0, DT};
+            vector<double> backward = {-1.0*DV, 0, 0, DT};
+            vector<double> left = {0, DV, 0, DT};
+            vector<double> right = {0, -1.0*DV, 0, DT};
+            vector<double> r = {2500.0, 0.0, 0.0};
+            vector<double> v = {0.0, 5, 0.0};
+            EarthOrbit orbit (r, v);
+
+            Axis xAxis (50, SCREEN_WIDTH-50, -1.0*orbit.r_a, orbit.r_a);
+            Axis yAxis (50, SCREEN_HEIGHT-50, -1.0*orbit.r_a, orbit.r_a);
+
 			//Main loop flag
 			bool quit = false;
 
@@ -170,6 +183,26 @@ int main( int argc, char* args[] )
 					if( e.type == SDL_QUIT )
 					{
 						quit = true;
+					} else if( e.type == SDL_KEYDOWN )
+					{
+						switch( e.key.keysym.sym )
+						{
+							case SDLK_UP:
+                            orbit.relative_maneuver(forward);
+							break;
+
+							case SDLK_DOWN:
+                            orbit.relative_maneuver(backward);
+							break;
+
+							case SDLK_LEFT:
+                            orbit.relative_maneuver(left);
+							break;
+
+							case SDLK_RIGHT:
+                            orbit.relative_maneuver(right);
+							break;
+						}
 					}
 				}
 
@@ -177,12 +210,6 @@ int main( int argc, char* args[] )
 				SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
 				SDL_RenderClear( gRenderer );
 
-                vector<double> r = {-6045., -3490., 2500.};
-                vector<double> v = {-3.457, 6.618, 2.533};
-                EarthOrbit orbit (r, v);
-
-                Axis xAxis (50, SCREEN_WIDTH-50, -1.0*orbit.r_a, orbit.r_a);
-                Axis yAxis (50, SCREEN_HEIGHT-50, -1.0*orbit.r_a, orbit.r_a);
 
                 aaellipseColor(gRenderer, xAxis.center, yAxis.center, xAxis.scale(orbit.a), yAxis.scale(orbit.b), 0xFF0000FF);
                 // Define subwindow. Scale ellipse relative to sub window size

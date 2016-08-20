@@ -196,6 +196,19 @@ void EarthOrbit::maneuver(vector<double> dv){
     rv2coe();
 }
 
+void EarthOrbit::relative_maneuver(vector<double> dv){
+    // x is forward, y is left, and z is up
+    vector<double> z = {0., 0., 1.0};
+    vector<double> i = vec_scale(1.0/norm(v), v);
+    vector<double> r_cross_v = cross_product(r, v);
+    vector<double> k = vec_scale(1.0/norm(r_cross_v), r_cross_v);
+    vector<double> i_cross_k = cross_product(i, k);
+    vector<double> j = vec_scale(-1.0/norm(i_cross_k), i_cross_k);
+    vector<double> man = vec_add(vec_scale(dv[0], i), vec_add(vec_scale(dv[1], j), vec_scale(dv[2], k)));
+    man[3] = dv[3];
+    maneuver(man);
+}
+
 /*
 int main()
 {

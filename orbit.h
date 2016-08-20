@@ -26,4 +26,5 @@ class EarthOrbit
     EarthOrbit(vector<double>, vector<double>);
     void propagate(double);
     void maneuver(vector<double>);
+    void relative_maneuver(vector<double> dv);
 };
