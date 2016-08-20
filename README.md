@@ -11,6 +11,8 @@
 * DONE: Write classical orbital coefficient equations from poliastro in C++
 * DONE: Implement keplerian propogation
 * DONE: Implement orbital maneuvers in
-* Render an ellipse derived from \<R,V\>
-* Render the orbit with the planet from an inertial reference frame
-* Make the orbital parameters settable by user input
+* DONE: Render an ellipse derived from \<R,V\>
+* DONE: Render the orbit with the planet from an inertial reference frame
+* Multiple colors for objects
+* Multiple controllable satellites
+* Fix huge number of crashes
