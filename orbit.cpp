@@ -237,4 +237,5 @@ int main()
     printf ("Right Ascension of Ascending Node: %f\n", ship_orbit.raan);
     printf ("Argument of Pericenter: %f\n", ship_orbit.argp);
     printf ("True anamoly: %f\n", ship_orbit.nu);
+
 }

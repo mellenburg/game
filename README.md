@@ -8,9 +8,9 @@
 * user should be able to adjust all objects with in-plan manuevers napped to keys
 
 # Tasks:
-* Write classical orbital coefficient equations from poliastro in C++
-* Implement keplerian propogation
-* Implement orbital maneuvers in C++
+* DONE: Write classical orbital coefficient equations from poliastro in C++
+* DONE: Implement keplerian propogation
+* DONE: Implement orbital maneuvers in
 * Render an ellipse derived from \<R,V\>
 * Render the orbit with the planet from an inertial reference frame
 * Make the orbital parameters settable by user input
