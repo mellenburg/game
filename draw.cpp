@@ -36,6 +36,7 @@ SDL_Texture* gTexture = NULL;
 const double DV = .05;
 const double DT = 10.0;
 double angle_degrees;
+short int sat_x, sat_y;
 
 bool init()
 {
@@ -165,6 +166,10 @@ int main( int argc, char* args[] )
                             orbit.relative_maneuver(right);
 							break;
 
+                            case SDLK_RETURN:
+                            orbit.propagate(DT);
+                            break;
+
                             case SDLK_SPACE:
                             orbit.dump_state();
                             break;
@@ -178,8 +183,18 @@ int main( int argc, char* args[] )
 				SDL_RenderClear( gRenderer );
 
 
+                //Render Earth in Center
                 filledCircleColor(gRenderer, xAxis.center, yAxis.center, xAxis.scale(6371.), 0xFF0000FF);
+                //Render ellipse with semimajor axis parallel to X
+                //Render ellipse center offset so that argp point at x->0
                 aaellipseColor(gRenderer, xAxis.center+xAxis.scale(orbit.a-orbit.r_p), yAxis.center, xAxis.scale(orbit.a), yAxis.scale(orbit.b), 0xFF0000FF);
+
+                //Find satellite position
+                sat_x = xAxis.center-xAxis.scale(cos(orbit.nu)*orbit.norm_r);
+                sat_y = yAxis.center+xAxis.scale(sin(orbit.nu)*orbit.norm_r);
+
+                //Render satellite
+                filledCircleColor(gRenderer, sat_x, sat_y, 20, 0xFF0000FF);
 
                 SDL_SetRenderTarget(gRenderer, NULL);
                 angle_degrees = orbit.argp*180.0/PI;

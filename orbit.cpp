@@ -187,6 +187,7 @@ void EarthOrbit::propagate(double tof)
     double fdot = sqrt_mu / (norm_r * norm_r0) * xi * (psi * c3_psi - 1.0);
     r = vec_add(vec_scale(f, r0), vec_scale(g, v0));
     v = vec_add(vec_scale(fdot, r0), vec_scale(gdot, v0));
+    rv2coe();
 }
 
 void EarthOrbit::maneuver(vector<double> dv){
