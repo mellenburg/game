@@ -13,9 +13,12 @@ class EarthOrbit
   public:
     vector<double> r;
     vector<double> v;
+    double r_p;
+    double r_a;
     double ecc;
     double p;
     double a;
+    double b;
     double inc;
     double raan;
     double argp;

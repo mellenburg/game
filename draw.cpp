@@ -10,6 +10,7 @@ and may not be redistributed without written permission.*/
 #include <vector>
 #include <math.h>
 #include "orbit.h"
+#include "axis.h"
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 600;
@@ -136,7 +137,7 @@ SDL_Texture* loadTexture( std::string path )
 	return newTexture;
 }
 
-/*
+
 int main( int argc, char* args[] )
 {
 	//Start up SDL and create window
@@ -176,12 +177,16 @@ int main( int argc, char* args[] )
 				SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
 				SDL_RenderClear( gRenderer );
 
-                Sint16 circleRX = 200;
-                Sint16 circleRY = 100;
-                Sint16 circleX = SCREEN_WIDTH/2;
-                Sint16 circleY = SCREEN_HEIGHT/2;
+                vector<double> r = {-6045., -3490., 2500.};
+                vector<double> v = {-3.457, 6.618, 2.533};
+                EarthOrbit orbit (r, v);
 
-                aaellipseColor(gRenderer, circleX, circleY, circleRX, circleRY, 0xFF0000FF);
+                Axis xAxis (50, SCREEN_WIDTH-50, -1.0*orbit.r_a, orbit.r_a);
+                Axis yAxis (50, SCREEN_HEIGHT-50, -1.0*orbit.r_a, orbit.r_a);
+
+                aaellipseColor(gRenderer, xAxis.center, yAxis.center, xAxis.scale(orbit.a), yAxis.scale(orbit.b), 0xFF0000FF);
+                // Define subwindow. Scale ellipse relative to sub window size
+                // Create library to handle coordinates
 
 				//Update screen
 				SDL_RenderPresent( gRenderer );
@@ -194,4 +199,3 @@ int main( int argc, char* args[] )
 
 	return 0;
 }
-*/

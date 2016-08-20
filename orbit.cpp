@@ -5,6 +5,7 @@
 #include <cmath> //abs
 #include <math.h>
 #include <vector>
+#include "orbit.h"
 
 #define PI 3.14159265
 using namespace std;
@@ -101,27 +102,6 @@ double c3(double psi)
     return res;
 }
 
-class EarthOrbit
-{
-    int numiter = 35;
-    double rtol = 1e-10;
-    double k = 398600.4415;
-    void rv2coe();
-  public:
-    vector<double> r;
-    vector<double> v;
-    double ecc;
-    double p;
-    double a;
-    double inc;
-    double raan;
-    double argp;
-    double nu;
-    EarthOrbit(vector<double>, vector<double>);
-    void propagate(double);
-    void maneuver(vector<double>);
-};
-
 EarthOrbit::EarthOrbit (vector<double> r_in, vector<double> v_in){
     r = r_in;
     v = v_in;
@@ -138,10 +118,13 @@ void EarthOrbit::rv2coe()
     ecc = norm(e);
     p = dot_product(h, h) / k;
     a = p / (1.0 - pow(ecc, 2.0));
+    b = a * sqrt(1.0 - pow(ecc, 2));
     inc = acos(h[2]/norm(h));
     raan = atan2(n[1], n[0]);
     argp = atan2(dot_product(e, vec_scale(1.0/norm_h, cross_product(h, n))), dot_product(e, n));
     nu = atan2(dot_product(r, vec_scale(1.0/norm_h, cross_product(h, e))), dot_product(r, e));
+    r_a = a * (1.0 + ecc);
+    r_p = a * (1.0 - ecc);
 }
 
 void EarthOrbit::propagate(double tof)
@@ -213,6 +196,7 @@ void EarthOrbit::maneuver(vector<double> dv){
     rv2coe();
 }
 
+/*
 int main()
 {
     vector<double> r = {-6045., -3490., 2500.};
@@ -237,5 +221,4 @@ int main()
     printf ("Right Ascension of Ascending Node: %f\n", ship_orbit.raan);
     printf ("Argument of Pericenter: %f\n", ship_orbit.argp);
     printf ("True anamoly: %f\n", ship_orbit.nu);
-
-}
+}*/
