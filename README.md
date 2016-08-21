@@ -19,10 +19,11 @@
 * DONE: Split Earth, ship, and orbit into unique layers
 * DONE: Create viewer module that creates consistency between render layers
 * DONE: Multiple controllable satellites
-* Create orbit predictor
 * DONE: Use icon for space ship that is oriented with direction of motion
-* Add astrodynamics tests, LOL
+* DONE: Create orbit predictor
+* Create controllable game clock
 * Create texture for thick ellipse
+* Add astrodynamics tests, LOL
 
 # Notes
 * [Free Awesome Sprites] (http://millionthvector.blogspot.com/p/free-sprites_12.html) Thanks MillionthVector!

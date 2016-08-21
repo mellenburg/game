@@ -127,14 +127,13 @@ void OrbitTexture::setViewRange(double r_a){
     yRange = yHigh - yLow;
 }
 
-OrbitTexture::OrbitTexture() {
+OrbitTexture::OrbitTexture(vec3D r, vec3D v) {
     //Instantiate with "normal" orbit
    mSatTexture = loadTexture("redfighter.png");
    mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
    SDL_SetTextureBlendMode(mSatTexture, SDL_BLENDMODE_BLEND);
    SDL_SetTextureBlendMode(mTexture, SDL_BLENDMODE_BLEND);
-   vec3D r = {-6045, -3490, 2500};
-   vec3D v = {-3.56, 6.618, 2.533};
+
    mOrbit = new EarthOrbit(r, v);
    setViewRange();
 }

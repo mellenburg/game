@@ -40,7 +40,7 @@ class OrbitTexture {
         double xLow, xHigh, yLow, yHigh, xRange, yRange;
     public:
         EarthOrbit* mOrbit;
-        OrbitTexture();
+        OrbitTexture(vec3D r = {-6045, -3490, 2500}, vec3D v = {-3.56, 6.618, 2.533});
         ~OrbitTexture();
         short int scaleX(double);
         short int scaleY(double);

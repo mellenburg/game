@@ -10,10 +10,12 @@ class EarthSystem {
         Background* bg = NULL;
     public:
         int idx = 0;
-        vector<OrbitTexture*> currentOrbits = {};
+        std::vector<OrbitTexture*> currentOrbits = {};
         EarthSystem();
         ~EarthSystem();
         int addOrbit();
+        int addOrbit(OrbitTexture*);
+        void removeOrbit(int);
         void render();
 };
 
@@ -34,6 +36,18 @@ int EarthSystem::addOrbit() {
     currentOrbits.push_back(new OrbitTexture);
     idx++;
     return idx-1;
+}
+
+int EarthSystem::addOrbit(OrbitTexture* target) {
+    currentOrbits.push_back(new OrbitTexture(target->mOrbit->r, target->mOrbit->v));
+    idx++;
+    return idx-1;
+}
+
+void EarthSystem::removeOrbit(int i) {
+    free(currentOrbits[i]);
+    currentOrbits.erase(currentOrbits.begin()+i);
+    idx--;
 }
 
 void EarthSystem::render() {
@@ -79,6 +93,7 @@ int main( int argc, char* args[] ) {
             earthSys.addOrbit();
             earthSys.addOrbit();
             int orbit_select = 0;
+            int porbitIndex;
             OrbitTexture* targetOrbit = earthSys.currentOrbits[orbit_select];
 			bool quit = false;
 			SDL_Event e;
@@ -107,10 +122,16 @@ int main( int argc, char* args[] ) {
 							break;
 
 							case SDLK_p:
-                            if(planningMode){
+                            if (planningMode) {
                                 planningMode = false;
+                                earthSys.removeOrbit(porbitIndex);
+                                targetOrbit = earthSys.currentOrbits[orbit_select];
                             } else {
                                 planningMode = true;
+                                // make orbit from current target
+                                porbitIndex = earthSys.addOrbit(targetOrbit);
+                                // set the new orbit as a target
+                                targetOrbit = earthSys.currentOrbits[porbitIndex];
                             }
 							break;
 
@@ -127,9 +148,9 @@ int main( int argc, char* args[] ) {
                             break;
 
                             case SDLK_TAB:
-                            if (orbit_select == 1) {
+                            if (orbit_select == 1 && not planningMode) {
                                 orbit_select = 0;
-                            } else {
+                            } else if (not planningMode) {
                                 orbit_select = 1;
                             }
                             targetOrbit = earthSys.currentOrbits[orbit_select];
