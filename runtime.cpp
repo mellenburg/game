@@ -1,7 +1,48 @@
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <string>
+#include <vector>
 #include "draw.h"
+
+class EarthSystem {
+    public:
+        int idx = 0;
+        vector<OrbitTexture*> currentOrbits = {};
+        EarthSystem();
+        ~EarthSystem();
+        int addOrbit();
+        void render();
+};
+
+EarthSystem::EarthSystem () {
+}
+
+EarthSystem::~EarthSystem () {
+    for( int i=0; i < idx; i++) {
+        free(currentOrbits[i]);
+    }
+}
+
+int EarthSystem::addOrbit() {
+    currentOrbits.push_back(new OrbitTexture);
+    idx++;
+    return idx-1;
+}
+
+void EarthSystem::render() {
+    double max_r = 0;
+    double r_i;
+    for( int i=0; i < idx; i++) {
+        r_i = currentOrbits[i]->mOrbit->r_a;
+        if (r_i > max_r) {
+            max_r = r_i;
+        }
+    }
+    for( int i=0; i < idx; i++) {
+        currentOrbits[i]->setViewRange(max_r);
+        currentOrbits[i]->render();
+    }
+}
 
 bool init();
 void close();
@@ -25,7 +66,12 @@ int main( int argc, char* args[] ) {
 		printf( "Failed to initialize!\n" );
 	}
 	else {
-            OrbitTexture mainOrbit;
+            EarthSystem earthSys;
+            earthSys.addOrbit();
+            earthSys.addOrbit();
+            int orbit_select = 0;
+            OrbitTexture* targetOrbit = earthSys.currentOrbits[orbit_select];
+            EarthTexture earth;
             Background bg;
 			bool quit = false;
 			SDL_Event e;
@@ -38,19 +84,19 @@ int main( int argc, char* args[] ) {
 					} else if( e.type == SDL_KEYDOWN ) {
 						switch( e.key.keysym.sym ) {
 							case SDLK_UP:
-                            mainOrbit.mOrbit->goForward();
+                            targetOrbit->mOrbit->goForward();
 							break;
 
 							case SDLK_DOWN:
-                            mainOrbit.mOrbit->goBackward();
+                            targetOrbit->mOrbit->goBackward();
 							break;
 
 							case SDLK_LEFT:
-                            mainOrbit.mOrbit->goLeft();
+                            targetOrbit->mOrbit->goLeft();
 							break;
 
 							case SDLK_RIGHT:
-                            mainOrbit.mOrbit->goRight();
+                            targetOrbit->mOrbit->goRight();
 							break;
 
 							case SDLK_p:
@@ -62,22 +108,31 @@ int main( int argc, char* args[] ) {
 							break;
 
                             case SDLK_RETURN:
-                            mainOrbit.mOrbit->propagate(10.0);
+                            targetOrbit->mOrbit->propagate(10.0);
                             break;
 
                             case SDLK_RSHIFT:
-                            mainOrbit.mOrbit->propagate(500.0);
+                            targetOrbit->mOrbit->propagate(500.0);
                             break;
 
                             case SDLK_SPACE:
-                            mainOrbit.mOrbit->dump_state();
+                            targetOrbit->mOrbit->dump_state();
+                            break;
+
+                            case SDLK_TAB:
+                            if (orbit_select == 1) {
+                                orbit_select = 0;
+                            } else {
+                                orbit_select = 1;
+                            }
+                            targetOrbit = earthSys.currentOrbits[orbit_select];
                             break;
 						}
-                    mainOrbit.setViewRange();
                     }
 				}
                 bg.render();
-                mainOrbit.render();
+                earthSys.render();
+                earth.render(targetOrbit->scaleX(6371.));
                 drawUpdate();
 		}
 	}

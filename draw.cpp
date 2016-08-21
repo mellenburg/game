@@ -12,7 +12,6 @@
 SDL_Window* gWindow = NULL;
 SDL_Renderer* gRenderer = NULL;
 
-
 bool drawInit()
 {
 	bool success = true;
@@ -117,6 +116,15 @@ void OrbitTexture::setViewRange(){
     yRange = yHigh - yLow;
 }
 
+void OrbitTexture::setViewRange(double r_a){
+    xLow = -1.0*r_a;
+    xHigh = r_a;
+    yLow = -1.0*r_a;
+    yHigh = r_a;
+    xRange = xHigh - xLow;
+    yRange = yHigh - yLow;
+}
+
 OrbitTexture::OrbitTexture() {
     //Instantiate with "normal" orbit
    mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -141,11 +149,9 @@ void OrbitTexture::render(){
 	SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0x00 );
 	SDL_RenderClear( gRenderer );
 
-    //Render Earth in Center
-    filledCircleRGBA(gRenderer, centerX, centerY, scaleX(6371.), 0x00, 0x00, 0xFF, 0xFF);
     //Render ellipse with semimajor axis parallel to X
     //Render ellipse center offset so that argp point at x->0
-    aaellipseRGBA(gRenderer, centerX+scaleX(mOrbit->a-mOrbit->r_p), centerY, scaleX(mOrbit->a), scaleY(mOrbit->b), 0xFF, 0xFF, 0xFF, 0xFF);
+    aaellipseRGBA(gRenderer, centerX+scaleX(mOrbit->a-mOrbit->r_p), centerY, scaleX(mOrbit->a), scaleY(mOrbit->b), 0xFF, 0x80, 0x00, 0xFF);
 
     //Find satellite position
     sat_x = centerX-scaleX(cos(mOrbit->nu)*mOrbit->norm_r);
@@ -161,4 +167,28 @@ void OrbitTexture::render(){
 
 void drawUpdate(){
     SDL_RenderPresent( gRenderer );
+}
+
+EarthTexture::EarthTexture() {
+    mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+    SDL_SetTextureBlendMode(mTexture, SDL_BLENDMODE_BLEND);
+}
+
+EarthTexture::~EarthTexture() {
+	if( mTexture != NULL )
+	{
+		SDL_DestroyTexture( mTexture );
+		mTexture = NULL;
+	}
+}
+
+void EarthTexture::render(short int r){
+    SDL_SetRenderTarget(gRenderer, mTexture);
+	SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0x00 );
+	SDL_RenderClear( gRenderer );
+
+    //Render Earth in Center
+    filledCircleRGBA(gRenderer, centerX, centerY, r, 0x00, 0x00, 0xFF, 0xFF);
+    SDL_SetRenderTarget(gRenderer, NULL);
+    SDL_RenderCopy( gRenderer, mTexture, NULL, NULL);
 }

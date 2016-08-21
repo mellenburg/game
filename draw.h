@@ -42,9 +42,27 @@ class OrbitTexture {
         short int scaleY(double);
         void render();
         void setViewRange();
+        void setViewRange(double);
 };
 
 bool drawInit();
 void drawClose();
 void drawUpdate();
+
+class EarthTexture {
+    private:
+        short int viewStartX = 50;
+        short int viewStartY = 50;
+        short int viewEndX = SCREEN_WIDTH-50;
+        short int viewEndY = SCREEN_HEIGHT-50;
+        short int viewXLength = viewEndX - viewStartX;
+        short int viewYLength = viewEndY - viewStartY;
+        short int centerX = (viewXLength/2) + viewStartX;
+        short int centerY = (viewYLength/2) + viewStartY;
+		SDL_Texture* mTexture;
+    public:
+        EarthTexture();
+        ~EarthTexture();
+        void render(short int);
+};
 #endif
