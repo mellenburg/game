@@ -14,8 +14,11 @@
 * DONE: Render an ellipse derived from \<R,V\>
 * DONE: Render the orbit with the planet from an inertial reference frame
 * DONE: `Replace vectors with 4Dvector struct
-* Use space picture for background
-* Use icon for space ship
+* DONE: Use space picture for background
 * DONE: Multiple colors for objects
+* Split Earth, ship and orbit into unique layers
+* Create viewer module that creates consistency between render layers
 * Multiple controllable satellites
 * Create orbit predictor
+* Use icon for space ship
+* Add astrodynamics tests, LOL
