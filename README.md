@@ -16,6 +16,6 @@
 * DONE: `Replace vectors with 4Dvector struct
 * Use space picture for background
 * Use icon for space ship
-* Multiple colors for objects
+* DONE: Multiple colors for objects
 * Multiple controllable satellites
 * Create orbit predictor

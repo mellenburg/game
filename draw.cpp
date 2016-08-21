@@ -17,6 +17,9 @@ and may not be redistributed without written permission.*/
 const int SCREEN_WIDTH = 600;
 const int SCREEN_HEIGHT = 600;
 
+double DV = .05;
+double DT = 10.0;
+
 //Starts up SDL and creates window
 bool init();
 
@@ -28,14 +31,125 @@ SDL_Window* gWindow = NULL;
 
 //The window renderer
 SDL_Renderer* gRenderer = NULL;
-//
-//Current displayed texture
-SDL_Texture* gTexture = NULL;
 
-const double DV = .05;
-const double DT = 10.0;
-double angle_degrees;
-short int sat_x, sat_y;
+class Background {
+    public:
+        Background();
+        ~Background();
+        void render();
+	private:
+		SDL_Texture* mTexture;
+};
+
+Background bg;
+
+Background::Background()
+{
+    mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+}
+
+Background::~Background()
+{
+    //Free texture if it exists
+	if( mTexture != NULL )
+	{
+		SDL_DestroyTexture( mTexture );
+		mTexture = NULL;
+	}
+}
+
+void Background::render(){
+    SDL_SetRenderTarget(gRenderer, mTexture);
+    SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0xFF );
+    SDL_RenderClear( gRenderer );
+    SDL_RenderCopy( gRenderer, mTexture, NULL, NULL);
+}
+
+class OrbitTexture {
+    private:
+        short int viewStartX = 50;
+        short int viewStartY = 50;
+        short int viewEndX = SCREEN_WIDTH-50;
+        short int viewEndY = SCREEN_HEIGHT-50;
+        short int viewXLength = viewEndX - viewStartX;
+        short int viewYLength = viewEndY - viewStartY;
+        short int centerX = (viewXLength/2) + viewStartX;
+        short int centerY = (viewYLength/2) + viewStartY;
+		SDL_Texture* mTexture;
+        double angle_degrees;
+        short int sat_x, sat_y;
+        double xLow, xHigh, yLow, yHigh, xRange, yRange;
+    public:
+        EarthOrbit* mOrbit;
+        OrbitTexture();
+        ~OrbitTexture();
+        short int scaleX(double);
+        short int scaleY(double);
+        void render();
+        void setViewRange(double, double, double, double);
+};
+
+OrbitTexture mainOrbit;
+
+short int OrbitTexture::scaleX(double x){
+    return (short int)(x/xRange*double(viewXLength));
+}
+
+short int OrbitTexture::scaleY(double x){
+    return (short int)(x/yRange*double(viewYLength));
+}
+
+void OrbitTexture::setViewRange(double x, double x1, double y, double y1){
+    xLow = x;
+    xHigh = x1;
+    yLow = y;
+    yHigh = y1;
+    xRange = x1 - x;
+    yRange = y1 - y;
+}
+
+OrbitTexture::OrbitTexture()
+{
+   mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+   vec3D r = {-6045, -3490, 2500};
+   vec3D v = {-3.56, 6.618, 2.533};
+   mOrbit = new EarthOrbit(r, v);
+   setViewRange(-1.0*mOrbit->r_a, mOrbit->r_a, -1.0*mOrbit->r_a, mOrbit->r_a);
+}
+
+OrbitTexture::~OrbitTexture()
+{
+    //Free texture if it exists
+	if( mTexture != NULL )
+	{
+		SDL_DestroyTexture( mTexture );
+		mTexture = NULL;
+	}
+    free(mOrbit);
+}
+
+void OrbitTexture::render(){
+    SDL_SetRenderTarget(gRenderer, mTexture);
+	SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0x00 );
+	SDL_RenderClear( gRenderer );
+
+    //Render Earth in Center
+    filledCircleRGBA(gRenderer, centerX, centerY, scaleX(6371.), 0x00, 0x00, 0xFF, 0xFF);
+    //Render ellipse with semimajor axis parallel to X
+    //Render ellipse center offset so that argp point at x->0
+    aaellipseRGBA(gRenderer, centerX+scaleX(mOrbit->a-mOrbit->r_p), centerY, scaleX(mOrbit->a), scaleY(mOrbit->b), 0xFF, 0xFF, 0xFF, 0xFF);
+
+    //Find satellite position
+    sat_x = centerX-scaleX(cos(mOrbit->nu)*mOrbit->norm_r);
+    sat_y = centerY+scaleY(sin(mOrbit->nu)*mOrbit->norm_r);
+
+    //Render satellite
+    filledCircleRGBA(gRenderer, sat_x, sat_y, 20, 0x00, 0xFF, 0x00, 0xFF);
+
+    SDL_SetRenderTarget(gRenderer, NULL);
+    angle_degrees = mOrbit->argp*180.0/PI;
+    SDL_RenderCopyEx( gRenderer, mTexture, NULL, NULL, angle_degrees, NULL, SDL_FLIP_NONE);
+}
 
 bool init()
 {
@@ -117,23 +231,12 @@ int main( int argc, char* args[] )
             vec4D backward = {-1.0*DV, 0, 0, DT};
             vec4D left = {0, DV, 0, DT};
             vec4D right = {0, -1.0*DV, 0, DT};
-            //vec3D r = {6754, 0.0, 0.0};
-            //vec3D v = {0.0, 7.66, 0.0};
-            vec3D r = {-6045, -3490, 2500};
-            vec3D v = {-3.56, 6.618, 2.533};
-            EarthOrbit orbit (r, v);
-
-            Axis xAxis (50, SCREEN_WIDTH-50, -1.0*orbit.r_a, orbit.r_a);
-            Axis yAxis (50, SCREEN_HEIGHT-50, -1.0*orbit.r_a, orbit.r_a);
 
 			//Main loop flag
 			bool quit = false;
 
 			//Event handler
 			SDL_Event e;
-
-            //Point Render at off screen texture
-            gTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
 
 			//While application is running
 			while( !quit )
@@ -150,57 +253,35 @@ int main( int argc, char* args[] )
 						switch( e.key.keysym.sym )
 						{
 							case SDLK_UP:
-                            orbit.relative_maneuver(forward);
+                            mainOrbit.mOrbit->relative_maneuver(forward);
 							break;
 
 							case SDLK_DOWN:
-                            orbit.relative_maneuver(backward);
+                            mainOrbit.mOrbit->relative_maneuver(backward);
 							break;
 
 							case SDLK_LEFT:
-                            orbit.relative_maneuver(left);
+                            mainOrbit.mOrbit->relative_maneuver(left);
 							break;
 
 							case SDLK_RIGHT:
-                            orbit.relative_maneuver(right);
+                            mainOrbit.mOrbit->relative_maneuver(right);
 							break;
 
                             case SDLK_RETURN:
-                            orbit.propagate(10*DT);
+                            mainOrbit.mOrbit->propagate(DT);
                             break;
 
                             case SDLK_SPACE:
-                            orbit.dump_state();
+                            mainOrbit.mOrbit->dump_state();
                             break;
 						}
-					} else{
-                        orbit.propagate(DT);
                     }
 				}
 
-                SDL_SetRenderTarget(gRenderer, gTexture);
-				//Clear screen
-				SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
-				SDL_RenderClear( gRenderer );
-
-
-                //Render Earth in Center
-                filledCircleColor(gRenderer, xAxis.center, yAxis.center, xAxis.scale(6371.), 0xFF0000FF);
-                //Render ellipse with semimajor axis parallel to X
-                //Render ellipse center offset so that argp point at x->0
-                aaellipseColor(gRenderer, xAxis.center+xAxis.scale(orbit.a-orbit.r_p), yAxis.center, xAxis.scale(orbit.a), yAxis.scale(orbit.b), 0xFF0000FF);
-
-                //Find satellite position
-                sat_x = xAxis.center-xAxis.scale(cos(orbit.nu)*orbit.norm_r);
-                sat_y = yAxis.center+xAxis.scale(sin(orbit.nu)*orbit.norm_r);
-
-                //Render satellite
-                filledCircleColor(gRenderer, sat_x, sat_y, 20, 0xFF0000FF);
-
-                SDL_SetRenderTarget(gRenderer, NULL);
-                angle_degrees = orbit.argp*180.0/PI;
-	            SDL_RenderCopyEx( gRenderer, gTexture, NULL, NULL, angle_degrees, NULL, SDL_FLIP_NONE);
-				//Update screen
+                bg.render();
+                mainOrbit.render();
+                //Update screen
 				SDL_RenderPresent( gRenderer );
 		}
 	}
