@@ -251,3 +251,8 @@ void EarthOrbit::dump_state()
     dump_vector("R", r);
     dump_vector("V", v);
 }
+
+void EarthOrbit::goForward(){relative_maneuver(forward);};
+void EarthOrbit::goLeft(){relative_maneuver(left);};
+void EarthOrbit::goRight(){relative_maneuver(right);};
+void EarthOrbit::goBackward(){relative_maneuver(backward);};
