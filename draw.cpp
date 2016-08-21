@@ -166,14 +166,16 @@ int main( int argc, char* args[] )
 							break;
 
                             case SDLK_RETURN:
-                            orbit.propagate(DT);
+                            orbit.propagate(10*DT);
                             break;
 
                             case SDLK_SPACE:
                             orbit.dump_state();
                             break;
 						}
-					}
+					} else{
+                        orbit.propagate(DT);
+                    }
 				}
 
                 SDL_SetRenderTarget(gRenderer, gTexture);

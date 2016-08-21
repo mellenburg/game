@@ -132,8 +132,6 @@ void EarthOrbit::rv2coe()
     vec3D e_r = vec_scale((dot_product(v, v)-(k/norm(r)))/k, r);
     vec3D e_v = vec_scale((-1.0*dot_product(r, v))/k, v);
     vec3D e = vec_add(e_r, e_v);
-    //vec3D e = vec_scale((1.0/k), vec_add(, ));
-    dump_vector("ECCENTRICITY", e);
     ecc = norm(e);
     p = dot_product(h, h) / k;
     a = p / (1.0 - pow(ecc, 2.0));

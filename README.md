@@ -18,5 +18,4 @@
 * Use icon for space ship
 * Multiple colors for objects
 * Multiple controllable satellites
-* Fix huge number of crashes
 * Create orbit predictor
