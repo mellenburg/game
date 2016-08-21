@@ -9,7 +9,6 @@ and may not be redistributed without written permission.*/
 #include <string>
 #include <math.h>
 #include "orbit.h"
-#include "axis.h"
 
 #define PI 3.14159265
 

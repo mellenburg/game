@@ -1,5 +1,5 @@
 #OBJS specifies which files to compile as part of the project
-OBJS = draw.cpp orbit.cpp axis.cpp
+OBJS = draw.cpp orbit.cpp
 
 #CC specifies which compiler we're using
 CC = g++
