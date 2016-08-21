@@ -13,8 +13,8 @@ and may not be redistributed without written permission.*/
 #define PI 3.14159265
 
 //Screen dimension constants
-const int SCREEN_WIDTH = 600;
-const int SCREEN_HEIGHT = 600;
+const int SCREEN_WIDTH = 800;
+const int SCREEN_HEIGHT = 800;
 
 double DV = .05;
 double DT = 10.0;
@@ -40,11 +40,34 @@ class Background {
 		SDL_Texture* mTexture;
 };
 
-Background bg;
 
 Background::Background()
 {
-    mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+    //mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+    //The final texture
+	SDL_Texture* newTexture = NULL;
+
+    std::string path = "bg.bmp";
+	//Load image at specified path
+	SDL_Surface* loadedSurface = SDL_LoadBMP( path.c_str() );
+	if( loadedSurface == NULL )
+	{
+		printf( "Unable to load image %s! SDL_image Error: %s\n", path.c_str(), IMG_GetError() );
+	}
+	else
+	{
+		//Create texture from surface pixels
+        newTexture = SDL_CreateTextureFromSurface( gRenderer, loadedSurface );
+		if( newTexture == NULL )
+		{
+			printf( "Unable to create texture from %s! SDL Error: %s\n", path.c_str(), SDL_GetError() );
+		}
+		//Get rid of old loaded surface
+		SDL_FreeSurface( loadedSurface );
+	}
+
+	//Return success
+	mTexture = newTexture;
 }
 
 Background::~Background()
@@ -85,7 +108,7 @@ class OrbitTexture {
         short int scaleX(double);
         short int scaleY(double);
         void render();
-        void setViewRange(double, double, double, double);
+        void setViewRange();
 };
 
 OrbitTexture mainOrbit;
@@ -98,13 +121,13 @@ short int OrbitTexture::scaleY(double x){
     return (short int)(x/yRange*double(viewYLength));
 }
 
-void OrbitTexture::setViewRange(double x, double x1, double y, double y1){
-    xLow = x;
-    xHigh = x1;
-    yLow = y;
-    yHigh = y1;
-    xRange = x1 - x;
-    yRange = y1 - y;
+void OrbitTexture::setViewRange(){
+    xLow = -1.0*mOrbit->r_a;
+    xHigh = mOrbit->r_a;
+    yLow = -1.0*mOrbit->r_a;
+    yHigh = mOrbit->r_a;
+    xRange = xHigh - xLow;
+    yRange = yHigh - yLow;
 }
 
 OrbitTexture::OrbitTexture()
@@ -113,7 +136,7 @@ OrbitTexture::OrbitTexture()
    vec3D r = {-6045, -3490, 2500};
    vec3D v = {-3.56, 6.618, 2.533};
    mOrbit = new EarthOrbit(r, v);
-   setViewRange(-1.0*mOrbit->r_a, mOrbit->r_a, -1.0*mOrbit->r_a, mOrbit->r_a);
+   setViewRange();
 }
 
 OrbitTexture::~OrbitTexture()
@@ -129,8 +152,8 @@ OrbitTexture::~OrbitTexture()
 
 void OrbitTexture::render(){
     SDL_SetRenderTarget(gRenderer, mTexture);
-	SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0x00 );
-	SDL_RenderClear( gRenderer );
+	//SDL_SetRenderDrawColor( gRenderer, 0xFF, 0x00, 0x00, 0xFF );
+	//SDL_RenderClear( gRenderer );
 
     //Render Earth in Center
     filledCircleRGBA(gRenderer, centerX, centerY, scaleX(6371.), 0x00, 0x00, 0xFF, 0xFF);
@@ -226,6 +249,8 @@ int main( int argc, char* args[] )
 	}
 	else
 	{
+
+            Background bg;
             vec4D forward = {DV, 0, 0, DT};
             vec4D backward = {-1.0*DV, 0, 0, DT};
             vec4D left = {0, DV, 0, DT};
@@ -237,6 +262,7 @@ int main( int argc, char* args[] )
 			//Event handler
 			SDL_Event e;
 
+            bool planningMode = false;
 			//While application is running
 			while( !quit )
 			{
@@ -267,14 +293,28 @@ int main( int argc, char* args[] )
                             mainOrbit.mOrbit->relative_maneuver(right);
 							break;
 
+							case SDLK_p:
+                            if(planningMode){
+                                planningMode = false;
+                            } else {
+                                planningMode = true;
+                            }
+							break;
+
                             case SDLK_RETURN:
                             mainOrbit.mOrbit->propagate(DT);
+                            break;
+
+                            case SDLK_RSHIFT:
+                            mainOrbit.mOrbit->propagate(50*DT);
                             break;
 
                             case SDLK_SPACE:
                             mainOrbit.mOrbit->dump_state();
                             break;
 						}
+
+                    mainOrbit.setViewRange();
                     }
 				}
 
