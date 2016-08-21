@@ -11,6 +11,8 @@
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = 800;
 
+SDL_Texture* loadTexture(std::string);
+
 class Background {
 	private:
 		SDL_Texture* mTexture;
@@ -31,7 +33,9 @@ class OrbitTexture {
         short int centerX = (viewXLength/2) + viewStartX;
         short int centerY = (viewYLength/2) + viewStartY;
 		SDL_Texture* mTexture;
-        double angle_degrees;
+		SDL_Texture* mSatTexture;
+        double argp_degrees;
+        double nu_degrees;
         short int sat_x, sat_y;
         double xLow, xHigh, yLow, yHigh, xRange, yRange;
     public:

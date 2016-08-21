@@ -16,10 +16,13 @@
 * DONE: `Replace vectors with 4Dvector struct
 * DONE: Use space picture for background
 * DONE: Multiple colors for objects
-* Split Earth, ship, and orbit into unique layers
-* Create viewer module that creates consistency between render layers
-* Multiple controllable satellites
+* DONE: Split Earth, ship, and orbit into unique layers
+* DONE: Create viewer module that creates consistency between render layers
+* DONE: Multiple controllable satellites
 * Create orbit predictor
-* Use icon for space ship
+* DONE: Use icon for space ship that is oriented with direction of motion
 * Add astrodynamics tests, LOL
 * Create texture for thick ellipse
+
+# Notes
+* [Free Awesome Sprites] (http://millionthvector.blogspot.com/p/free-sprites_12.html) Thanks MillionthVector!

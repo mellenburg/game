@@ -66,24 +66,26 @@ void drawClose(){
 	SDL_Quit();
 }
 
-Background::Background()
+SDL_Texture* loadTexture(std::string path)
 {
 	SDL_Texture* newTexture = NULL;
-
-    std::string path = "bg.bmp";
-	SDL_Surface* loadedSurface = SDL_LoadBMP( path.c_str() );
+    //SDL_Surface* loadedSurface = SDL_LoadBMP( path.c_str() );
+	SDL_Surface* loadedSurface = IMG_Load( path.c_str() );
 	if( loadedSurface == NULL ) {
 		printf( "Unable to load image %s! SDL_image Error: %s\n", path.c_str(), IMG_GetError() );
 	}
 	else {
         newTexture = SDL_CreateTextureFromSurface( gRenderer, loadedSurface );
 		if( newTexture == NULL ) {
-            newTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
 			printf( "Unable to create texture from %s! SDL Error: %s\n", path.c_str(), SDL_GetError() );
 		}
 		SDL_FreeSurface( loadedSurface );
 	}
-	mTexture = newTexture;
+	return newTexture;
+}
+
+Background::Background(){
+    mTexture = loadTexture("bg.png");
 }
 
 Background::~Background()
@@ -127,7 +129,9 @@ void OrbitTexture::setViewRange(double r_a){
 
 OrbitTexture::OrbitTexture() {
     //Instantiate with "normal" orbit
+   mSatTexture = loadTexture("redfighter.png");
    mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+   SDL_SetTextureBlendMode(mSatTexture, SDL_BLENDMODE_BLEND);
    SDL_SetTextureBlendMode(mTexture, SDL_BLENDMODE_BLEND);
    vec3D r = {-6045, -3490, 2500};
    vec3D v = {-3.56, 6.618, 2.533};
@@ -151,18 +155,25 @@ void OrbitTexture::render(){
 
     //Render ellipse with semimajor axis parallel to X
     //Render ellipse center offset so that argp point at x->0
-    aaellipseRGBA(gRenderer, centerX+scaleX(mOrbit->a-mOrbit->r_p), centerY, scaleX(mOrbit->a), scaleY(mOrbit->b), 0xFF, 0x80, 0x00, 0xFF);
+    aaellipseRGBA(gRenderer, centerX+scaleX(mOrbit->a-mOrbit->r_p), centerY, scaleX(mOrbit->a), scaleY(mOrbit->b), 0x00, 0xFF, 0x00, 0xFF);
 
     //Find satellite position
     sat_x = centerX-scaleX(cos(mOrbit->nu)*mOrbit->norm_r);
     sat_y = centerY+scaleY(sin(mOrbit->nu)*mOrbit->norm_r);
-
+    short int shipH = 40;
+    short int shipW = 38;
+    SDL_Rect src = {0, 20, 343, 363};
+    SDL_Rect dest = {sat_x-(shipW/2), sat_y-(shipH/2), shipW, shipH};
     //Render satellite
-    filledCircleRGBA(gRenderer, sat_x, sat_y, 20, 0x00, 0xFF, 0x00, 0xFF);
-
+    //Circle for debugging
+    //filledCircleRGBA(gRenderer, sat_x, sat_y, 20, 0xFF, 0xD0, 0x00, 0xFF);
+    argp_degrees = mOrbit->argp*180.0/PI;
+    nu_degrees = mOrbit->nu*-180.0/PI;
+    double adj_degrees = acos(dot_product(mOrbit->r, mOrbit->v)/(mOrbit->norm_r*mOrbit->norm_v))*180.0/PI - 90.;
+    //SDL_SetRenderTarget(gRenderer, mTexture);
+    SDL_RenderCopyEx( gRenderer, mSatTexture, &src, &dest, nu_degrees-adj_degrees, NULL, SDL_FLIP_VERTICAL);
     SDL_SetRenderTarget(gRenderer, NULL);
-    angle_degrees = mOrbit->argp*180.0/PI;
-    SDL_RenderCopyEx( gRenderer, mTexture, NULL, NULL, angle_degrees, NULL, SDL_FLIP_NONE);
+    SDL_RenderCopyEx( gRenderer, mTexture, NULL, NULL, argp_degrees, NULL, SDL_FLIP_NONE);
 }
 
 void drawUpdate(){

@@ -147,6 +147,7 @@ void EarthOrbit::rv2coe()
     r_a = a * (1.0 + ecc);
     r_p = a * (1.0 - ecc);
     norm_r = norm(r);
+    norm_v = norm(v);
 }
 
 void EarthOrbit::propagate(double tof)

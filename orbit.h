@@ -18,6 +18,8 @@ struct vec4D {
     double t;
 };
 
+double dot_product (vec3D&, vec3D&);
+
 class EarthOrbit
 {
     int numiter = 35;
@@ -45,6 +47,7 @@ class EarthOrbit
     double argp;
     double nu;
     double norm_r;
+    double norm_v;
     EarthOrbit(vec3D, vec3D);
     ~EarthOrbit();
     void propagate(double);

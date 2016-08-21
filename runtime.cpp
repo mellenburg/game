@@ -5,6 +5,9 @@
 #include "draw.h"
 
 class EarthSystem {
+    private:
+        EarthTexture* earth = NULL;
+        Background* bg = NULL;
     public:
         int idx = 0;
         vector<OrbitTexture*> currentOrbits = {};
@@ -15,12 +18,16 @@ class EarthSystem {
 };
 
 EarthSystem::EarthSystem () {
+    earth = new EarthTexture;
+    bg = new Background;
 }
 
 EarthSystem::~EarthSystem () {
     for( int i=0; i < idx; i++) {
         free(currentOrbits[i]);
     }
+    free(earth);
+    free(bg);
 }
 
 int EarthSystem::addOrbit() {
@@ -38,10 +45,12 @@ void EarthSystem::render() {
             max_r = r_i;
         }
     }
+    bg->render();
     for( int i=0; i < idx; i++) {
         currentOrbits[i]->setViewRange(max_r);
         currentOrbits[i]->render();
     }
+    earth->render(currentOrbits[0]->scaleX(6371.));
 }
 
 bool init();
@@ -71,8 +80,6 @@ int main( int argc, char* args[] ) {
             earthSys.addOrbit();
             int orbit_select = 0;
             OrbitTexture* targetOrbit = earthSys.currentOrbits[orbit_select];
-            EarthTexture earth;
-            Background bg;
 			bool quit = false;
 			SDL_Event e;
 
@@ -130,9 +137,7 @@ int main( int argc, char* args[] ) {
 						}
                     }
 				}
-                bg.render();
                 earthSys.render();
-                earth.render(targetOrbit->scaleX(6371.));
                 drawUpdate();
 		}
 	}
