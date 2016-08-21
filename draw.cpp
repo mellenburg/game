@@ -7,7 +7,6 @@ and may not be redistributed without written permission.*/
 #include <SDL2/SDL2_gfxPrimitives.h>
 #include <stdio.h>
 #include <string>
-#include <vector>
 #include <math.h>
 #include "orbit.h"
 #include "axis.h"
@@ -114,14 +113,14 @@ int main( int argc, char* args[] )
 	}
 	else
 	{
-            vector<double> forward = {DV, 0, 0, DT};
-            vector<double> backward = {-1.0*DV, 0, 0, DT};
-            vector<double> left = {0, DV, 0, DT};
-            vector<double> right = {0, -1.0*DV, 0, DT};
-            //vector<double> r = {6754, 0.0, 0.0};
-            //vector<double> v = {0.0, 7.66, 0.0};
-            vector<double> r = {-6045, -3490, 2500};
-            vector<double> v = {-3.56, 6.618, 2.533};
+            vec4D forward = {DV, 0, 0, DT};
+            vec4D backward = {-1.0*DV, 0, 0, DT};
+            vec4D left = {0, DV, 0, DT};
+            vec4D right = {0, -1.0*DV, 0, DT};
+            //vec3D r = {6754, 0.0, 0.0};
+            //vec3D v = {0.0, 7.66, 0.0};
+            vec3D r = {-6045, -3490, 2500};
+            vec3D v = {-3.56, 6.618, 2.533};
             EarthOrbit orbit (r, v);
 
             Axis xAxis (50, SCREEN_WIDTH-50, -1.0*orbit.r_a, orbit.r_a);

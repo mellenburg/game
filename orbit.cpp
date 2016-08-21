@@ -4,49 +4,62 @@
 #include <stdio.h>
 #include <cmath> //abs
 #include <math.h>
-#include <vector>
 #include "orbit.h"
 
 using namespace std;
 
-
-vector<double> cross_product (vector<double> u, vector<double> v)
-{
-    double i = (u[1]*v[2]) - (u[2]*v[1]);
-    double j = (u[2]*v[0]) - (u[0]*v[2]);
-    double k = (u[0]*v[1]) - (u[1]*v[0]);
-    return vector<double> {i , j, k};
+vec3D cross_product (vec3D &u, vec3D &v){
+    vec3D w;
+    w.i = u.j*v.k - u.k*v.j;
+    w.j = u.k*v.i - u.i*v.k;
+    w.k = u.i*v.j - u.j*v.i;
+    return w;
 }
 
-double dot_product (vector<double> u, vector<double> v)
-{
-    return (u[0]*v[0])+(u[1]*v[1])+(u[2]*v[2]);
+vec3D vec_copy (vec3D &u){
+    vec3D v;
+    v.i = u.i;
+    v.j = u.j;
+    v.k = u.k;
+    return v;
 }
 
-double norm (vector<double> u)
+vec4D vec_copy (vec4D &u){
+    vec4D v;
+    v.i = u.i;
+    v.j = u.j;
+    v.k = u.k;
+    v.t = u.t;
+    return v;
+}
+
+double dot_product (vec3D &u, vec3D &v)
+{
+    return (u.i*v.i)+(u.j*v.j)+(u.k*v.k);
+}
+
+double norm (vec3D &u)
 {
     return sqrt(dot_product(u, u));
 }
 
-vector<double> vec_scale (double f, vector<double> u)
+vec3D vec_scale (double f, vec3D &u)
 {
-    return vector<double> {f*u[0], f*u[1], f*u[2]};
+    return vec3D {f*u.i, f*u.j, f*u.k};
 }
 
-vector<double> vec_shift (double f, vector<double> u)
-{
-    return vector<double> {f+u[0], f+u[1], f+u[2]};
+vec3D vec_add(vec3D &u, vec3D &v){
+    vec3D w;
+    w.i = u.i + v.i;
+    w.j = u.j + v.j;
+    w.k = u.k + v.k;
+    return w;
 }
 
-vector<double> vec_add (vector<double> a, vector<double> b)
-{
-    return vector<double> {a[0]+b[0], a[1]+b[1], a[2]+b[2]};
-}
-
-void dump_vector(string const &title, vector<double> dat)
+void dump_vector(string const &title, vec3D &dat)
 {
     cout<<title;
-    printf(" : [%f, %f, %f]\n", dat[0], dat[1], dat[2]);
+    printf(" : [%f, %f, %f]\n", dat.i, dat.j, dat.k);
 }
 
 double c2(double psi)
@@ -101,27 +114,38 @@ double c3(double psi)
     return res;
 }
 
-EarthOrbit::EarthOrbit (vector<double> r_in, vector<double> v_in){
-    r = r_in;
-    v = v_in;
+EarthOrbit::EarthOrbit (vec3D r_in, vec3D v_in){
+    r = vec_copy(r_in);
+    v = vec_copy(v_in);
     rv2coe();
 }
 
+EarthOrbit::~EarthOrbit (){}
+
 void EarthOrbit::rv2coe()
 {
-    vector<double> z = {0., 0., 1.0};
-    vector<double> h = cross_product(r, v);
+    vec3D z = {0., 0., 1.0};
+    vec3D h = cross_product(r, v);
     double norm_h = norm(h);
-    vector<double> n = vec_scale(1.0/norm_h, cross_product(z, h));
-    vector<double> e = vec_scale((1.0/k), vec_add(vec_scale(dot_product(v, v)-(k/norm(r)), r), vec_scale(-1.0*dot_product(r, v),v)));
+    vec3D z_cross_h =  cross_product(z, h);
+    vec3D n = vec_scale(1.0/norm_h, z_cross_h);
+    vec3D e_r = vec_scale((dot_product(v, v)-(k/norm(r)))/k, r);
+    vec3D e_v = vec_scale((-1.0*dot_product(r, v))/k, v);
+    vec3D e = vec_add(e_r, e_v);
+    //vec3D e = vec_scale((1.0/k), vec_add(, ));
+    dump_vector("ECCENTRICITY", e);
     ecc = norm(e);
     p = dot_product(h, h) / k;
     a = p / (1.0 - pow(ecc, 2.0));
     b = a * sqrt(1.0 - pow(ecc, 2));
-    inc = acos(h[2]/norm(h));
-    raan = atan2(n[1], n[0]);
-    argp = atan2(dot_product(e, vec_scale(1.0/norm_h, cross_product(h, n))), dot_product(e, n));
-    nu = atan2(dot_product(r, vec_scale(1.0/norm_h, cross_product(h, e))), dot_product(r, e));
+    inc = acos(h.k/norm(h));
+    raan = atan2(n.j, n.i);
+    vec3D h_cross_n = cross_product(h, n);
+    vec3D h_cross_n_s = vec_scale(1.0/norm_h, h_cross_n);
+    vec3D h_cross_e = cross_product(h, e);
+    vec3D h_cross_e_s = vec_scale(1.0/norm_h, h_cross_e);
+    argp = atan2(dot_product(e, h_cross_n_s), dot_product(e, n));
+    nu = atan2(dot_product(r, h_cross_e_s), dot_product(r, e));
     r_a = a * (1.0 + ecc);
     r_p = a * (1.0 - ecc);
     norm_r = norm(r);
@@ -130,8 +154,8 @@ void EarthOrbit::rv2coe()
 void EarthOrbit::propagate(double tof)
 {
     //Compute Lagrange coefficients
-    vector<double> r0 = r;
-    vector<double> v0 = v;
+    vec3D r0 = vec_copy(r);
+    vec3D v0 = vec_copy(v);
     double dot_r0v0 = dot_product(r0, v0);
     double norm_r0 = norm(r0);
     double sqrt_mu = pow(k, .5);
@@ -185,29 +209,36 @@ void EarthOrbit::propagate(double tof)
     double g = tof - pow(xi, 3) / sqrt_mu * c3_psi;
     double gdot = 1.0 - pow(xi, 2) / norm_r * c2_psi;
     double fdot = sqrt_mu / (norm_r * norm_r0) * xi * (psi * c3_psi - 1.0);
-    r = vec_add(vec_scale(f, r0), vec_scale(g, v0));
-    v = vec_add(vec_scale(fdot, r0), vec_scale(gdot, v0));
+    vec3D f_r0 = vec_scale(f, r0);
+    vec3D g_v0 = vec_scale(g, v0);
+    r = vec_add(f_r0, g_v0);
+    vec3D fdot_r0 = vec_scale(fdot, r0);
+    vec3D gdot_v0 = vec_scale(gdot, v0);
+    v = vec_add(fdot_r0, gdot_v0);
     rv2coe();
 }
 
-void EarthOrbit::maneuver(vector<double> dv){
-    propagate(dv[3]);
-    vector<double> v0 = v;
-    v = vec_add(v0, dv);
+void EarthOrbit::maneuver(vec4D &dv){
+    propagate(dv.t);
+    vec3D v0 = v;
+    vec3D dv_space = {dv.i, dv.j, dv.k};
+    v = vec_add(v0, dv_space);
     rv2coe();
 }
 
-void EarthOrbit::relative_maneuver(vector<double> dv){
-    // x is forward, y is left, and z is up
-    vector<double> z = {0., 0., 1.0};
-    vector<double> i = vec_scale(1.0/norm(v), v);
-    vector<double> r_cross_v = cross_product(r, v);
-    vector<double> k = vec_scale(1.0/norm(r_cross_v), r_cross_v);
-    vector<double> i_cross_k = cross_product(i, k);
-    vector<double> j = vec_scale(-1.0/norm(i_cross_k), i_cross_k);
-    vector<double> man = vec_add(vec_scale(dv[0], i), vec_add(vec_scale(dv[1], j), vec_scale(dv[2], k)));
-    man[3] = dv[3];
-    maneuver(man);
+void EarthOrbit::relative_maneuver(vec4D &dv){
+    vec3D i = vec_scale(1.0/norm(v), v);
+    vec3D r_cross_v = cross_product(r, v);
+    vec3D k = vec_scale(1.0/norm(r_cross_v), r_cross_v);
+    vec3D i_cross_k = cross_product(i, k);
+    vec3D j = vec_scale(-1.0/norm(i_cross_k), i_cross_k);
+    i = vec_scale(dv.i, i);
+    j = vec_scale(dv.j, j);
+    k = vec_scale(dv.k, k);
+    vec3D manjk = vec_add(j, k);
+    vec3D manijk = vec_add(i , manjk);
+    vec4D man_t = {manijk.i, manijk.j, manijk.k, dv.t};
+    maneuver(man_t);
 }
 
 

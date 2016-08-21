@@ -1,8 +1,21 @@
 #include <iostream>
 #include <stdio.h>
 #include <math.h>
-#include <vector>
 using namespace std;
+
+struct vec3D {
+    double i;
+    double j;
+    double k;
+};
+
+struct vec4D {
+    double i;
+    double j;
+    double k;
+    double t;
+};
+
 
 class EarthOrbit
 {
@@ -11,8 +24,8 @@ class EarthOrbit
     double k = 398600.4415;
     void rv2coe();
   public:
-    vector<double> r;
-    vector<double> v;
+    vec3D r;
+    vec3D v;
     double r_p;
     double r_a;
     double ecc;
@@ -24,9 +37,11 @@ class EarthOrbit
     double argp;
     double nu;
     double norm_r;
-    EarthOrbit(vector<double>, vector<double>);
+    EarthOrbit(vec3D, vec3D);
+    ~EarthOrbit();
     void propagate(double);
-    void maneuver(vector<double>);
-    void relative_maneuver(vector<double> dv);
+    void maneuver(vec4D&);
+    void relative_maneuver(vec4D&);
     void dump_state();
 };
+
