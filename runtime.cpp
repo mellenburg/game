@@ -69,21 +69,14 @@ void LTimer::unpause(){
 
 Uint32 LTimer::getTicks()
 {
-	//The actual timer time
 	Uint32 time = 0;
-
-    //If the timer is running
-    if( mStarted )
-    {
-        //If the timer is paused
+    if( mStarted ) {
         if( mPaused )
         {
-            //Return the number of ticks when the timer was paused
             time = mPausedTicks;
         }
         else
         {
-            //Return the current time minus the start time
             time = SDL_GetTicks() - mStartTicks;
         }
     }
@@ -93,13 +86,11 @@ Uint32 LTimer::getTicks()
 
 bool LTimer::isStarted()
 {
-	//Timer is running and paused or unpaused
     return mStarted;
 }
 
 bool LTimer::isPaused()
 {
-	//Timer is running and paused
     return mPaused && mStarted;
 }
 
@@ -115,7 +106,7 @@ class EarthSystem {
         int addOrbit();
         int addOrbit(OrbitTexture*);
         void removeOrbit(int);
-        void render(int);
+        void render(double, int, int);
 };
 
 EarthSystem::EarthSystem () {
@@ -142,14 +133,20 @@ int EarthSystem::addOrbit(OrbitTexture* target) {
     idx++;
     return idx-1;
 }
-
+/*
+int EarthSystem::addPlanningOrbit(OrbitTexture& target) {
+    currentOrbits.push_back(new OrbitTexture(target->mOrbit->r, target->mOrbit->v));
+    idx++;
+    return idx-1;
+}
+*/
 void EarthSystem::removeOrbit(int i) {
     free(currentOrbits[i]);
     currentOrbits.erase(currentOrbits.begin()+i);
     idx--;
 }
 
-void EarthSystem::render(int timeMultiplier) {
+void EarthSystem::render(double time, int excluded, int selected) {
     double max_r = 0;
     double r_i;
     for( int i=0; i < idx; i++) {
@@ -160,13 +157,19 @@ void EarthSystem::render(int timeMultiplier) {
     }
     bg->render();
     for( int i=0; i < idx; i++) {
-        if (timeMultiplier > 0) {
-            currentOrbits[i]->mOrbit->propagate(TIME_RESOLUTION*timeMultiplier);
+        if ((time > 0) && (i != excluded)) {
+            currentOrbits[i]->mOrbit->propagate(time);
         }
         currentOrbits[i]->setViewRange(max_r);
-        currentOrbits[i]->render();
+        if (i == selected ) {
+            currentOrbits[i]->render(true);
+        }
+        else {
+            currentOrbits[i]->render(false);
+        }
     }
-    earth->render(currentOrbits[0]->scaleX(6371.));
+    int timeRatio = SCREEN_FPS*TIME_RESOLUTION*TIME_FACTOR;
+    earth->render(currentOrbits[0]->scaleX(6371.), timeRatio);
 }
 
 bool init();
@@ -193,36 +196,38 @@ int main( int argc, char* args[] ) {
     else {
         EarthSystem earthSys;
         earthSys.addOrbit();
-        earthSys.addOrbit();
         int orbit_select = 0;
-        int porbitIndex;
         OrbitTexture* targetOrbit = earthSys.currentOrbits[orbit_select];
         bool quit = false;
         SDL_Event e;
-        bool planningMode = false;
 		LTimer capTimer;
+        bool propagated;
+        double dt;
+        int excluded = -1;
 
         while( !quit ) {
             capTimer.start();
+            propagated = false;
+            dt = TIME_RESOLUTION*double(TIME_FACTOR);
             while( SDL_PollEvent( &e ) != 0 ) {
                 if( e.type == SDL_QUIT ) {
                     quit = true;
                 } else if( e.type == SDL_KEYDOWN ) {
                     switch( e.key.keysym.sym ) {
                         case SDLK_UP:
-                        targetOrbit->mOrbit->goForward();
+                        targetOrbit->mOrbit->goForward(dt);
                         break;
 
                         case SDLK_DOWN:
-                        targetOrbit->mOrbit->goBackward();
+                        targetOrbit->mOrbit->goBackward(dt);
                         break;
 
                         case SDLK_LEFT:
-                        targetOrbit->mOrbit->goLeft();
+                        targetOrbit->mOrbit->goLeft(dt);
                         break;
 
                         case SDLK_RIGHT:
-                        targetOrbit->mOrbit->goRight();
+                        targetOrbit->mOrbit->goRight(dt);
                         break;
 
                         case SDLK_f:
@@ -233,26 +238,14 @@ int main( int argc, char* args[] ) {
                         if (TIME_FACTOR > 0 ) {TIME_FACTOR--;}
                         break;
 
-                        case SDLK_p:
-                        if (planningMode) {
-                            planningMode = false;
-                            earthSys.removeOrbit(porbitIndex);
-                            targetOrbit = earthSys.currentOrbits[orbit_select];
-                        } else {
-                            planningMode = true;
-                            // make orbit from current target
-                            porbitIndex = earthSys.addOrbit(targetOrbit);
-                            // set the new orbit as a target
-                            targetOrbit = earthSys.currentOrbits[porbitIndex];
-                        }
+                        case SDLK_a:
+                        orbit_select = earthSys.addOrbit(targetOrbit);
+                        targetOrbit = earthSys.currentOrbits[orbit_select];
                         break;
 
-                        case SDLK_RETURN:
-                        targetOrbit->mOrbit->propagate(10.0);
-                        break;
-
-                        case SDLK_RSHIFT:
-                        targetOrbit->mOrbit->propagate(500.0);
+                        case SDLK_r:
+                        earthSys.removeOrbit(orbit_select);
+                        orbit_select = 0;
                         break;
 
                         case SDLK_SPACE:
@@ -260,17 +253,22 @@ int main( int argc, char* args[] ) {
                         break;
 
                         case SDLK_TAB:
-                        if (orbit_select == 1 && not planningMode) {
+                        if (orbit_select == int(earthSys.currentOrbits.size()-1)) {
                             orbit_select = 0;
-                        } else if (not planningMode) {
-                            orbit_select = 1;
+                        } else {
+                            orbit_select++;
                         }
                         targetOrbit = earthSys.currentOrbits[orbit_select];
                         break;
                     }
                 }
             }
-            earthSys.render(TIME_FACTOR);
+            if (propagated) {
+                excluded = orbit_select;
+            } else {
+                excluded = -1;
+            }
+            earthSys.render(dt, excluded, orbit_select);
             drawUpdate();
 		    int frameTicks = capTimer.getTicks();
 			if( frameTicks < SCREEN_TICK_PER_FRAME )

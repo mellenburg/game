@@ -44,7 +44,7 @@ class OrbitTexture {
         ~OrbitTexture();
         short int scaleX(double);
         short int scaleY(double);
-        void render();
+        void render(bool);
         void setViewRange();
         void setViewRange(double);
 };
@@ -65,13 +65,14 @@ class EarthTexture {
         short int centerY = (viewYLength/2) + viewStartY;
         short int mTextHeight;
         short int mTextWidth;
+        int mTimeRatio = 0;
         SDL_Texture* mTexture;
         SDL_Texture* mTimeTexture;
 	    SDL_Rect textQuad;
     public:
         EarthTexture();
         ~EarthTexture();
-        void render(short int);
-        void setTimeTexture();
+        void render(short int, int);
+        void setRatioTexture(int);
 };
 #endif

@@ -13,7 +13,6 @@
 
 SDL_Window* gWindow = NULL;
 SDL_Renderer* gRenderer = NULL;
-std::stringstream timeText;
 TTF_Font *gFont = NULL;
 
 bool drawInit()
@@ -71,6 +70,9 @@ void drawClose(){
     gWindow = NULL;
     gRenderer = NULL;
     //Quit SDL subsystems
+	TTF_CloseFont( gFont );
+	gFont = NULL;
+	TTF_Quit();
     IMG_Quit();
     SDL_Quit();
 }
@@ -156,7 +158,7 @@ OrbitTexture::~OrbitTexture() {
     free(mOrbit);
 }
 
-void OrbitTexture::render(){
+void OrbitTexture::render(bool selected){
     SDL_SetRenderTarget(gRenderer, mTexture);
     SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0x00 );
     SDL_RenderClear( gRenderer );
@@ -173,8 +175,9 @@ void OrbitTexture::render(){
     SDL_Rect src = {0, 20, 343, 363};
     SDL_Rect dest = {sat_x-(shipW/2), sat_y-(shipH/2), shipW, shipH};
     //Render satellite
-    //Circle for debugging
-    //filledCircleRGBA(gRenderer, sat_x, sat_y, 20, 0xFF, 0xD0, 0x00, 0xFF);
+    if (selected) {
+        filledCircleRGBA(gRenderer, sat_x, sat_y, 20, 0xFF, 0xD0, 0x00, 0xFF);
+    }
     argp_degrees = mOrbit->argp*180.0/PI;
     nu_degrees = mOrbit->nu*-180.0/PI;
     double adj_degrees = acos(dot_product(mOrbit->r, mOrbit->v)/(mOrbit->norm_r*mOrbit->norm_v))*180.0/PI - 90.;
@@ -191,7 +194,7 @@ void drawUpdate(){
 EarthTexture::EarthTexture() {
     mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
     SDL_SetTextureBlendMode(mTexture, SDL_BLENDMODE_BLEND);
-    gFont = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 10 );
+    gFont = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 28 );
 }
 
 EarthTexture::~EarthTexture() {
@@ -200,29 +203,37 @@ EarthTexture::~EarthTexture() {
         SDL_DestroyTexture( mTexture );
         mTexture = NULL;
     }
+    if (mTimeTexture != NULL){
+        SDL_DestroyTexture( mTimeTexture );
+        free(mTimeTexture);
+    }
 }
 
-void EarthTexture::render(short int r){
+void EarthTexture::render(short int r, int timeRatio){
     SDL_SetRenderTarget(gRenderer, mTexture);
     SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0x00 );
     SDL_RenderClear( gRenderer );
     //Render Earth in Center
-    //setTimeTexture();
+    if (timeRatio != mTimeRatio) {
+        //setRatioTexture(timeRatio);
+        mTimeRatio = timeRatio;
+    }
     filledCircleRGBA(gRenderer, centerX, centerY, r, 0x00, 0x00, 0xFF, 0xFF);
     SDL_SetRenderTarget(gRenderer, NULL);
-	SDL_Rect textQuad = { centerX-(mTextWidth/2), centerY-(mTextHeight/2), mTextWidth, mTextHeight };
+	//SDL_Rect textQuad = { centerX-(mTextWidth/2), centerY-(mTextHeight/2), mTextWidth, mTextHeight };
     SDL_RenderCopy( gRenderer, mTexture, NULL, NULL);
     //SDL_RenderCopy( gRenderer, mTimeTexture, NULL, &textQuad);
-
 }
 
 #ifdef _SDL_TTF_H
-void EarthTexture::setTimeTexture()
+void EarthTexture::setRatioTexture(int timeRatio)
 {
     if (mTimeTexture != NULL) {
         free(mTimeTexture);
     }
-	timeText << SDL_GetTicks();
+    std::stringstream timeText;
+    timeText.str("");
+	timeText << "Current Time Ratio = " << timeRatio << ":1";
 	//Render text surface
 	SDL_Surface* textSurface = TTF_RenderText_Solid( gFont, timeText.str().c_str(), SDL_Color {0, 0, 0, 255});
 	if( textSurface != NULL )

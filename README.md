@@ -21,7 +21,10 @@
 * DONE: Multiple controllable satellites
 * DONE: Use icon for space ship that is oriented with direction of motion
 * DONE: Create orbit predictor
-* Create controllable game clock
+* DONE: Create controllable game clock
+* Add period to info dump
+* Render a tone of textual detail
+* Add a line for periapsis and apoasis
 * Create texture for thick ellipse
 * Add astrodynamics tests, LOL
 

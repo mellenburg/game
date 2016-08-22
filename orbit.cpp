@@ -24,6 +24,12 @@ vec3D vec_copy (vec3D &u){
     return v;
 }
 
+void vec_copy_to (vec3D &u, vec3D& v){
+    v.i = u.i;
+    v.j = u.j;
+    v.k = u.k;
+}
+
 vec4D vec_copy (vec4D &u){
     vec4D v;
     v.i = u.i;
@@ -114,9 +120,9 @@ double c3(double psi)
     return res;
 }
 
-EarthOrbit::EarthOrbit (vec3D r_in, vec3D v_in){
-    r = vec_copy(r_in);
-    v = vec_copy(v_in);
+EarthOrbit::EarthOrbit (vec3D& r_in, vec3D& v_in){
+    vec_copy_to(r_in, r);
+    vec_copy_to(v_in, v);
     rv2coe();
 }
 
@@ -225,6 +231,23 @@ void EarthOrbit::maneuver(vec4D &dv){
     rv2coe();
 }
 
+void EarthOrbit::clone(EarthOrbit& e) {
+    vec_copy_to(e.r, r);
+    vec_copy_to(e.v, v);
+    r_p = e.r_p;
+    r_a = e.r_a;
+    ecc = e.ecc;
+    p = e.p;
+    a = e.a;
+    b = e.b;
+    inc = e.inc;
+    raan = e.raan;
+    argp = e.argp;
+    nu = e.nu;
+    norm_r = e.norm_r;
+    norm_v = e.norm_v;
+}
+
 void EarthOrbit::relative_maneuver(vec4D &dv){
     vec3D i = vec_scale(1.0/norm(v), v);
     vec3D r_cross_v = cross_product(r, v);
@@ -240,6 +263,20 @@ void EarthOrbit::relative_maneuver(vec4D &dv){
     maneuver(man_t);
 }
 
+void EarthOrbit::relative_maneuver(vec3D &dv, double t){
+    vec3D i = vec_scale(1.0/norm(v), v);
+    vec3D r_cross_v = cross_product(r, v);
+    vec3D k = vec_scale(1.0/norm(r_cross_v), r_cross_v);
+    vec3D i_cross_k = cross_product(i, k);
+    vec3D j = vec_scale(-1.0/norm(i_cross_k), i_cross_k);
+    i = vec_scale(dv.i, i);
+    j = vec_scale(dv.j, j);
+    k = vec_scale(dv.k, k);
+    vec3D manjk = vec_add(j, k);
+    vec3D manijk = vec_add(i , manjk);
+    vec4D man_t = {manijk.i, manijk.j, manijk.k, t};
+    maneuver(man_t);
+}
 
 void EarthOrbit::dump_state()
 {
@@ -249,11 +286,13 @@ void EarthOrbit::dump_state()
     printf ("Right Ascension of Ascending Node: %f\n", raan);
     printf ("Argument of Pericenter: %f\n", argp);
     printf ("True anomaly: %f\n", nu);
+    printf ("|R|: %f\n", norm_r);
+    printf ("|V|: %f\n", norm_v);
     dump_vector("R", r);
     dump_vector("V", v);
 }
 
-void EarthOrbit::goForward(){relative_maneuver(forward);};
-void EarthOrbit::goLeft(){relative_maneuver(left);};
-void EarthOrbit::goRight(){relative_maneuver(right);};
-void EarthOrbit::goBackward(){relative_maneuver(backward);};
+void EarthOrbit::goForward(double t){relative_maneuver(forward, t);};
+void EarthOrbit::goLeft(double t){relative_maneuver(left, t);};
+void EarthOrbit::goRight(double t){relative_maneuver(right, t);};
+void EarthOrbit::goBackward(double t){relative_maneuver(backward, t);};
