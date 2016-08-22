@@ -6,6 +6,7 @@
 
 #define CLOCK_RATE 30
 #define TIME_RESOLUTION 10
+int TIME_FACTOR = 1;
 const int SCREEN_FPS = 30;
 const int SCREEN_TICK_PER_FRAME = 1000 / SCREEN_FPS;
 
@@ -114,7 +115,7 @@ class EarthSystem {
         int addOrbit();
         int addOrbit(OrbitTexture*);
         void removeOrbit(int);
-        void render();
+        void render(int);
 };
 
 EarthSystem::EarthSystem () {
@@ -148,7 +149,7 @@ void EarthSystem::removeOrbit(int i) {
     idx--;
 }
 
-void EarthSystem::render() {
+void EarthSystem::render(int timeMultiplier) {
     double max_r = 0;
     double r_i;
     for( int i=0; i < idx; i++) {
@@ -159,6 +160,9 @@ void EarthSystem::render() {
     }
     bg->render();
     for( int i=0; i < idx; i++) {
+        if (timeMultiplier > 0) {
+            currentOrbits[i]->mOrbit->propagate(TIME_RESOLUTION*timeMultiplier);
+        }
         currentOrbits[i]->setViewRange(max_r);
         currentOrbits[i]->render();
     }
@@ -221,6 +225,14 @@ int main( int argc, char* args[] ) {
                         targetOrbit->mOrbit->goRight();
                         break;
 
+                        case SDLK_f:
+                        TIME_FACTOR++;
+                        break;
+
+                        case SDLK_s:
+                        if (TIME_FACTOR > 0 ) {TIME_FACTOR--;}
+                        break;
+
                         case SDLK_p:
                         if (planningMode) {
                             planningMode = false;
@@ -258,7 +270,7 @@ int main( int argc, char* args[] ) {
                     }
                 }
             }
-            earthSys.render();
+            earthSys.render(TIME_FACTOR);
             drawUpdate();
 		    int frameTicks = capTimer.getTicks();
 			if( frameTicks < SCREEN_TICK_PER_FRAME )
