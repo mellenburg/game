@@ -71,13 +71,13 @@ bool init();
 void close();
 
 bool init(){
-	bool success = true;
-	if( !drawInit())
-	{
-		printf( "Graphics module could not initialize! SDL Error: %s\n", SDL_GetError() );
-		success = false;
-	}
-	return success;
+    bool success = true;
+    if( !drawInit())
+    {
+        printf( "Graphics module could not initialize! SDL Error: %s\n", SDL_GetError() );
+        success = false;
+    }
+    return success;
 }
 
 void close(){
@@ -85,85 +85,85 @@ void close(){
 }
 
 int main( int argc, char* args[] ) {
-	if( !init() ) {
-		printf( "Failed to initialize!\n" );
-	}
-	else {
-            EarthSystem earthSys;
-            earthSys.addOrbit();
-            earthSys.addOrbit();
-            int orbit_select = 0;
-            int porbitIndex;
-            OrbitTexture* targetOrbit = earthSys.currentOrbits[orbit_select];
-			bool quit = false;
-			SDL_Event e;
+    if( !init() ) {
+        printf( "Failed to initialize!\n" );
+    }
+    else {
+        EarthSystem earthSys;
+        earthSys.addOrbit();
+        earthSys.addOrbit();
+        int orbit_select = 0;
+        int porbitIndex;
+        OrbitTexture* targetOrbit = earthSys.currentOrbits[orbit_select];
+        bool quit = false;
+        SDL_Event e;
 
-            bool planningMode = false;
-			while( !quit ) {
-				while( SDL_PollEvent( &e ) != 0 ) {
-					if( e.type == SDL_QUIT ) {
-						quit = true;
-					} else if( e.type == SDL_KEYDOWN ) {
-						switch( e.key.keysym.sym ) {
-							case SDLK_UP:
-                            targetOrbit->mOrbit->goForward();
-							break;
+        bool planningMode = false;
+        while( !quit ) {
+            while( SDL_PollEvent( &e ) != 0 ) {
+                if( e.type == SDL_QUIT ) {
+                    quit = true;
+                } else if( e.type == SDL_KEYDOWN ) {
+                    switch( e.key.keysym.sym ) {
+                        case SDLK_UP:
+                        targetOrbit->mOrbit->goForward();
+                        break;
 
-							case SDLK_DOWN:
-                            targetOrbit->mOrbit->goBackward();
-							break;
+                        case SDLK_DOWN:
+                        targetOrbit->mOrbit->goBackward();
+                        break;
 
-							case SDLK_LEFT:
-                            targetOrbit->mOrbit->goLeft();
-							break;
+                        case SDLK_LEFT:
+                        targetOrbit->mOrbit->goLeft();
+                        break;
 
-							case SDLK_RIGHT:
-                            targetOrbit->mOrbit->goRight();
-							break;
+                        case SDLK_RIGHT:
+                        targetOrbit->mOrbit->goRight();
+                        break;
 
-							case SDLK_p:
-                            if (planningMode) {
-                                planningMode = false;
-                                earthSys.removeOrbit(porbitIndex);
-                                targetOrbit = earthSys.currentOrbits[orbit_select];
-                            } else {
-                                planningMode = true;
-                                // make orbit from current target
-                                porbitIndex = earthSys.addOrbit(targetOrbit);
-                                // set the new orbit as a target
-                                targetOrbit = earthSys.currentOrbits[porbitIndex];
-                            }
-							break;
-
-                            case SDLK_RETURN:
-                            targetOrbit->mOrbit->propagate(10.0);
-                            break;
-
-                            case SDLK_RSHIFT:
-                            targetOrbit->mOrbit->propagate(500.0);
-                            break;
-
-                            case SDLK_SPACE:
-                            targetOrbit->mOrbit->dump_state();
-                            break;
-
-                            case SDLK_TAB:
-                            if (orbit_select == 1 && not planningMode) {
-                                orbit_select = 0;
-                            } else if (not planningMode) {
-                                orbit_select = 1;
-                            }
+                        case SDLK_p:
+                        if (planningMode) {
+                            planningMode = false;
+                            earthSys.removeOrbit(porbitIndex);
                             targetOrbit = earthSys.currentOrbits[orbit_select];
-                            break;
-						}
+                        } else {
+                            planningMode = true;
+                            // make orbit from current target
+                            porbitIndex = earthSys.addOrbit(targetOrbit);
+                            // set the new orbit as a target
+                            targetOrbit = earthSys.currentOrbits[porbitIndex];
+                        }
+                        break;
+
+                        case SDLK_RETURN:
+                        targetOrbit->mOrbit->propagate(10.0);
+                        break;
+
+                        case SDLK_RSHIFT:
+                        targetOrbit->mOrbit->propagate(500.0);
+                        break;
+
+                        case SDLK_SPACE:
+                        targetOrbit->mOrbit->dump_state();
+                        break;
+
+                        case SDLK_TAB:
+                        if (orbit_select == 1 && not planningMode) {
+                            orbit_select = 0;
+                        } else if (not planningMode) {
+                            orbit_select = 1;
+                        }
+                        targetOrbit = earthSys.currentOrbits[orbit_select];
+                        break;
                     }
-				}
-                earthSys.render();
-                drawUpdate();
-		}
-	}
+                }
+            }
+            earthSys.render();
+            drawUpdate();
+        }
+    }
 
-	close();
+    close();
 
-	return 0;
+    return 0;
 }
