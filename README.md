@@ -22,9 +22,10 @@
 * DONE: Use icon for space ship that is oriented with direction of motion
 * DONE: Create orbit predictor
 * DONE: Create controllable game clock
+* DONE: Add a line for periapsis and apoasis
+* Add label to denote which line is periapsis and which is apoasis
 * Add period to info dump
 * Render a tone of textual detail
-* Add a line for periapsis and apoasis
 * Create texture for thick ellipse
 * Add astrodynamics tests, LOL
 

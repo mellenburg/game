@@ -166,6 +166,8 @@ void OrbitTexture::render(bool selected){
     //Render ellipse with semimajor axis parallel to X
     //Render ellipse center offset so that argp point at x->0
     aaellipseRGBA(gRenderer, centerX+scaleX(mOrbit->a-mOrbit->r_p), centerY, scaleX(mOrbit->a), scaleY(mOrbit->b), 0x00, 0xFF, 0x00, 0xFF);
+    //Render line of periapsis and apoapsis
+	hlineRGBA(gRenderer, centerX-scaleX(mOrbit->r_p), centerX+scaleX(mOrbit->r_a), centerY, 0x00, 0xFF, 0x00, 0xFF);
 
     //Find satellite position
     sat_x = centerX-scaleX(cos(mOrbit->nu)*mOrbit->norm_r);
