@@ -169,7 +169,7 @@ void EarthSystem::render(double time, int excluded, int selected) {
         }
     }
     int timeRatio = SCREEN_FPS*TIME_RESOLUTION*TIME_FACTOR;
-    earth->render(currentOrbits[0]->scaleX(6371.), timeRatio);
+    earth->render(currentOrbits[0]->scaleX(6378.), timeRatio);
 }
 
 bool init();

@@ -6,6 +6,7 @@
 #include <math.h>
 #include "orbit.h"
 
+#define PI 3.14159265
 using namespace std;
 
 vec3D cross_product (vec3D &u, vec3D &v){
@@ -152,6 +153,7 @@ void EarthOrbit::rv2coe()
     nu = atan2(dot_product(r, h_cross_e_s), dot_product(r, e));
     r_a = a * (1.0 + ecc);
     r_p = a * (1.0 - ecc);
+    period = 2*PI*sqrt(pow(a, 3)/k);
     norm_r = norm(r);
     norm_v = norm(v);
 }
@@ -280,14 +282,18 @@ void EarthOrbit::relative_maneuver(vec3D &dv, double t){
 
 void EarthOrbit::dump_state()
 {
-    printf ("Semi-major Axis: %f\n", a);
+    printf ("Semi-major Axis (km): %f\n", a);
     printf ("Eccentricity: %f\n", ecc);
-    printf ("Inclination: %f\n", inc);
-    printf ("Right Ascension of Ascending Node: %f\n", raan);
-    printf ("Argument of Pericenter: %f\n", argp);
-    printf ("True anomaly: %f\n", nu);
-    printf ("|R|: %f\n", norm_r);
-    printf ("|V|: %f\n", norm_v);
+    printf ("Inclination (rad): %f\n", inc);
+    printf ("Right Ascension of Ascending Node (rad): %f\n", raan);
+    printf ("Argument of Pericenteri (rad): %f\n", argp);
+    printf ("True anomaly (rad): %f\n", nu);
+    printf ("Orbital Period (s): %f\n", period);
+    printf ("Orbital Period (m): %f\n", period/60);
+    printf ("Orbital Period (h): %f\n", period/3600);
+    printf ("Lowest Altitude (km): %f\n", r_p-6378.);
+    printf ("|R| (km): %f\n", norm_r);
+    printf ("|V| (km/s): %f\n", norm_v);
     dump_vector("R", r);
     dump_vector("V", v);
 }

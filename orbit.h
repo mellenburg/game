@@ -47,6 +47,7 @@ class EarthOrbit
     double nu;
     double norm_r;
     double norm_v;
+    double period;
     EarthOrbit(vec3D&, vec3D&);
     ~EarthOrbit();
     void clone(EarthOrbit&);

@@ -1,6 +1,7 @@
 # Requirements
 * SDL2, SDL2-image
 * [SDL\_gfx] (http://www.ferzkopp.net/wordpress/2016/01/02/sdl_gfx-sdl2_gfx/)
+* [SDL\_ttf] (https://www.libsdl.org/projects/SDL_ttf/)
 * poliastro for inspiration
 
 # V1 Objectives
@@ -24,7 +25,6 @@
 * DONE: Create controllable game clock
 * DONE: Add a line for periapsis and apoasis
 * Add label to denote which line is periapsis and which is apoasis
-* Add period to info dump
 * Render a tone of textual detail
 * Create texture for thick ellipse
 * Add astrodynamics tests, LOL
