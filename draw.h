@@ -63,10 +63,15 @@ class EarthTexture {
         short int viewYLength = viewEndY - viewStartY;
         short int centerX = (viewXLength/2) + viewStartX;
         short int centerY = (viewYLength/2) + viewStartY;
+        short int mTextHeight;
+        short int mTextWidth;
         SDL_Texture* mTexture;
+        SDL_Texture* mTimeTexture;
+	    SDL_Rect textQuad;
     public:
         EarthTexture();
         ~EarthTexture();
         void render(short int);
+        void setTimeTexture();
 };
 #endif

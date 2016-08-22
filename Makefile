@@ -9,7 +9,7 @@ CC = g++
 COMPILER_FLAGS = -Wall -I/usr/local/include -L/usr/local/lib -std=c++11
 #
 #  #LINKER_FLAGS specifies the libraries we're linking against
-LINKER_FLAGS = -lSDL2 -lSDL2_image -lSDL2_gfx
+LINKER_FLAGS = -lSDL2 -lSDL2_image -lSDL2_gfx -lSDL2_ttf
 
 #OBJ_NAME specifies the name of our exectuable
 OBJ_NAME = test

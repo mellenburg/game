@@ -4,6 +4,104 @@
 #include <vector>
 #include "draw.h"
 
+#define CLOCK_RATE 30
+#define TIME_RESOLUTION 10
+const int SCREEN_FPS = 30;
+const int SCREEN_TICK_PER_FRAME = 1000 / SCREEN_FPS;
+
+class LTimer
+{
+    public:
+		LTimer();
+		void start();
+		void stop();
+		void pause();
+		void unpause();
+		Uint32 getTicks();
+		bool isStarted();
+		bool isPaused();
+
+    private:
+		Uint32 mStartTicks;
+		Uint32 mPausedTicks;
+		bool mPaused;
+		bool mStarted;
+};
+
+LTimer::LTimer() {
+    mStartTicks = 0;
+    mPausedTicks = 0;
+    mPaused = false;
+    mStarted = false;
+}
+
+void LTimer::start() {
+    mStarted = true;
+    mPaused = false;
+    mStartTicks = SDL_GetTicks();
+	mPausedTicks = 0;
+}
+
+void LTimer::stop() {
+    mStarted = false;
+    mPaused = false;
+	mStartTicks = 0;
+	mPausedTicks = 0;
+}
+
+void LTimer::pause()
+{
+    if( mStarted && !mPaused ) {
+        mPaused = true;
+        mPausedTicks = SDL_GetTicks() - mStartTicks;
+		mStartTicks = 0;
+    }
+}
+
+void LTimer::unpause(){
+    if( mStarted && mPaused ){
+        mPaused = false;
+        mStartTicks = SDL_GetTicks() - mPausedTicks;
+        mPausedTicks = 0;
+    }
+}
+
+Uint32 LTimer::getTicks()
+{
+	//The actual timer time
+	Uint32 time = 0;
+
+    //If the timer is running
+    if( mStarted )
+    {
+        //If the timer is paused
+        if( mPaused )
+        {
+            //Return the number of ticks when the timer was paused
+            time = mPausedTicks;
+        }
+        else
+        {
+            //Return the current time minus the start time
+            time = SDL_GetTicks() - mStartTicks;
+        }
+    }
+
+    return time;
+}
+
+bool LTimer::isStarted()
+{
+	//Timer is running and paused or unpaused
+    return mStarted;
+}
+
+bool LTimer::isPaused()
+{
+	//Timer is running and paused
+    return mPaused && mStarted;
+}
+
 class EarthSystem {
     private:
         EarthTexture* earth = NULL;
@@ -97,9 +195,11 @@ int main( int argc, char* args[] ) {
         OrbitTexture* targetOrbit = earthSys.currentOrbits[orbit_select];
         bool quit = false;
         SDL_Event e;
-
         bool planningMode = false;
+		LTimer capTimer;
+
         while( !quit ) {
+            capTimer.start();
             while( SDL_PollEvent( &e ) != 0 ) {
                 if( e.type == SDL_QUIT ) {
                     quit = true;
@@ -160,6 +260,12 @@ int main( int argc, char* args[] ) {
             }
             earthSys.render();
             drawUpdate();
+		    int frameTicks = capTimer.getTicks();
+			if( frameTicks < SCREEN_TICK_PER_FRAME )
+			{
+				//Wait remaining time
+				SDL_Delay( SCREEN_TICK_PER_FRAME - frameTicks );
+			}
         }
     }
 

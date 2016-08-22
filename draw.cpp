@@ -1,8 +1,10 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL2_gfxPrimitives.h>
+#include <SDL2/SDL_ttf.h>
 #include <stdio.h>
 #include <string>
+#include <sstream>
 #include <math.h>
 #include "orbit.h"
 #include "draw.h"
@@ -11,6 +13,8 @@
 
 SDL_Window* gWindow = NULL;
 SDL_Renderer* gRenderer = NULL;
+std::stringstream timeText;
+TTF_Font *gFont = NULL;
 
 bool drawInit()
 {
@@ -50,6 +54,11 @@ bool drawInit()
                     printf( "SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError() );
                     success = false;
                 }
+                if (TTF_Init() == -1){
+                    printf( "SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError() );
+                    success = false;
+                }
+
             }
         }
     }
@@ -182,6 +191,7 @@ void drawUpdate(){
 EarthTexture::EarthTexture() {
     mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
     SDL_SetTextureBlendMode(mTexture, SDL_BLENDMODE_BLEND);
+    gFont = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 10 );
 }
 
 EarthTexture::~EarthTexture() {
@@ -196,9 +206,42 @@ void EarthTexture::render(short int r){
     SDL_SetRenderTarget(gRenderer, mTexture);
     SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0x00 );
     SDL_RenderClear( gRenderer );
-
     //Render Earth in Center
+    //setTimeTexture();
     filledCircleRGBA(gRenderer, centerX, centerY, r, 0x00, 0x00, 0xFF, 0xFF);
     SDL_SetRenderTarget(gRenderer, NULL);
+	SDL_Rect textQuad = { centerX-(mTextWidth/2), centerY-(mTextHeight/2), mTextWidth, mTextHeight };
     SDL_RenderCopy( gRenderer, mTexture, NULL, NULL);
+    //SDL_RenderCopy( gRenderer, mTimeTexture, NULL, &textQuad);
+
 }
+
+#ifdef _SDL_TTF_H
+void EarthTexture::setTimeTexture()
+{
+    if (mTimeTexture != NULL) {
+        free(mTimeTexture);
+    }
+	timeText << SDL_GetTicks();
+	//Render text surface
+	SDL_Surface* textSurface = TTF_RenderText_Solid( gFont, timeText.str().c_str(), SDL_Color {0, 0, 0, 255});
+	if( textSurface != NULL )
+	{
+		//Create texture from surface pixels
+        mTimeTexture = SDL_CreateTextureFromSurface( gRenderer, textSurface );
+		if( mTexture == NULL )
+		{
+			printf( "Unable to create texture from rendered text! SDL Error: %s\n", SDL_GetError() );
+		} else {
+            mTextWidth = textSurface->w;
+            mTextHeight = textSurface->h;
+        }
+		//Get rid of old surface
+		SDL_FreeSurface( textSurface );
+	}
+	else
+	{
+		printf( "Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError() );
+	}
+}
+#endif
