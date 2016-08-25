@@ -11,6 +11,7 @@
 
 #define PI 3.14159265
 
+std::stringstream str;
 SDL_Window* gWindow = NULL;
 SDL_Renderer* gRenderer = NULL;
 TTF_Font *gFont = NULL;
@@ -65,14 +66,14 @@ bool drawInit()
 }
 
 void drawClose(){
+	TTF_CloseFont( gFont );
+	gFont = NULL;
+	TTF_Quit();
     SDL_DestroyRenderer( gRenderer );
     SDL_DestroyWindow( gWindow );
     gWindow = NULL;
     gRenderer = NULL;
     //Quit SDL subsystems
-	TTF_CloseFont( gFont );
-	gFont = NULL;
-	TTF_Quit();
     IMG_Quit();
     SDL_Quit();
 }
@@ -196,7 +197,7 @@ void drawUpdate(){
 EarthTexture::EarthTexture() {
     mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
     SDL_SetTextureBlendMode(mTexture, SDL_BLENDMODE_BLEND);
-    gFont = TTF_OpenFont("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 28 );
+    gFont = TTF_OpenFont("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf", 20 );
 }
 
 EarthTexture::~EarthTexture() {
@@ -217,14 +218,14 @@ void EarthTexture::render(short int r, int timeRatio){
     SDL_RenderClear( gRenderer );
     //Render Earth in Center
     if (timeRatio != mTimeRatio) {
-        //setRatioTexture(timeRatio);
+        setRatioTexture(timeRatio);
         mTimeRatio = timeRatio;
     }
     filledCircleRGBA(gRenderer, centerX, centerY, r, 0x00, 0x00, 0xFF, 0xFF);
     SDL_SetRenderTarget(gRenderer, NULL);
-	//SDL_Rect textQuad = { centerX-(mTextWidth/2), centerY-(mTextHeight/2), mTextWidth, mTextHeight };
+	SDL_Rect textQuad = { centerX-(mTextWidth/2), centerY-(mTextHeight/2), mTextWidth, mTextHeight };
     SDL_RenderCopy( gRenderer, mTexture, NULL, NULL);
-    //SDL_RenderCopy( gRenderer, mTimeTexture, NULL, &textQuad);
+    SDL_RenderCopy( gRenderer, mTimeTexture, NULL, &textQuad);
 }
 
 #ifdef _SDL_TTF_H
@@ -233,11 +234,11 @@ void EarthTexture::setRatioTexture(int timeRatio)
     if (mTimeTexture != NULL) {
         free(mTimeTexture);
     }
-    std::stringstream timeText;
-    timeText.str("");
-	timeText << "Current Time Ratio = " << timeRatio << ":1";
+    std::string timeText;
+	str << "Current Time Ratio = " << timeRatio << ":1\n";
+    std::getline(str, timeText);
 	//Render text surface
-	SDL_Surface* textSurface = TTF_RenderText_Solid( gFont, timeText.str().c_str(), SDL_Color {0, 0, 0, 255});
+	SDL_Surface* textSurface = TTF_RenderText_Solid( gFont, timeText.c_str(), SDL_Color {0, 0, 0, 255});
 	if( textSurface != NULL )
 	{
 		//Create texture from surface pixels
