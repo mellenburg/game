@@ -97,7 +97,7 @@ SDL_Texture* loadTexture(std::string path)
 }
 
 Background::Background(){
-    mTexture = loadTexture("bg.png");
+    mTexture = loadTexture("resources/2D/bg.png");
 }
 
 Background::~Background()
@@ -141,7 +141,7 @@ void OrbitTexture::setViewRange(double r_a){
 
 OrbitTexture::OrbitTexture(vec3D r, vec3D v) {
     //Instantiate with "normal" orbit
-   mSatTexture = loadTexture("redfighter.png");
+   mSatTexture = loadTexture("resources/2D/redfighter.png");
    mTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
    SDL_SetTextureBlendMode(mSatTexture, SDL_BLENDMODE_BLEND);
    SDL_SetTextureBlendMode(mTexture, SDL_BLENDMODE_BLEND);
