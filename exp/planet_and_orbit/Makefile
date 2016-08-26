@@ -1,6 +1,6 @@
 #OBJS specifies which files to compile as part of the project
-OBJS = rotate-ellipse.cpp
-#OBJS = model_rendered.cpp
+#OBJS = rotate-ellipse.cpp
+OBJS = instancing_asteroids_instanced.cpp
 
 #CC specifies which compiler we're using
 CC = g++
