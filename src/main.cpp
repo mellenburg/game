@@ -103,6 +103,17 @@ GLfloat deltaTime = 0.0f;
 GLfloat lastFrame = 0.0f;
 
 // The MAIN function, from here we start our application and run our Game loop
+float earthPhase = 0.0;
+float dif = (2.0*PI/(60.0*60.0*24.0));
+
+void updateEarthPhase()
+{
+    earthPhase += dif*timeFactor*timeResolution;
+    if( earthPhase > (2.0*PI) ) {
+        earthPhase -= (2.0*PI);
+    }
+}
+
 int main()
 {
     // Init GLFW
@@ -136,8 +147,8 @@ int main()
     Shader planetShader("shaders/planet.vs", "shaders/planet.frag");
 
     // Load models
-    //Model planet("resources/3D/planet/planet.obj");
-    Model planet("exp/earth/earth.obj");
+    Model planet("resources/3D/planet/planet.obj");
+    //Model planet("exp/earth/earth.obj");
 
     // Set projection matrix
     glm::mat4 projection = glm::perspective(45.0f, (GLfloat)screenWidth/(GLfloat)screenHeight, .1f, 100.0f);
@@ -246,9 +257,12 @@ int main()
         glm::mat4 model;
         //Scaling to place clearly in center with radius ~1
         //Thus 6371km ~ 1unit here
-        float pscale = .0029f;
+        //float pscale = .0029f;
+        float pscale = .375;
         // NOTE: sux2hard code but finding diameter of a sphere is lame
-        model = glm::translate(model, glm::vec3(0.0f, pscale, 0.0f));
+        model = glm::rotate(model, earthPhase, glm::vec3(0.0f, 0.0f, -1.0f));
+        model = glm::rotate(model, float(PI/2.0), glm::vec3(1.0f, 0.0f, 0.0f));
+        model = glm::translate(model, glm::vec3(0.0f, -1*pscale, 0.0f));
         model = glm::scale(model, glm::vec3(pscale, pscale, pscale));
         //model = glm::scale(model, glm::vec3(1.1547f, 1.1547f, 1.1547f));
         glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "model"), 1, GL_FALSE, glm::value_ptr(model));
@@ -296,6 +310,7 @@ int main()
 
         //move everything around
         myOrbit.propagate(timeFactor*timeResolution);
+        updateEarthPhase();
 
     }
 
