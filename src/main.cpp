@@ -86,7 +86,7 @@ void ellipse3(int points, GLfloat out[], float a, float ecc, float r_p, float in
 }
 
 // Properties
-GLuint screenWidth = 800, screenHeight = 800;
+GLuint screenWidth = 800, screenHeight = 600;
 
 // Function prototypes
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode);
