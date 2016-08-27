@@ -26,12 +26,14 @@ class EarthOrbit
     double rtol = 1e-10;
     double k = 398600.4415;
     void rv2coe();
-    double DV = .005;
+    double DV = .015;
 
     vec3D forward = {DV, 0, 0};
     vec3D backward = {-1.0*DV, 0, 0};
     vec3D left = {0, DV, 0};
     vec3D right = {0, -1.0*DV, 0};
+    vec3D up = {0, 0, DV};
+    vec3D down = {0, 0, -1.0*DV};
   public:
     vec3D r;
     vec3D v;
@@ -60,5 +62,7 @@ class EarthOrbit
     void goLeft(double);
     void goRight(double);
     void goBackward(double);
+    void goUp(double);
+    void goDown(double);
 };
 #endif

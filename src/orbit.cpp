@@ -302,3 +302,5 @@ void EarthOrbit::goForward(double t){relative_maneuver(forward, t);};
 void EarthOrbit::goLeft(double t){relative_maneuver(left, t);};
 void EarthOrbit::goRight(double t){relative_maneuver(right, t);};
 void EarthOrbit::goBackward(double t){relative_maneuver(backward, t);};
+void EarthOrbit::goUp(double t){relative_maneuver(up, t);};
+void EarthOrbit::goDown(double t){relative_maneuver(down, t);};

@@ -23,47 +23,22 @@
 #include "orbit.h"
 
 #define PI 3.14
+#define FPS 30
+
+// FIXME: terrible hack to use globals
+vec3D r = {-6045., -3490., 2500.};
+vec3D v = {-3.56, 6.618, 2.533};
+EarthOrbit myOrbit(r, v);
 
 void dump_vector(glm::vec4 in){
     printf("%f, %f, %f, %f\n", in.x, in.y, in.z, in.w);
 }
 
-float inc = 0.0f;
-float raan = 0.0f;
-float argp = 0.0f;
+int timeFactor = 3;
+int timeResolution = 5;
+// Ten seconds per frame, 30
 GLfloat scale = 6371.;
-void ellipse2(int points, GLfloat out[], float a, float ecc, float r_p, float inc, float raan, float argp) {
-    float b = a * sqrt(1 - pow(ecc, 2));
-    glm::vec4 U = {a, .0f, 0.0f, 1.0f}; //"x" axis
-    glm::vec4 V = {.0f, 0.0, b, 1.0f}; //"y" axis
-    glm::mat4 trans;
-    //printf("U_x: %f\n", );
-    //printf("U_x: %f\n", U.x);
-    //printf("U_y: %f\n", U.y);
-    //printf("U_z: %f\n", U.z);
-    //printf("U_w: %f\n", U.w);
-    trans = glm::translate(trans, glm::vec3((r_p-a), 0.0f, 0.0f));
-    //trans = glm::translate(trans, glm::vec3(-3.0f, 0.0f, 0.0f));
-    //trans = glm::rotate(trans, inc, glm::vec3(0.0f, 0.0f, 1.0f));
-    //trans = glm::rotate(trans, raan, glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::vec4 U_t = trans * U;
-    glm::vec4 V_t = trans * V;
-    glm::vec3 U_tt = {U_t.x, U_t.y, U_t.z};
-    glm::vec3 V_tt = {V_t.x, V_t.y, V_t.z};
-    glm::vec3 argp_axis = glm::cross(glm::normalize(U_tt), glm::normalize(V_tt));
-    trans = glm::rotate(trans, -1*argp, glm::vec3(argp_axis.x, argp_axis.y, argp_axis.z));
-    U = trans * U;
-    V = trans * V;
-    float div = 2*PI/points;
-    for (int i = 0; i<points; i++) {
-        glm::vec4 res_a = glm::cos(div*float(i))*U;
-        glm::vec4 res_b = glm::sin(div*float(i))*V;
-        int j = i*3;
-        out[j] = (GLfloat) res_a.x + res_b.x;
-        out[j+1] = (GLfloat) res_a.y + res_b.y;
-        out[j+2] = (GLfloat) res_a.z + res_b.z;
-    }
-}
+// KM/idealized area unit
 
 void ellipse3(int points, GLfloat out[], float a, float ecc, float r_p, float inc, float raan, float argp) {
     float b = a * sqrt(1 - pow(ecc, 2));
@@ -94,12 +69,11 @@ void ellipse3(int points, GLfloat out[], float a, float ecc, float r_p, float in
     // Finish transformation
     U = rot_argp * rot_raan * rot_inc * trans_argp * U;
     V = rot_argp * rot_raan * rot_inc * trans_argp * V;
-
     //Find displacement vector
     glm::vec3 A = a*glm::normalize(glm::vec3(U));
     glm::vec3 delta = glm::vec3(U) - A;
     glm::vec3 B = b*glm::normalize(glm::vec3(V) - delta);
-
+    //Finally step throuh a circle of the unit vectors and translate
     float div = 2*PI/points;
     for (int i = 0; i<points; i++) {
         glm::vec3 res_a = glm::cos(div*float(i))*A;
@@ -112,7 +86,7 @@ void ellipse3(int points, GLfloat out[], float a, float ecc, float r_p, float in
 }
 
 // Properties
-GLuint screenWidth = 800, screenHeight = 600;
+GLuint screenWidth = 800, screenHeight = 800;
 
 // Function prototypes
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode);
@@ -238,9 +212,6 @@ int main()
     glUniformMatrix4fv(glGetUniformLocation(ourShader.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     GLuint eVBO, eVAO;
     int pt = 1000;
-    vec3D r = {-6045., -3490., 2500.};
-    vec3D v = {-3.56, 6.618, 2.533};
-    EarthOrbit myOrbit(r, v);
     // Game loop
     while(!glfwWindowShouldClose(window))
     {
@@ -250,8 +221,8 @@ int main()
         lastFrame = currentFrame;
 
         //printf("%f\n", deltaTime);
-        if(deltaTime < float(1/60)){
-            unsigned int t = (1000*float(1/60)*deltaTime);
+        if(deltaTime < float(1/FPS)){
+            unsigned int t = (1000*float(1/FPS)*deltaTime);
             usleep(t);
         }
 
@@ -275,7 +246,8 @@ int main()
         glm::mat4 model;
         //Scaling to place clearly in center with radius ~1
         //Thus 6371km ~ 1unit here
-        float pscale = .0025f;
+        float pscale = .0029f;
+        // NOTE: sux2hard code but finding diameter of a sphere is lame
         model = glm::translate(model, glm::vec3(0.0f, pscale, 0.0f));
         model = glm::scale(model, glm::vec3(pscale, pscale, pscale));
         //model = glm::scale(model, glm::vec3(1.1547f, 1.1547f, 1.1547f));
@@ -307,7 +279,7 @@ int main()
 
         model3 = glm::translate(model3, glm::vec3(myOrbit.r.i/scale, myOrbit.r.j/scale, myOrbit.r.k/scale));
         //model3 = glm::translate(model3, glm::vec3(-6045./scale, -3490./scale, 2500./scale));
-        model3 = glm::scale(model3, glm::vec3(1.1547f, 1.1547f, 1.1547f));
+        //model3 = glm::scale(model3, glm::vec3(1.1547f, 1.1547f, 1.1547f));
         model3 = glm::scale(model3, glm::vec3(.05f, .05f, .05f));
         glBindVertexArray(VAO);
         glUniformMatrix4fv(glGetUniformLocation(boxShader.Program, "model"), 1, GL_FALSE, glm::value_ptr(model3));
@@ -323,7 +295,7 @@ int main()
         glfwSwapBuffers(window);
 
         //move everything around
-        myOrbit.propagate(10.0);
+        myOrbit.propagate(timeFactor*timeResolution);
 
     }
 
@@ -336,7 +308,6 @@ int main()
 // Moves/alters the camera positions based on user input
 void Do_Movement()
 {
-    float div = PI/12.;
     // Camera controls
     if(keys[GLFW_KEY_W])
         camera.ProcessKeyboard(FORWARD, deltaTime);
@@ -347,17 +318,22 @@ void Do_Movement()
     if(keys[GLFW_KEY_D])
         camera.ProcessKeyboard(RIGHT, deltaTime);
     if(keys[GLFW_KEY_UP])
-        raan += div;
+        myOrbit.goForward(timeFactor*timeResolution);
     if(keys[GLFW_KEY_DOWN])
-        raan -= div;
+        myOrbit.goBackward(timeFactor*timeResolution);
     if(keys[GLFW_KEY_LEFT])
-        inc += div;
+        myOrbit.goLeft(timeFactor*timeResolution);
     if(keys[GLFW_KEY_RIGHT])
-        inc -= div;
+        myOrbit.goRight(timeFactor*timeResolution);
     if(keys[GLFW_KEY_PAGE_UP])
-        argp += div;
+        myOrbit.goUp(timeFactor*timeResolution);
     if(keys[GLFW_KEY_PAGE_DOWN])
-        argp -= div;
+        myOrbit.goDown(timeFactor*timeResolution);
+    if(keys[GLFW_KEY_Q])
+        timeFactor++;
+    if(keys[GLFW_KEY_E] && timeFactor>0)
+        timeFactor--;
+
 }
 
 // Is called whenever a key is pressed/released via GLFW
