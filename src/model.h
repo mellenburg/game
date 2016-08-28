@@ -39,8 +39,21 @@ public:
     // Draws the model, and thus all its meshes
     void Draw(Shader shader)
     {
-        for(GLuint i = 0; i < this->meshes.size(); i++)
-            this->meshes[i].Draw(shader);
+        int c = 0;
+        GLfloat opacity = 1.0f;
+        for(GLuint i = 1; i <= this->meshes.size(); i++)
+        // This isnt great, but it does draw the atmosphere first, as needed
+        //for(GLint i = this->meshes.size()+1; i>=1; i--)
+        {
+            if (c == 1) {
+                opacity = 0.35f;
+            }
+            else {
+                opacity = 1.0f;
+            }
+            c++;
+            this->meshes[i-1].Draw(shader, opacity);
+        }
     }
 
 private:
@@ -155,11 +168,13 @@ private:
             vector<Texture> specularMaps = this->loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular");
             textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
             // 3. Normal maps
-            std::vector<Texture> normalMaps = this->loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal");
-            textures.insert(textures.end(), normalMaps.begin(), normalMaps.end());
-            // 4. Height maps
-            std::vector<Texture> heightMaps = this->loadMaterialTextures(material, aiTextureType_AMBIENT, "texture_height");
+            std::vector<Texture> heightMaps = this->loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_height");
             textures.insert(textures.end(), heightMaps.begin(), heightMaps.end());
+            // 4. Height maps
+            std::vector<Texture> ambientMaps = this->loadMaterialTextures(material, aiTextureType_AMBIENT, "texture_ambient");
+            textures.insert(textures.end(), ambientMaps.begin(), ambientMaps.end());
+            std::vector<Texture> emissiveMaps = this->loadMaterialTextures(material, aiTextureType_EMISSIVE, "texture_emissive");
+            textures.insert(textures.end(), emissiveMaps.begin(), emissiveMaps.end());
         }
 
         // Return a mesh object created from the extracted mesh data

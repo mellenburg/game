@@ -1,3 +1,4 @@
+// Always have this before any import that could grab GLM
 #define GLM_FORCE_RADIANS
 // GLEW
 #define GLEW_STATIC
@@ -25,6 +26,7 @@
 #define PI 3.14
 #define FPS 30
 
+float filter = .01;
 // FIXME: terrible hack to use globals
 vec3D r = {-6045., -3490., 2500.};
 vec3D v = {-3.56, 6.618, 2.533};
@@ -86,7 +88,7 @@ void ellipse3(int points, GLfloat out[], float a, float ecc, float r_p, float in
 }
 
 // Properties
-GLuint screenWidth = 800, screenHeight = 600;
+GLuint screenWidth = 1200, screenHeight = 1000;
 
 // Function prototypes
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode);
@@ -94,7 +96,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void Do_Movement();
 
 // Camera
-Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+Camera camera(glm::vec3(3.0f, 0.0f, 0.0f));
 bool keys[1024];
 GLfloat lastX = 400, lastY = 300;
 bool firstMouse = true;
@@ -143,16 +145,19 @@ int main()
     // Setup OpenGL options
     glEnable(GL_DEPTH_TEST);
 
+    // Enable transparency
+    glEnable (GL_BLEND);
+    //glBlendFunc (GL_ONE, GL_ONE);
+    glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     // Setup and compile our shaders
     Shader planetShader("shaders/planet.vs", "shaders/planet.frag");
 
     // Load models
-    Model planet("resources/3D/planet/planet.obj");
-    //Model planet("exp/earth/earth.obj");
+    //Model planet("resources/3D/planet/planet.obj");
+    Model planet("resources/3D/earth/earth.obj");
 
     // Set projection matrix
     glm::mat4 projection = glm::perspective(45.0f, (GLfloat)screenWidth/(GLfloat)screenHeight, .1f, 100.0f);
-    //glm::mat4 projection = glm::perspective(45.0f, (GLfloat)screenWidth/(GLfloat)screenHeight, .1f, 100.0f);
     planetShader.Use();
     glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
@@ -205,17 +210,12 @@ int main()
     GLuint VBO, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
-
     glBindVertexArray(VAO);
-
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    // Position attribute
-   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)0);
-   glEnableVertexAttribArray(0);
-   glBindVertexArray(0);
-
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
 
     // Ellipse time
     Shader ourShader("shaders/basic.vs", "shaders/basic.frag");
@@ -245,26 +245,19 @@ int main()
         glClearColor(0.03f, 0.03f, 0.03f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Add transformation matrices
-        planetShader.Use();
-        glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "view"), 1, GL_FALSE, glm::value_ptr(camera.GetViewMatrix()));
-        ourShader.Use();
-        glUniformMatrix4fv(glGetUniformLocation(ourShader.Program, "view"), 1, GL_FALSE, glm::value_ptr(camera.GetViewMatrix()));
-        boxShader.Use();
-
         // Draw Planet
         planetShader.Use();
+        glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "view"), 1, GL_FALSE, glm::value_ptr(camera.GetViewMatrix()));
         glm::mat4 model;
         //Scaling to place clearly in center with radius ~1
         //Thus 6371km ~ 1unit here
-        //float pscale = .0029f;
-        float pscale = .375;
+        float pscale = .0029f; // sat-earth model
+        //float pscale = .375; // desert planet
         // NOTE: sux2hard code but finding diameter of a sphere is lame
-        model = glm::rotate(model, earthPhase, glm::vec3(0.0f, 0.0f, -1.0f));
+        model = glm::rotate(model, earthPhase, glm::vec3(0.0f, 0.0f, 1.0f));
         model = glm::rotate(model, float(PI/2.0), glm::vec3(1.0f, 0.0f, 0.0f));
         model = glm::translate(model, glm::vec3(0.0f, -1*pscale, 0.0f));
         model = glm::scale(model, glm::vec3(pscale, pscale, pscale));
-        //model = glm::scale(model, glm::vec3(1.1547f, 1.1547f, 1.1547f));
         glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "model"), 1, GL_FALSE, glm::value_ptr(model));
         planet.Draw(planetShader);
 
@@ -280,6 +273,7 @@ int main()
         glEnableVertexAttribArray(0);
         glBindVertexArray(0); // Unbind VAO
         ourShader.Use();
+        glUniformMatrix4fv(glGetUniformLocation(ourShader.Program, "view"), 1, GL_FALSE, glm::value_ptr(camera.GetViewMatrix()));
         glm::mat4 model2;
         glBindVertexArray(eVAO);
         glUniformMatrix4fv(glGetUniformLocation(ourShader.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
@@ -292,14 +286,12 @@ int main()
         glm::mat4 model3;
 
         model3 = glm::translate(model3, glm::vec3(myOrbit.r.i/scale, myOrbit.r.j/scale, myOrbit.r.k/scale));
-        //model3 = glm::translate(model3, glm::vec3(-6045./scale, -3490./scale, 2500./scale));
-        //model3 = glm::scale(model3, glm::vec3(1.1547f, 1.1547f, 1.1547f));
+        //model3 = glm::scale(model3, glm::vec3(1.1547f, 1.1547f, 1.1547f)); // unit-earth-radius reference box
         model3 = glm::scale(model3, glm::vec3(.05f, .05f, .05f));
         glBindVertexArray(VAO);
         glUniformMatrix4fv(glGetUniformLocation(boxShader.Program, "model"), 1, GL_FALSE, glm::value_ptr(model3));
         glDrawArrays(GL_TRIANGLES, 0, 36);
         glBindVertexArray(0);
-
 
         // reset our texture binding
         glActiveTexture(GL_TEXTURE0);
@@ -348,7 +340,6 @@ void Do_Movement()
         timeFactor++;
     if(keys[GLFW_KEY_E] && timeFactor>0)
         timeFactor--;
-
 }
 
 // Is called whenever a key is pressed/released via GLFW
