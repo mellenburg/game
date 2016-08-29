@@ -260,7 +260,6 @@ gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight){
 void gameSystem::step(){
     glm::mat4 view = camera.GetViewMatrix();
     this->shaderBank[0].Use();
-    //glUniformMatrix4fv(glGetUniformLocation(this->shaderBank[0].Program, "view"), 1, GL_FALSE, glm::value_ptr(camera.GetViewMatrix()));
     glUniformMatrix4fv(glGetUniformLocation(this->shaderBank[0].Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glm::mat4 model;
     //Scaling to place clearly in center with radius ~1

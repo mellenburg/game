@@ -7,24 +7,10 @@
 // GLFW
 #include <GLFW/glfw3.h>
 
-// GL includes
-#include "shader.h"
-#include "camera.h"
-#include "model.h"
-
-// GLM Mathemtics
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 // My stuff
 #include <unistd.h>
-#include <iostream>
-#include <math.h>
-#include "orbit.h"
 #include "system.h"
 
-#define PI 3.14
 #define FPS 30
 
 GLfloat deltaTime = 0.0f;
@@ -33,10 +19,6 @@ GLfloat lastFrame = 0.0f;
 // Properties
 GLuint screenWidth = 1200, screenHeight = 1000;
 
-// Function prototypes
-//void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode);
-//void mouse_callback(GLFWwindow* window, double xpos, double ypos);
-// The MAIN function, from here we start our application and run our Game loop
 int main()
 {
     // Init GLFW
