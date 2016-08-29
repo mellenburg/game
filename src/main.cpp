@@ -61,7 +61,7 @@ int main()
 
         // Check and call events
         glfwPollEvents();
-        processKeys(deltaTime);
+        mySys.processKeys(deltaTime);
 
         // Clear buffers
         glClearColor(0.03f, 0.03f, 0.03f, 1.0f);
