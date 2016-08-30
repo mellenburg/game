@@ -23,8 +23,6 @@
 #include <unistd.h>
 #include <vector>
 #include <iostream>
-#include <math.h>
-#include "orbit.h"
 #include "cube.h"
 #include "ellipse_3d.h"
 #include "satellite.h"
@@ -37,7 +35,6 @@ int timeResolution = 5;
 float earthPhase = 0.0;
 float dif = (2.0*PI/(60.0*60.0*24.0));
 GLfloat scale = 6371.;
-// FIXME: terrible hack to use globals
 
 // Camera
 Camera camera(glm::vec3(3.0f, 0.0f, 0.0f));
@@ -82,8 +79,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 
 void updateEarthPhase()
 {
-    //earthPhase += dif*timeFactor*timeResolution;
-    earthPhase += dif*3*15;
+    earthPhase += dif*timeFactor*timeResolution;
     if( earthPhase > (2.0*PI) ) {
         earthPhase -= (2.0*PI);
     }
@@ -93,10 +89,10 @@ class gameSystem {
     private:
         int idx = -1;
         glm::mat4 projection;
-    public:
-        vector<Shader> shaderBank;
-        vector<Model> modelBank;
+        Shader planetShader;
+        Model planetModel;
         vector<Satellite> sBank;
+    public:
         gameSystem(GLuint, GLuint);
         void processKeys(GLfloat);
         void step();
@@ -149,7 +145,7 @@ void gameSystem::RemoveSatellite(){
     idx--;
 }
 
-gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight){
+gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight): planetShader("shaders/planet.vs", "shaders/planet.frag"), planetModel("resources/3D/earth/earth.obj") {
 
     // Define the viewport dimensions
     glViewport(0, 0, screenWidth, screenHeight);
@@ -159,24 +155,21 @@ gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight){
 
     // Enable transparency
     glEnable (GL_BLEND);
-    //glBlendFunc (GL_ONE, GL_ONE);
     glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // Setup consistent projection for system
     projection = glm::perspective(45.0f, (GLfloat)screenWidth/(GLfloat)screenHeight, .1f, 100.0f);
 
-    Shader planetShader("shaders/planet.vs", "shaders/planet.frag");
-    shaderBank.push_back(planetShader);
-    Model planet("resources/3D/earth/earth.obj");
-    modelBank.push_back(planet);
-    this->shaderBank[0].Use();
-    glUniformMatrix4fv(glGetUniformLocation(this->shaderBank[0].Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    // Setup planet just once
+    planetShader.Use();
+    glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     this->AddSatellite();
 }
 
 void gameSystem::step(){
     glm::mat4 view = camera.GetViewMatrix();
-    this->shaderBank[0].Use();
-    glUniformMatrix4fv(glGetUniformLocation(this->shaderBank[0].Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    planetShader.Use();
+    glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glm::mat4 model;
     //Scaling to place clearly in center with radius ~1
     //Thus 6371km ~ 1unit here
@@ -187,8 +180,8 @@ void gameSystem::step(){
     model = glm::rotate(model, float(PI/2.0), glm::vec3(1.0f, 0.0f, 0.0f));
     model = glm::translate(model, glm::vec3(0.0f, -1*pscale, 0.0f));
     model = glm::scale(model, glm::vec3(pscale, pscale, pscale));
-    glUniformMatrix4fv(glGetUniformLocation(this->shaderBank[0].Program, "model"), 1, GL_FALSE, glm::value_ptr(model));
-    modelBank[0].Draw(this->shaderBank[0]);
+    glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    planetModel.Draw(planetShader);
     updateEarthPhase();
     for (int i = 0; i<=idx; i++) {
         sBank[i].Render(view);
