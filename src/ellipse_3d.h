@@ -82,6 +82,8 @@ Ellipse3d::Ellipse3d(EarthOrbit& orbit, glm::mat4 projection): shader_("shaders/
     this->Update(orbit);
     shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glGenVertexArrays(1, &eVAO);
+    glGenBuffers(1, &eVBO);
 }
 
 void Ellipse3d::Update(EarthOrbit& update) {
@@ -96,8 +98,6 @@ void Ellipse3d::Update(EarthOrbit& update) {
 void Ellipse3d::Render(glm::mat4 view) {
     GLfloat vertices[6000];
     ellipse3(vertices, a/scale_, ecc, r_p/scale_, inc, raan, argp);
-    glGenVertexArrays(1, &eVAO);
-    glGenBuffers(1, &eVBO);
     glBindVertexArray(eVAO);
     glBindBuffer(GL_ARRAY_BUFFER, eVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);

@@ -41,7 +41,7 @@ void Satellite::Render(glm::mat4 view) {
     cube_.Update(orbit_);
     cube_.Render(view);
 
-   // Draw Orbit
+    // Draw Orbit
     ellipse_.Update(orbit_);
     ellipse_.Render(view);
 }
