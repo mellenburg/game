@@ -26,6 +26,8 @@
 #include <unistd.h>
 #include <vector>
 #include <iostream>
+#include <iomanip>
+#include <sstream>
 #include "cube.h"
 #include "ellipse_3d.h"
 #include "satellite.h"
@@ -94,6 +96,7 @@ class gameSystem {
         Model planetModel;
         FtWriter textWriter;
         vector<Satellite> sBank;
+        GLuint WIDTH, HEIGHT;
     public:
         gameSystem(GLuint, GLuint);
         void processKeys(GLfloat);
@@ -148,6 +151,8 @@ void gameSystem::RemoveSatellite(){
 }
 
 gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight): planetShader("shaders/planet.vs", "shaders/planet.frag"), planetModel("resources/3D/earth/earth.obj"), textWriter(screenWidth, screenHeight) {
+    WIDTH=screenWidth;
+    HEIGHT=screenHeight;
     // Define the viewport dimensions
     glViewport(0, 0, screenWidth, screenHeight);
 
@@ -155,8 +160,13 @@ gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight): planetShader("s
     glEnable(GL_DEPTH_TEST);
 
     // Enable transparency
-    glEnable (GL_BLEND);
-    glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // this should be enabled for performance
+    //glEnable(GL_CULL_FACE);
+
+    // Draw in wireframe
+    //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
     // Setup consistent projection for system
     projection = glm::perspective(45.0f, (GLfloat)screenWidth/(GLfloat)screenHeight, .1f, 100.0f);
@@ -188,6 +198,14 @@ void gameSystem::step(){
         sBank[i].Render(view);
         sBank[i].orbit_.propagate(timeFactor*timeResolution);
     }
-    textWriter.RenderText("This is sample text", 25.0f, 25.0f, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
+    //TODO: turn this into a neat annotation class
+    glm::vec3 box_pos = (1/scale)*glm::vec3(sBank[0].orbit_.r.i, sBank[0].orbit_.r.j, sBank[0].orbit_.r.k);
+    glm::vec3 box_pos_2 = glm::vec3(view*glm::vec4(box_pos, 1));
+    glm::vec3 tex_pos = glm::project(box_pos_2, glm::mat4(), projection, glm::vec4(0,0,WIDTH,HEIGHT));
+    std::stringstream s;
+    glm::vec3 vel = glm::vec3(sBank[0].orbit_.v.i, sBank[0].orbit_.v.j, sBank[0].orbit_.v.k);
+    float velocity = glm::length(vel);
+    s<<"Velocity: "<<std::fixed<<std::setprecision(1)<<velocity<<" km/s";
+    textWriter.RenderText(s.str(), tex_pos.x, tex_pos.y, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
 }
 #endif // GAME_SYSTEM_H_
