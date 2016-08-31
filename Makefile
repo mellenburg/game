@@ -12,7 +12,7 @@ COMPILER_FLAGS = -g -Wall -I/usr/local/include -L/usr/local/lib -L/usr/lib64 -st
 
 #
 #  #LINKER_FLAGS specifies the libraries we're linking against
-LINKER_FLAGS = -lGLEW -lSOIL -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -lXxf86vm -ldl -lXinerama -lXcursor -lassimp -ltcmalloc
+LINKER_FLAGS = -lGLEW -lSOIL -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -lXxf86vm -ldl -lXinerama -lXcursor -lassimp -ltcmalloc -lfreetype
 
 #OBJ_NAME specifies the name of our exectuable
 OBJ_NAME = test

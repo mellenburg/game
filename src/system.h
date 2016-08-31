@@ -19,6 +19,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <ft2build.h>
+#include FT_FREETYPE_H
+
 // My stuff
 #include <unistd.h>
 #include <vector>
@@ -26,6 +29,7 @@
 #include "cube.h"
 #include "ellipse_3d.h"
 #include "satellite.h"
+#include "writer.h"
 
 #define PI 3.14
 int timeFactor = 3;
@@ -43,9 +47,6 @@ GLfloat lastX = 400, lastY = 300;
 bool firstMouse = true;
 
 #pragma region "User input"
-
-// Moves/alters the camera positions based on user input
-// Is called whenever a key is pressed/released via GLFW
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
 {
     if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
@@ -91,6 +92,7 @@ class gameSystem {
         glm::mat4 projection;
         Shader planetShader;
         Model planetModel;
+        FtWriter textWriter;
         vector<Satellite> sBank;
     public:
         gameSystem(GLuint, GLuint);
@@ -145,8 +147,7 @@ void gameSystem::RemoveSatellite(){
     idx--;
 }
 
-gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight): planetShader("shaders/planet.vs", "shaders/planet.frag"), planetModel("resources/3D/earth/earth.obj") {
-
+gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight): planetShader("shaders/planet.vs", "shaders/planet.frag"), planetModel("resources/3D/earth/earth.obj"), textWriter(screenWidth, screenHeight) {
     // Define the viewport dimensions
     glViewport(0, 0, screenWidth, screenHeight);
 
@@ -187,5 +188,6 @@ void gameSystem::step(){
         sBank[i].Render(view);
         sBank[i].orbit_.propagate(timeFactor*timeResolution);
     }
+    textWriter.RenderText("This is sample text", 25.0f, 25.0f, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
 }
 #endif // GAME_SYSTEM_H_
