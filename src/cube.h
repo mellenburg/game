@@ -33,7 +33,7 @@ void Cube::Update(EarthOrbit& orbit){
     position_ = glm::vec3(orbit.r.i/scale, orbit.r.j/scale, orbit.r.k/scale);
 }
 
-Cube::Cube(EarthOrbit& orbit, glm::mat4 projection): shader_("shaders/box.vs", "shaders/box.frag"){
+Cube::Cube(EarthOrbit& orbit, glm::mat4 projection): shader_("shaders/basic.vs", "shaders/basic.frag"){
     this->Update(orbit);
     GLfloat vertices[] = {
 -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,

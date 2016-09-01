@@ -80,6 +80,17 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 
 #pragma endregion
 
+class Line {
+    private:
+        glm::vec3 start;
+        glm::vec3 emd;
+        Shader shader_ ;
+        GLuint VBO, VAO;
+    public:
+        Line(glm::vec3, glm::vec3);
+        void Draw(glm::vec3);
+};
+
 void updateEarthPhase()
 {
     earthPhase += dif*timeFactor*timeResolution;
