@@ -55,7 +55,7 @@ int main()
 
         //printf("%f\n", deltaTime);
         if(deltaTime < float(1/FPS)){
-            unsigned int t = (1000*float(1/FPS)*deltaTime);
+            unsigned int t = (1000000*float(1/FPS)*deltaTime);
             usleep(t);
         }
 

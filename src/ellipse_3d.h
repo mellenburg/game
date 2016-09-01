@@ -70,7 +70,12 @@ void Ellipse3d::Render(glm::mat4 view) {
     glm::mat4 model2;
     glBindVertexArray(eVAO);
     glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
-    glm::vec3 color = {0.0f, 1.0f, 0.0f};
+    glm::vec3 color;
+    if (selected) {
+        color = {0.0f, 1.0f, 0.0f};
+    } else {
+        color = {0.1f, 0.0f, 1.0f};
+    }
     glUniform3f(glGetUniformLocation(shader_.Program, "setColor"), color.x, color.y, color.z);
     glDrawArrays(GL_LINE_LOOP, 0, points_);
     glBindVertexArray(0);

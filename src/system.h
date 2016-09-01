@@ -34,8 +34,8 @@
 #include "writer.h"
 
 #define PI 3.14
-int timeFactor = 3;
-int timeResolution = 5;
+int timeFactor = 15;
+float timeResolution = .033333333;
 // Ten seconds per frame, 30
 // KM/idealized area unit
 float earthPhase = 0.0;
