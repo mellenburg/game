@@ -21,6 +21,8 @@ class Satellite {
         Cube cube_;
         Ellipse3d ellipse_;
     public:
+        bool selected_ = false;
+
         EarthOrbit orbit_;
         Satellite(glm::mat4);
         void thrustUp(int time){orbit_.goUp(time);}
@@ -32,6 +34,8 @@ class Satellite {
         void Render(glm::mat4);
         glm::vec3 GetR();
         glm::vec3 GetV();
+        void Select();
+        void Unselect();
 };
 
 Satellite::Satellite(glm::mat4 proj): orbit_(r_, v_), cube_(orbit_, proj), ellipse_(orbit_, proj) {
@@ -39,6 +43,13 @@ Satellite::Satellite(glm::mat4 proj): orbit_(r_, v_), cube_(orbit_, proj), ellip
 
 void Satellite::Render(glm::mat4 view) {
 
+    if(selected_) {
+        cube_.SetColor(glm::vec3(0.0f, 1.0f, 0.0f));
+        ellipse_.SetColor(glm::vec3(0.0f, 1.0f, 0.0f));
+    } else {
+        cube_.SetColor(glm::vec3(0.0f, 0.0f, 1.0f));
+        ellipse_.SetColor(glm::vec3(0.0f, 0.0f, 1.0f));
+    }
     //Cube update and render
     cube_.Update(orbit_);
     cube_.Render(view);
@@ -46,6 +57,14 @@ void Satellite::Render(glm::mat4 view) {
     // Draw Orbit
     ellipse_.Update(orbit_);
     ellipse_.Render(view);
+}
+
+void Satellite::Select() {
+    this->selected_ = true;
+}
+
+void Satellite::Unselect() {
+    this->selected_ = false;
 }
 
 glm::vec3 Satellite::GetR() {

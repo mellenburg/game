@@ -20,11 +20,17 @@ class Cube {
         GLuint VBO, VAO;
         glm::vec3 position_;
         GLfloat scale = 6371.;
+        glm::vec3 color_;
     public:
         Cube(EarthOrbit&, glm::mat4);
         void Update(EarthOrbit&);
         void Render(glm::mat4);
+        void SetColor(glm::vec3);
 };
+
+void Cube::SetColor(glm::vec3 color) {
+    color_ = color;
+}
 
 void Cube::Update(EarthOrbit& orbit){
     position_ = glm::vec3(orbit.r.i/scale, orbit.r.j/scale, orbit.r.k/scale);
@@ -96,8 +102,7 @@ void Cube::Render(glm::mat4 view) {
     model3 = glm::scale(model3, glm::vec3(.05f, .05f, .05f));
     glBindVertexArray(VAO);
     glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model3));
-    glm::vec3 color = {0.0f, 1.0f, 0.0f};
-    glUniform3f(glGetUniformLocation(shader_.Program, "setColor"), color.x, color.y, color.z);
+    glUniform3f(glGetUniformLocation(shader_.Program, "setColor"), color_.x, color_.y, color_.z);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
 }

@@ -19,9 +19,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
-
 // My stuff
 #include <vector>
 #include <iostream>
@@ -33,7 +30,7 @@
 #include "satellite.h"
 #include "writer.h"
 
-#define PI 3.14
+#define PI 3.14159265
 int timeFactor = 15;
 float timeResolution = .033333333;
 // Ten seconds per frame, 30
@@ -45,8 +42,15 @@ GLfloat scale = 6371.;
 // Camera
 Camera camera(glm::vec3(3.0f, 0.0f, 0.0f));
 bool keys[1024];
+// This array will only flip back once an action undoes it
+bool was_pressed[1024];
 GLfloat lastX = 400, lastY = 300;
 bool firstMouse = true;
+
+// Rando
+bool press_new = false;
+bool press_delete = false;
+bool press_tab = false;
 
 #pragma region "User input"
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
@@ -54,10 +58,12 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GL_TRUE);
 
-    if(action == GLFW_PRESS)
+    if(action == GLFW_PRESS) {
         keys[key] = true;
-    else if(action == GLFW_RELEASE)
+        was_pressed[key] = true;
+    } else if(action == GLFW_RELEASE) {
         keys[key] = false;
+    }
 }
 
 void mouse_callback(GLFWwindow* window, double xpos, double ypos)
@@ -90,7 +96,8 @@ void updateEarthPhase()
 
 class gameSystem {
     private:
-        int idx = -1;
+        int selected_ship_ = 0;
+        int total_ships_ = 0;
         glm::mat4 projection;
         Shader planetShader;
         Model planetModel;
@@ -103,7 +110,23 @@ class gameSystem {
         void step();
         void AddSatellite();
         void RemoveSatellite();
+        Satellite& GetSelectedShip();
+        void SelectNextShip();
 };
+
+Satellite& gameSystem::GetSelectedShip() {
+    return sBank[selected_ship_];
+}
+
+void gameSystem::SelectNextShip() {
+    GetSelectedShip().Unselect();
+    if( (selected_ship_ + 1)== total_ships_) {
+        selected_ship_ = 0;
+    } else {
+        selected_ship_++;
+    }
+    GetSelectedShip().Select();
+}
 
 void gameSystem::processKeys(GLfloat deltaTime)
 {
@@ -117,37 +140,56 @@ void gameSystem::processKeys(GLfloat deltaTime)
     if(keys[GLFW_KEY_D])
         camera.ProcessKeyboard(RIGHT, deltaTime);
     if(keys[GLFW_KEY_UP])
-        sBank[idx].thrustForward(timeFactor*timeResolution);
+        GetSelectedShip().thrustForward(timeFactor*timeResolution);
     if(keys[GLFW_KEY_DOWN])
-        sBank[idx].thrustBackward(timeFactor*timeResolution);
+        GetSelectedShip().thrustBackward(timeFactor*timeResolution);
     if(keys[GLFW_KEY_LEFT])
-        sBank[idx].thrustLeft(timeFactor*timeResolution);
+        GetSelectedShip().thrustLeft(timeFactor*timeResolution);
     if(keys[GLFW_KEY_RIGHT])
-        sBank[idx].thrustRight(timeFactor*timeResolution);
+        GetSelectedShip().thrustRight(timeFactor*timeResolution);
     if(keys[GLFW_KEY_PAGE_UP])
-        sBank[idx].thrustUp(timeFactor*timeResolution);
+        GetSelectedShip().thrustUp(timeFactor*timeResolution);
     if(keys[GLFW_KEY_PAGE_DOWN])
-        sBank[idx].thrustDown(timeFactor*timeResolution);
+        GetSelectedShip().thrustDown(timeFactor*timeResolution);
     if(keys[GLFW_KEY_Q])
         timeFactor++;
     if(keys[GLFW_KEY_E] && timeFactor>0)
         timeFactor--;
-    if(keys[GLFW_KEY_F])
+    // TODO: use a void that accepts member function pointers
+    // http://stackoverflow.com/questions/12662891/c-passing-member-function-as-argument
+    // Selector
+    if(was_pressed[GLFW_KEY_TAB] && !keys[GLFW_KEY_TAB]){
+        this->SelectNextShip();
+        was_pressed[GLFW_KEY_TAB] = false;
+    }
+    // Add ship
+    if(was_pressed[GLFW_KEY_N] && !keys[GLFW_KEY_N]){
         this->AddSatellite();
-    if(keys[GLFW_KEY_R])
+        was_pressed[GLFW_KEY_N] = false;
+    }
+    // Remove ship
+    if(was_pressed[GLFW_KEY_R] && !keys[GLFW_KEY_R]){
         this->RemoveSatellite();
-
+        was_pressed[GLFW_KEY_R] = false;
+    }
 }
 
 void gameSystem::AddSatellite(){
     Satellite mySat(projection);
     sBank.push_back(mySat);
-    idx++;
+    GetSelectedShip().Unselect();
+    total_ships_++;
+    selected_ship_ = total_ships_-1;
+    GetSelectedShip().Select();
 }
 
 void gameSystem::RemoveSatellite(){
-    sBank.erase(sBank.begin()+idx);
-    idx--;
+    if( this->total_ships_ >0 ) {
+        sBank.erase(sBank.begin()+selected_ship_);
+        this->selected_ship_ = 0;
+        total_ships_--;
+        GetSelectedShip().Select();
+    }
 }
 
 gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight): planetShader("shaders/planet.vs", "shaders/planet.frag"), planetModel("resources/3D/earth/earth.obj"), textWriter(screenWidth, screenHeight) {
@@ -175,6 +217,7 @@ gameSystem::gameSystem(GLuint screenWidth, GLuint screenHeight): planetShader("s
     planetShader.Use();
     glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     this->AddSatellite();
+    GetSelectedShip().Select();
 }
 
 void gameSystem::step(){
@@ -194,17 +237,19 @@ void gameSystem::step(){
     glUniformMatrix4fv(glGetUniformLocation(planetShader.Program, "model"), 1, GL_FALSE, glm::value_ptr(model));
     planetModel.Draw(planetShader);
     updateEarthPhase();
-    for (int i = 0; i<=idx; i++) {
+    for (int i = 0; i< total_ships_; i++) {
         sBank[i].Render(view);
         sBank[i].orbit_.propagate(timeFactor*timeResolution);
     }
     //TODO: turn this into a neat annotation class
-    glm::vec3 box_pos = sBank[0].GetR()/scale;
-    glm::vec3 box_pos_2 = glm::vec3(view*glm::vec4(box_pos, 1));
-    glm::vec3 tex_pos = glm::project(box_pos_2, glm::mat4(), projection, glm::vec4(0,0,WIDTH,HEIGHT));
-    std::stringstream s;
-    float velocity = glm::length(sBank[0].GetV());
-    s<<"Velocity: "<<std::fixed<<std::setprecision(1)<<velocity<<" km/s";
-    textWriter.RenderText(s.str(), tex_pos.x, tex_pos.y, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
+    if(this->total_ships_ > 0) {
+        glm::vec3 box_pos = GetSelectedShip().GetR()/scale;
+        glm::vec3 box_pos_2 = glm::vec3(view*glm::vec4(box_pos, 1));
+        glm::vec3 tex_pos = glm::project(box_pos_2, glm::mat4(), projection, glm::vec4(0,0,WIDTH,HEIGHT));
+        std::stringstream s;
+        float velocity = glm::length(GetSelectedShip().GetV());
+        s<<"Velocity: "<<std::fixed<<std::setprecision(1)<<velocity<<" km/s";
+        textWriter.RenderText(s.str(), tex_pos.x, tex_pos.y, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
+    }
 }
 #endif // GAME_SYSTEM_H_

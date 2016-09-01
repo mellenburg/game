@@ -32,11 +32,12 @@ class Ellipse3d {
         glm::vec3 x1_, x2_;
         Line orbit_line_;
         void GenerateEllipse(float, float, float, float, float, float);
+        glm::vec3 color_ = {0.0f, 1.0f, 0.0f};
     public:
-        bool selected = false;
         Ellipse3d(EarthOrbit&, glm::mat4);
         void Update(EarthOrbit&);
         void Render(glm::mat4);
+        void SetColor(glm::vec3);
 };
 
 
@@ -46,6 +47,10 @@ Ellipse3d::Ellipse3d(EarthOrbit& orbit, glm::mat4 projection): shader_("shaders/
     glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glGenVertexArrays(1, &eVAO);
     glGenBuffers(1, &eVBO);
+}
+
+void Ellipse3d::SetColor(glm::vec3 color) {
+    color_ = color;
 }
 
 void Ellipse3d::Update(EarthOrbit& update) {
@@ -70,18 +75,12 @@ void Ellipse3d::Render(glm::mat4 view) {
     glm::mat4 model2;
     glBindVertexArray(eVAO);
     glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
-    glm::vec3 color;
-    if (selected) {
-        color = {0.0f, 1.0f, 0.0f};
-    } else {
-        color = {0.1f, 0.0f, 1.0f};
-    }
-    glUniform3f(glGetUniformLocation(shader_.Program, "setColor"), color.x, color.y, color.z);
+    glUniform3f(glGetUniformLocation(shader_.Program, "setColor"), color_.x, color_.y, color_.z);
     glDrawArrays(GL_LINE_LOOP, 0, points_);
     glBindVertexArray(0);
     //Draw orbit line also
     orbit_line_.Update(x2_, x1_);
-    orbit_line_.Draw(glm::vec3(0.0f, 1.0f, 0.0f), view);
+    orbit_line_.Draw(color_, view);
 }
 
 void Ellipse3d::GenerateEllipse(float a, float ecc, float r_p, float inc, float raan, float argp) {
