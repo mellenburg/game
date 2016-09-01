@@ -210,12 +210,11 @@ void gameSystem::step(){
         sBank[i].orbit_.propagate(timeFactor*timeResolution);
     }
     //TODO: turn this into a neat annotation class
-    glm::vec3 box_pos = (1/scale)*glm::vec3(sBank[0].orbit_.r.i, sBank[0].orbit_.r.j, sBank[0].orbit_.r.k);
+    glm::vec3 box_pos = sBank[0].GetR()/scale;
     glm::vec3 box_pos_2 = glm::vec3(view*glm::vec4(box_pos, 1));
     glm::vec3 tex_pos = glm::project(box_pos_2, glm::mat4(), projection, glm::vec4(0,0,WIDTH,HEIGHT));
     std::stringstream s;
-    glm::vec3 vel = glm::vec3(sBank[0].orbit_.v.i, sBank[0].orbit_.v.j, sBank[0].orbit_.v.k);
-    float velocity = glm::length(vel);
+    float velocity = glm::length(sBank[0].GetV());
     s<<"Velocity: "<<std::fixed<<std::setprecision(1)<<velocity<<" km/s";
     textWriter.RenderText(s.str(), tex_pos.x, tex_pos.y, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
 }

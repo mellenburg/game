@@ -30,6 +30,8 @@ class Satellite {
         void thrustForward(int time){orbit_.goForward(time);}
         void thrustBackward(int time){orbit_.goBackward(time);}
         void Render(glm::mat4);
+        glm::vec3 GetR();
+        glm::vec3 GetV();
 };
 
 Satellite::Satellite(glm::mat4 proj): orbit_(r_, v_), cube_(orbit_, proj), ellipse_(orbit_, proj) {
@@ -44,5 +46,13 @@ void Satellite::Render(glm::mat4 view) {
     // Draw Orbit
     ellipse_.Update(orbit_);
     ellipse_.Render(view);
+}
+
+glm::vec3 Satellite::GetR() {
+    return glm::vec3(orbit_.r.i, orbit_.r.j, orbit_.r.k);
+}
+
+glm::vec3 Satellite::GetV() {
+    return glm::vec3(orbit_.v.i, orbit_.v.j, orbit_.v.k);
 }
 #endif // GAME_SATELLITE_H_
