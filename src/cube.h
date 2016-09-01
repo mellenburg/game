@@ -4,9 +4,6 @@
 #define GLEW_STATIC
 #include <GL/glew.h>
 
-// GLFW
-#include <GLFW/glfw3.h>
-
 // GL includes
 #include "shader.h"
 
@@ -99,6 +96,8 @@ void Cube::Render(glm::mat4 view) {
     model3 = glm::scale(model3, glm::vec3(.05f, .05f, .05f));
     glBindVertexArray(VAO);
     glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model3));
+    glm::vec3 color = {0.0f, 1.0f, 0.0f};
+    glUniform3f(glGetUniformLocation(shader_.Program, "setColor"), color.x, color.y, color.z);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
 }

@@ -23,11 +23,11 @@
 #include FT_FREETYPE_H
 
 // My stuff
-#include <unistd.h>
 #include <vector>
 #include <iostream>
-#include <iomanip>
+#include <iomanip> //setw and setprecion
 #include <sstream>
+
 #include "cube.h"
 #include "ellipse_3d.h"
 #include "satellite.h"

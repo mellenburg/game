@@ -1,13 +1,7 @@
-// Two body representation
-// TODO: plug the huge number of potential memory leaks
-#include <iostream>
-#include <stdio.h>
-#include <cmath> //abs
-#include <math.h>
+#include <cmath>
 #include "orbit.h"
 
 #define PI 3.14159265
-using namespace std;
 
 vec3D cross_product (vec3D &u, vec3D &v){
     vec3D w;
@@ -47,7 +41,7 @@ double dot_product (vec3D &u, vec3D &v)
 
 double norm (vec3D &u)
 {
-    return sqrt(dot_product(u, u));
+    return std::sqrt(dot_product(u, u));
 }
 
 vec3D vec_scale (double f, vec3D &u)
@@ -62,34 +56,34 @@ vec3D vec_add(vec3D &u, vec3D &v){
     w.k = u.k + v.k;
     return w;
 }
-
+/*
 void dump_vector(string const &title, vec3D &dat)
 {
     cout<<title;
     printf(" : [%f, %f, %f]\n", dat.i, dat.j, dat.k);
 }
-
+*/
 double c2(double psi)
 {
     double res;
     if (psi > 1.0)
     {
-        res = (1.0 - cos(sqrt(psi))) / psi;
+        res = (1.0 - std::cos(std::sqrt(psi))) / psi;
     }
     else if (psi < -1.0)
     {
-        res = (cosh(sqrt(-1*psi))-1.0) / (-1.0 * psi);
+        res = (std::cosh(std::sqrt(-1*psi))-1.0) / (-1.0 * psi);
     }
     else
     {
         res = .5;
-        double delta = (-1.0*psi) / tgamma(5);
+        double delta = (-1.0*psi) / std::tgamma(5);
         int k = 1;
         while (res+delta != res)
         {
             res = res + delta;
             k++;
-            delta = pow((-1.0*psi), k)/tgamma(2*k + 3);
+            delta = pow((-1.0*psi), k)/std::tgamma(2*k + 3);
         }
     }
     return res;
@@ -104,18 +98,18 @@ double c3(double psi)
     }
     else if (psi < -1.0)
     {
-        res = (sinh(sqrt(-1.0*psi)) - sqrt(-1.0*psi)) / (-1.0 * psi * sqrt(-1.0*psi));
+        res = (std::sinh(sqrt(-1.0*psi)) - sqrt(-1.0*psi)) / (-1.0 * psi * std::sqrt(-1.0*psi));
     }
     else
     {
         res = 1.0 / 6.0;
-        double delta = (-1.0 * psi) / tgamma(6);
+        double delta = (-1.0 * psi) / std::tgamma(6);
         int k = 1;
         while (res+delta != res)
         {
             res = res + delta;
             k++;
-            delta = pow((-1.0*psi), k) / tgamma(2*k+4);
+            delta = std::pow((-1.0*psi), k) / std::tgamma(2*k+4);
         }
     }
     return res;
@@ -142,15 +136,15 @@ void EarthOrbit::rv2coe()
     ecc = norm(e);
     p = dot_product(h, h) / k;
     a = p / (1.0 - pow(ecc, 2.0));
-    b = a * sqrt(1.0 - pow(ecc, 2));
-    inc = acos(h.k/norm(h));
-    raan = atan2(n.j, n.i);
+    b = a * std::sqrt(1.0 - pow(ecc, 2));
+    inc = std::acos(h.k/norm(h));
+    raan = std::atan2(n.j, n.i);
     vec3D h_cross_n = cross_product(h, n);
     vec3D h_cross_n_s = vec_scale(1.0/norm_h, h_cross_n);
     vec3D h_cross_e = cross_product(h, e);
     vec3D h_cross_e_s = vec_scale(1.0/norm_h, h_cross_e);
-    argp = atan2(dot_product(e, h_cross_n_s), dot_product(e, n));
-    nu = atan2(dot_product(r, h_cross_e_s), dot_product(r, e));
+    argp = std::atan2(dot_product(e, h_cross_n_s), dot_product(e, n));
+    nu = std::atan2(dot_product(r, h_cross_e_s), dot_product(r, e));
     r_a = a * (1.0 + ecc);
     r_p = a * (1.0 - ecc);
     period = 2*PI*sqrt(pow(a, 3)/k);
@@ -165,7 +159,7 @@ void EarthOrbit::propagate(double tof)
     vec3D v0 = vec_copy(v);
     double dot_r0v0 = dot_product(r0, v0);
     double norm_r0 = norm(r0);
-    double sqrt_mu = pow(k, .5);
+    double sqrt_mu = std::pow(k, .5);
     double alpha = (2/norm_r0)-(dot_product(v0, v0)/k);
     double xi_new;
     if (alpha > 0)
@@ -176,7 +170,7 @@ void EarthOrbit::propagate(double tof)
     else if (alpha < 0)
     {
         //Hyperbolic Orbit
-        xi_new = sqrt(-1.0/alpha)*log((-2.0*k*alpha*tof)/(dot_r0v0+(sqrt(-1.0*k/alpha)*(1.0-norm_r0*alpha))));
+        xi_new = std::sqrt(-1.0/alpha)*log((-2.0*k*alpha*tof)/(dot_r0v0+(sqrt(-1.0*k/alpha)*(1.0-norm_r0*alpha))));
     }
     else
     {
@@ -202,7 +196,7 @@ void EarthOrbit::propagate(double tof)
         xi_new = xi + (sqrt_mu * tof - xi*xi*xi*c3_psi -
                 dot_r0v0 / sqrt_mu * xi * xi * c2_psi -
                 norm_r0 * xi * (1 - psi * c3_psi)) / norm_r;
-        if (abs((xi_new - xi)/xi_new) < rtol || abs( xi_new - xi) < rtol)
+        if (std::abs((xi_new - xi)/xi_new) < rtol || std::abs( xi_new - xi) < rtol)
         {
             break;
         }
@@ -212,9 +206,9 @@ void EarthOrbit::propagate(double tof)
         }
         // TODO: raise error when too many iterations reached
     }
-    double f = 1.0 - pow(xi, 2) / norm_r0 * c2_psi;
-    double g = tof - pow(xi, 3) / sqrt_mu * c3_psi;
-    double gdot = 1.0 - pow(xi, 2) / norm_r * c2_psi;
+    double f = 1.0 - std::pow(xi, 2) / norm_r0 * c2_psi;
+    double g = tof - std::pow(xi, 3) / sqrt_mu * c3_psi;
+    double gdot = 1.0 - std::pow(xi, 2) / norm_r * c2_psi;
     double fdot = sqrt_mu / (norm_r * norm_r0) * xi * (psi * c3_psi - 1.0);
     vec3D f_r0 = vec_scale(f, r0);
     vec3D g_v0 = vec_scale(g, v0);
@@ -279,7 +273,7 @@ void EarthOrbit::relative_maneuver(vec3D &dv, double t){
     vec4D man_t = {manijk.i, manijk.j, manijk.k, t};
     maneuver(man_t);
 }
-
+/*
 void EarthOrbit::dump_state()
 {
     printf ("Semi-major Axis (km): %f\n", a);
@@ -297,7 +291,7 @@ void EarthOrbit::dump_state()
     dump_vector("R", r);
     dump_vector("V", v);
 }
-
+*/
 void EarthOrbit::goForward(double t){relative_maneuver(forward, t);};
 void EarthOrbit::goLeft(double t){relative_maneuver(left, t);};
 void EarthOrbit::goRight(double t){relative_maneuver(right, t);};

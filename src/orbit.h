@@ -1,9 +1,6 @@
 #ifndef ORBIT_H
 #define ORBIT_H
-#include <iostream>
-#include <stdio.h>
-#include <math.h>
-using namespace std;
+#include <cmath>
 
 struct vec3D {
     double i;
@@ -17,8 +14,6 @@ struct vec4D {
     double k;
     double t;
 };
-
-double dot_product (vec3D&, vec3D&);
 
 class EarthOrbit
 {
