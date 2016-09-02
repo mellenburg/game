@@ -65,7 +65,7 @@ void dump_vector(string const &title, vec3D &dat)
 */
 double c2(double psi)
 {
-    double res;
+    long double res;
     if (psi > 1.0)
     {
         res = (1.0 - std::cos(std::sqrt(psi))) / psi;
@@ -77,7 +77,7 @@ double c2(double psi)
     else
     {
         res = .5;
-        double delta = (-1.0*psi) / std::tgamma(5);
+        long double delta = (-1.0*psi) / std::tgamma(5);
         int k = 1;
         while (res+delta != res)
         {
@@ -86,12 +86,12 @@ double c2(double psi)
             delta = pow((-1.0*psi), k)/std::tgamma(2*k + 3);
         }
     }
-    return res;
+    return (double) res;
 }
 
 double c3(double psi)
 {
-    double res;
+    long double res;
     if (psi > 1.0)
     {
         res =  (sqrt(psi) - sin(sqrt(psi))) / pow(psi, 1.5);
@@ -103,7 +103,7 @@ double c3(double psi)
     else
     {
         res = 1.0 / 6.0;
-        double delta = (-1.0 * psi) / std::tgamma(6);
+        long double delta = (-1.0 * psi) / std::tgamma(6);
         int k = 1;
         while (res+delta != res)
         {
@@ -112,7 +112,7 @@ double c3(double psi)
             delta = std::pow((-1.0*psi), k) / std::tgamma(2*k+4);
         }
     }
-    return res;
+    return (double) res;
 }
 
 EarthOrbit::EarthOrbit (vec3D& r_in, vec3D& v_in){
