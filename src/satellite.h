@@ -1,5 +1,5 @@
 #ifndef GAME_SATELLITE_H_
-#define GAME_SATELLITE_H__
+#define GAME_SATELLITE_H_
 // GLEW
 #define GLEW_STATIC
 #include <GL/glew.h>
@@ -8,10 +8,13 @@
 #include <GLFW/glfw3.h>
 
 // GLM Mathemtics
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "cube.h"
+#include "ellipse_3d.h"
 #include "orbit.h"
 
 class Satellite {
@@ -37,41 +40,4 @@ class Satellite {
         void Select();
         void Unselect();
 };
-
-Satellite::Satellite(glm::mat4 proj): orbit_(r_, v_), cube_(orbit_, proj), ellipse_(orbit_, proj) {
-}
-
-void Satellite::Render(glm::mat4 view) {
-
-    if(selected_) {
-        cube_.SetColor(glm::vec3(0.0f, 1.0f, 0.0f));
-        ellipse_.SetColor(glm::vec3(0.0f, 1.0f, 0.0f));
-    } else {
-        cube_.SetColor(glm::vec3(0.0f, 0.0f, 1.0f));
-        ellipse_.SetColor(glm::vec3(0.0f, 0.0f, 1.0f));
-    }
-    //Cube update and render
-    cube_.Update(orbit_);
-    cube_.Render(view);
-
-    // Draw Orbit
-    ellipse_.Update(orbit_);
-    ellipse_.Render(view);
-}
-
-void Satellite::Select() {
-    this->selected_ = true;
-}
-
-void Satellite::Unselect() {
-    this->selected_ = false;
-}
-
-glm::vec3 Satellite::GetR() {
-    return glm::vec3(orbit_.r.i, orbit_.r.j, orbit_.r.k);
-}
-
-glm::vec3 Satellite::GetV() {
-    return glm::vec3(orbit_.v.i, orbit_.v.j, orbit_.v.k);
-}
 #endif // GAME_SATELLITE_H_

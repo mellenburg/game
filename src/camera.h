@@ -1,9 +1,10 @@
-#pragma once
-
+#ifndef GAME_CAMERA_H_
+#define GAME_CAMERA_H_
 // Std. Includes
 #include <vector>
 
 // GL Includes
+#define GLM_FORCE_RADIANS
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -21,7 +22,7 @@ enum Camera_Movement {
 // Default camera values
 const GLfloat YAW        =  180.0f;
 const GLfloat PITCH      =  0.0f;
-const GLfloat SPEED      =  3.0f;
+const GLfloat SPEED      =  15000.0f;
 const GLfloat SENSITIVTY =  0.15f;
 const GLfloat ZOOM       =  45.0f;
 
@@ -121,3 +122,4 @@ private:
         this->Up    = glm::normalize(glm::cross(this->Right, this->Front));
     }
 };
+#endif

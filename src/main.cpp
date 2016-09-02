@@ -8,6 +8,7 @@
 #include <GLFW/glfw3.h>
 
 // My stuff
+//
 #include <unistd.h>
 #include "system.h"
 
@@ -43,7 +44,7 @@ int main()
     glewInit();
 
     //Init Module
-    gameSystem mySys(screenWidth, screenHeight);
+    GameSystem mySys(screenWidth, screenHeight);
 
     // Game loop
     while(!glfwWindowShouldClose(window))
