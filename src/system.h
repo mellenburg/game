@@ -21,6 +21,7 @@
 
 #include "satellite.h"
 #include "writer.h"
+#include "hud.h"
 
 void key_callback(GLFWwindow*, int, int, int, int);
 void mouse_callback(GLFWwindow*, double, double);
@@ -32,10 +33,10 @@ class GameSystem
         glm::mat4 projection_;
         Shader planet_shader_;
         Model planet_model_;
-        FtWriter text_writer_;
         vector<Satellite> satellite_pool_;
         GLuint width_, height_;
         float earth_phase_ = 0.0;
+        GameScreen game_screen_;
     public:
         GameSystem(GLuint, GLuint);
         void processKeys(GLfloat);

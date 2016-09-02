@@ -1,4 +1,3 @@
-#define GLM_FORCE_RADIANS
 // GLEW
 #define GLEW_STATIC
 #include <GL/glew.h>
@@ -12,6 +11,7 @@
 #include "model.h"
 
 // GLM Mathemtics
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -27,6 +27,7 @@
 #include "satellite.h"
 #include "writer.h"
 #include "line.h"
+#include "hud.h"
 #include "system.h"
 
 #define PI 3.14159265
@@ -154,7 +155,7 @@ void GameSystem::RemoveSatellite(){
     }
 }
 
-GameSystem::GameSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_("shaders/planet.vs", "shaders/planet.frag"), planet_model_("resources/3D/earth/earth.obj"), text_writer_(screenWidth, screenHeight) {
+GameSystem::GameSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_("shaders/planet.vs", "shaders/planet.frag"), planet_model_("resources/3D/earth/earth.obj"), game_screen_(0, 0, screenWidth, screenHeight, projection_) {
     width_=screenWidth;
     height_=screenHeight;
     // Define the viewport dimensions
@@ -175,6 +176,7 @@ GameSystem::GameSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_(
     // Setup consistent projection_ for system
     projection_ = glm::perspective(45.0f, (GLfloat)screenWidth/(GLfloat)screenHeight, 300.0f, 100*earth_radius);
 
+    game_screen_.projection_ = projection_;
     // Setup planet just once
     planet_shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(planet_shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection_));
@@ -199,24 +201,5 @@ void GameSystem::step(){
         satellite_pool_[i].Render(view);
         satellite_pool_[i].orbit_.propagate(timeFactor*timeResolution);
     }
-    //TODO: turn this into a neat annotation class
-    if(this->satellite_pool_.size() > 0) {
-        glm::vec3 box_pos = GetSelectedShip().GetR();
-        glm::vec3 box_pos_2 = glm::vec3(view*glm::vec4(box_pos, 1));
-        glm::vec3 tex_pos = glm::project(box_pos_2, glm::mat4(), projection_, glm::vec4(0,0,width_,height_));
-        std::stringstream s;
-        float velocity = glm::length(GetSelectedShip().GetV());
-        s<<"Velocity: "<<std::fixed<<std::setprecision(1)<<velocity<<" km/s";
-        text_writer_.RenderText(s.str(), tex_pos.x, tex_pos.y, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
-    }
-    if(this->satellite_pool_.size() > 1) {
-        glm::vec3 x1 = this->GetSelectedShip().GetR();
-        for(int i = 0; i < (int) satellite_pool_.size(); i++){
-            if(i != selected_ship_){
-                Line targeting(projection_);
-                targeting.Update(x1, satellite_pool_[i].GetR());
-                targeting.Draw(glm::vec3(1.0f, 0.0f, 0.0f), view);
-            }
-        }
-    }
+    game_screen_.RenderHud(satellite_pool_, selected_ship_, view);
 }
