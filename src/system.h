@@ -29,6 +29,7 @@
 #include "ellipse_3d.h"
 #include "satellite.h"
 #include "writer.h"
+#include "line.h"
 
 #define PI 3.14159265
 int timeFactor = 15;
@@ -250,6 +251,16 @@ void gameSystem::step(){
         float velocity = glm::length(GetSelectedShip().GetV());
         s<<"Velocity: "<<std::fixed<<std::setprecision(1)<<velocity<<" km/s";
         textWriter.RenderText(s.str(), tex_pos.x, tex_pos.y, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
+    }
+    if(this->total_ships_ > 1) {
+        glm::vec3 x1 = this->GetSelectedShip().GetR()/scale;
+        for(int i = 0; i < total_ships_; i++){
+            if(i != selected_ship_){
+                Line targeting(projection);
+                targeting.Update(x1, sBank[i].GetR()/scale);
+                targeting.Draw(glm::vec3(1.0f, 0.0f, 0.0f), view);
+            }
+        }
     }
 }
 #endif // GAME_SYSTEM_H_
