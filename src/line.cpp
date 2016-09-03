@@ -19,6 +19,12 @@ Line::Line()
     glGenBuffers(1, &VBO);
 }
 
+Line::~Line()
+{
+    glDeleteBuffers(1, &VBO);
+    glDeleteVertexArrays(1, &VAO);
+}
+
 void Line::Update(glm::vec3 start, glm::vec3 end)
 {
     vertices_[0] = start.x;

@@ -20,6 +20,7 @@ class Line {
         GLfloat vertices_[6];
     public:
         Line();
+        ~Line();
         void Draw(Shader);
         void Update(glm::vec3, glm::vec3);
 };
