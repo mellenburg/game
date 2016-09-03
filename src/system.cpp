@@ -155,7 +155,7 @@ void GameSystem::RemoveSatellite(){
     }
 }
 
-GameSystem::GameSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_("shaders/planet.vs", "shaders/planet.frag"), planet_model_("resources/3D/earth/earth.obj"), game_screen_(0, 0, screenWidth, screenHeight, projection_) {
+GameSystem::GameSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_("shaders/planet.vs", "shaders/planet.frag"), planet_model_("resources/3D/earth/earth.obj"), game_screen_(0, 0, screenWidth, screenHeight, projection_), line_shader_("shaders/basic.vs", "shaders/basic.frag") {
     width_=screenWidth;
     height_=screenHeight;
     // Define the viewport dimensions
@@ -180,6 +180,8 @@ GameSystem::GameSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_(
     // Setup planet just once
     planet_shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(planet_shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection_));
+    line_shader_.Use();
+    glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection_));
     this->AddSatellite();
     GetSelectedShip().Select();
 }
@@ -197,9 +199,16 @@ void GameSystem::step(){
     glUniformMatrix4fv(glGetUniformLocation(planet_shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model));
     planet_model_.Draw(planet_shader_);
     UpdateEarthPhase();
+
+    line_shader_.Use();
+    glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glm::mat4 model2;
+    glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
+    //glUniform3f(glGetUniformLocation(line_shader_.Program, "setColor"), color.x, color.y, color.z);
+    glUniform3f(glGetUniformLocation(line_shader_.Program, "setColor"), 1.0f, 0.0f, 0.0f);
     for (int i = 0; i<(int)satellite_pool_.size(); i++) {
         satellite_pool_[i].Render(view);
         satellite_pool_[i].orbit_.propagate(timeFactor*timeResolution);
     }
-    game_screen_.RenderHud(satellite_pool_, selected_ship_, view);
+    game_screen_.RenderHud(line_shader_, satellite_pool_, selected_ship_, view);
 }

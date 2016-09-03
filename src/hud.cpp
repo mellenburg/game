@@ -14,6 +14,7 @@
 #include <iomanip> //setw and setprecion
 #include <sstream>
 
+#include "shader.h"
 #include "satellite.h"
 #include "writer.h"
 #include "line.h"
@@ -31,7 +32,7 @@ glm::vec3 GameScreen::ScreenPosition(glm::vec3 real_position, glm::mat4 view)
     return glm::project(view_position, glm::mat4(), projection_, screen_dim_);
 }
 
-void GameScreen::RenderHud(std::vector<Satellite>& satellites, int selected, glm::mat4 view)
+void GameScreen::RenderHud(Shader shader, std::vector<Satellite>& satellites, int selected, glm::mat4 view)
 {
     glm::vec3 main_position = satellites[selected].GetR();
     glm::vec3 main_velocity = satellites[selected].GetV();
@@ -43,9 +44,9 @@ void GameScreen::RenderHud(std::vector<Satellite>& satellites, int selected, glm
         }
         glm::vec3 other_position = satellites[i].GetR();
         glm::vec3 other_velocity = satellites[i].GetV();
-        Line targeting(projection_);
+        Line targeting;
         targeting.Update(main_position, other_position);
-        targeting.Draw(glm::vec3(1.0f, 0.0f, 0.0f), view);
+        targeting.Draw(shader);
         float distance = glm::distance(main_position, other_position);
         std::stringstream s;
         s<<"Distance: "<<std::fixed<<std::setprecision(0)<<distance<<" km";

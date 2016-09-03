@@ -28,7 +28,7 @@ class GameScreen
         glm::mat4 projection_;
         GameScreen(GLuint, GLuint, GLuint, GLuint, glm::mat4);
         glm::vec3 ScreenPosition(glm::vec3, glm::mat4);
-        void RenderHud(std::vector<Satellite>&, int, glm::mat4);
+        void RenderHud(Shader, std::vector<Satellite>&, int, glm::mat4);
 };
 
 

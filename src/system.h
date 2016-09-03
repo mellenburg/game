@@ -31,6 +31,7 @@ class GameSystem
     private:
         int selected_ship_ = 0;
         glm::mat4 projection_;
+        Shader line_shader_;
         Shader planet_shader_;
         Model planet_model_;
         vector<Satellite> satellite_pool_;

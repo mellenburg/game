@@ -19,7 +19,7 @@
 #include "ellipse_3d.h"
 #define PI 3.14159265
 
-Ellipse3d::Ellipse3d(EarthOrbit& orbit, glm::mat4 projection): shader_("shaders/basic.vs", "shaders/basic.frag"), orbit_line_(projection) {
+Ellipse3d::Ellipse3d(EarthOrbit& orbit, glm::mat4 projection): shader_("shaders/basic.vs", "shaders/basic.frag"), orbit_line_() {
     this->Update(orbit);
     shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
@@ -58,7 +58,7 @@ void Ellipse3d::Render(glm::mat4 view) {
     glBindVertexArray(0);
     //Draw orbit line also
     orbit_line_.Update(x2_, x1_);
-    orbit_line_.Draw(color_, view);
+    orbit_line_.Draw(shader_);
 }
 
 void Ellipse3d::GenerateEllipse(float a, float ecc, float r_p, float inc, float raan, float argp) {
