@@ -14,10 +14,10 @@
 #include "orbit.h"
 #include "satellite.h"
 
-Satellite::Satellite(glm::mat4 proj): orbit_(r_, v_), cube_(orbit_, proj), ellipse_(orbit_, proj) {
+Satellite::Satellite(): orbit_(r_, v_), cube_(orbit_), ellipse_(orbit_) {
 }
 
-void Satellite::Render(glm::mat4 view) {
+void Satellite::Render(Shader shader) {
 
     if(selected_) {
         cube_.SetColor(glm::vec3(0.0f, 1.0f, 0.0f));
@@ -28,11 +28,11 @@ void Satellite::Render(glm::mat4 view) {
     }
     //Cube update and render
     cube_.Update(orbit_);
-    cube_.Render(view);
+    cube_.Render(shader);
 
     // Draw Orbit
     ellipse_.Update(orbit_);
-    ellipse_.Render(view);
+    ellipse_.Render(shader);
 }
 
 void Satellite::Select() {

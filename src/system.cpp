@@ -140,7 +140,7 @@ void GameSystem::processKeys(GLfloat deltaTime)
 }
 
 void GameSystem::AddSatellite(){
-    Satellite mySat(projection_);
+    Satellite mySat;
     satellite_pool_.push_back(mySat);
     GetSelectedShip().Unselect();
     selected_ship_ = satellite_pool_.size()-1;
@@ -207,7 +207,7 @@ void GameSystem::step(){
     //glUniform3f(glGetUniformLocation(line_shader_.Program, "setColor"), color.x, color.y, color.z);
     glUniform3f(glGetUniformLocation(line_shader_.Program, "setColor"), 1.0f, 0.0f, 0.0f);
     for (int i = 0; i<(int)satellite_pool_.size(); i++) {
-        satellite_pool_[i].Render(view);
+        satellite_pool_[i].Render(line_shader_);
         satellite_pool_[i].orbit_.propagate(timeFactor*timeResolution);
     }
     game_screen_.RenderHud(line_shader_, satellite_pool_, selected_ship_, view);

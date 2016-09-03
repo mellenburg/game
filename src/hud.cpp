@@ -45,6 +45,7 @@ void GameScreen::RenderHud(Shader shader, std::vector<Satellite>& satellites, in
         glm::vec3 other_position = satellites[i].GetR();
         glm::vec3 other_velocity = satellites[i].GetV();
         Line targeting;
+        glUniform3f(glGetUniformLocation(shader.Program, "setColor"), 1.0f, 0.0f, 0.0f);
         targeting.Update(main_position, other_position);
         targeting.Draw(shader);
         float distance = glm::distance(main_position, other_position);

@@ -14,81 +14,40 @@
 #include "orbit.h"
 #include "cube.h"
 
-void Cube::SetColor(glm::vec3 color) {
+void Cube::SetColor(glm::vec3 color)
+{
     color_ = color;
 }
 
-void Cube::Update(EarthOrbit& orbit){
+void Cube::Update(EarthOrbit& orbit)
+{
     position_ = glm::vec3(orbit.r.i, orbit.r.j, orbit.r.k);
 }
 
-Cube::Cube(EarthOrbit& orbit, glm::mat4 projection): shader_("shaders/basic.vs", "shaders/basic.frag"){
+Cube::Cube(EarthOrbit& orbit)
+{
     this->Update(orbit);
-    GLfloat vertices[] = {
--0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
-0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
--0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
--0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-
--0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
--0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
--0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-
--0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
--0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
--0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
--0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
--0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
--0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-
-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-
--0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-0.5f, -0.5f, -0.5f,  1.0f, 1.0f,
-0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
--0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
--0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
-
--0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
-0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
--0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
--0.5f,  0.5f, -0.5f,  0.0f, 1.0f
-};
-    shader_.Use();
-    glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
 }
 
-void Cube::Render(glm::mat4 view) {
-    shader_.Use();
-    glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glm::mat4 model3;
-
-    model3 = glm::translate(model3, position_);
-    model3 = glm::scale(model3, glm::vec3(100.f, 100.f, 100.f));
+void Cube::Render(Shader shader) {
+    GLfloat scale = 100.f;
+    for (int i = 0; i < 36; i++) {
+        int j = i*5;
+        vertices_[j] = (scale*ideal_vertices_[j])+position_.x;
+        vertices_[j+1] = (scale*ideal_vertices_[j+1])+position_.y;
+        vertices_[j+2] = (scale*ideal_vertices_[j+2])+position_.z;
+        vertices_[j+3] = ideal_vertices_[j+3];
+        vertices_[j+4] = ideal_vertices_[j+4];
+    }
     glBindVertexArray(VAO);
-    glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model3));
-    glUniform3f(glGetUniformLocation(shader_.Program, "setColor"), color_.x, color_.y, color_.z);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_), vertices_, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)0);
+    glEnableVertexAttribArray(0);
+    shader.Use();
+    glUniform3f(glGetUniformLocation(shader.Program, "setColor"), color_.x, color_.y, color_.z);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
 }

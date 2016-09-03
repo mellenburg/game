@@ -27,14 +27,14 @@ class Satellite {
         bool selected_ = false;
 
         EarthOrbit orbit_;
-        Satellite(glm::mat4);
+        Satellite();
         void thrustUp(int time){orbit_.goUp(time);}
         void thrustDown(int time){orbit_.goDown(time);}
         void thrustLeft(int time){orbit_.goLeft(time);}
         void thrustRight(int time){orbit_.goRight(time);}
         void thrustForward(int time){orbit_.goForward(time);}
         void thrustBackward(int time){orbit_.goBackward(time);}
-        void Render(glm::mat4);
+        void Render(Shader);
         glm::vec3 GetR();
         glm::vec3 GetV();
         void Select();

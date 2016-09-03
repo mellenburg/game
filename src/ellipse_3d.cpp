@@ -19,10 +19,8 @@
 #include "ellipse_3d.h"
 #define PI 3.14159265
 
-Ellipse3d::Ellipse3d(EarthOrbit& orbit, glm::mat4 projection): shader_("shaders/basic.vs", "shaders/basic.frag"), orbit_line_() {
+Ellipse3d::Ellipse3d(EarthOrbit& orbit): orbit_line_() {
     this->Update(orbit);
-    shader_.Use();
-    glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glGenVertexArrays(1, &eVAO);
     glGenBuffers(1, &eVBO);
 }
@@ -40,25 +38,20 @@ void Ellipse3d::Update(EarthOrbit& update) {
     argp_ = update.argp;
 }
 
-void Ellipse3d::Render(glm::mat4 view) {
+void Ellipse3d::Render(Shader shader) {
     GenerateEllipse(a_, ecc_, r_p_, inc_, raan_, argp_);
     glBindVertexArray(eVAO);
     glBindBuffer(GL_ARRAY_BUFFER, eVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_), vertices_, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (GLvoid*)0);
     glEnableVertexAttribArray(0);
-    glBindVertexArray(0); // Unbind VAO
-    shader_.Use();
-    glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glm::mat4 model2;
-    glBindVertexArray(eVAO);
-    glUniformMatrix4fv(glGetUniformLocation(shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
-    glUniform3f(glGetUniformLocation(shader_.Program, "setColor"), color_.x, color_.y, color_.z);
+    shader.Use();
+    glUniform3f(glGetUniformLocation(shader.Program, "setColor"), color_.x, color_.y, color_.z);
     glDrawArrays(GL_LINE_LOOP, 0, points_);
     glBindVertexArray(0);
     //Draw orbit line also
     orbit_line_.Update(x2_, x1_);
-    orbit_line_.Draw(shader_);
+    orbit_line_.Draw(shader);
 }
 
 void Ellipse3d::GenerateEllipse(float a, float ecc, float r_p, float inc, float raan, float argp) {

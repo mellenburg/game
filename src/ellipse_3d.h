@@ -24,7 +24,6 @@ class Ellipse3d {
     private:
         int points_ = 1000;
         GLfloat vertices_[3000];
-        Shader shader_ ;
         GLuint eVBO, eVAO;
         float a_, ecc_, r_p_, inc_, raan_, argp_;
         // periapsis and apoasis
@@ -33,9 +32,9 @@ class Ellipse3d {
         void GenerateEllipse(float, float, float, float, float, float);
         glm::vec3 color_ = {0.0f, 1.0f, 0.0f};
     public:
-        Ellipse3d(EarthOrbit&, glm::mat4);
+        Ellipse3d(EarthOrbit&);
         void Update(EarthOrbit&);
-        void Render(glm::mat4);
+        void Render(Shader);
         void SetColor(glm::vec3);
 };
 #endif // GAME_ELLIPSE_3D_H_

@@ -16,14 +16,58 @@
 
 class Cube {
     private:
-        Shader shader_ ;
+        GLfloat vertices_[180];
+        GLfloat ideal_vertices_[180] = {
+-0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
+0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+-0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+-0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+
+-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+-0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
+-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+
+-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+-0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+-0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+
+0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+
+-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+0.5f, -0.5f, -0.5f,  1.0f, 1.0f,
+0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+-0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+-0.5f, -0.5f, -0.5f,  0.0f, 1.0f,
+
+-0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+-0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
+-0.5f,  0.5f, -0.5f,  0.0f, 1.0f
+};
+
         GLuint VBO, VAO;
         glm::vec3 position_;
         glm::vec3 color_;
     public:
-        Cube(EarthOrbit&, glm::mat4);
+        Cube(EarthOrbit&);
         void Update(EarthOrbit&);
-        void Render(glm::mat4);
+        void Render(Shader);
         void SetColor(glm::vec3);
 };
 #endif //GAME_CUBE_H_
