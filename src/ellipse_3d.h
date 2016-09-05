@@ -33,7 +33,6 @@ class Ellipse3d {
         glm::vec3 color_ = {0.0f, 1.0f, 0.0f};
     public:
         Ellipse3d(EarthOrbit&);
-        ~Ellipse3d();
         void Update(EarthOrbit&);
         void Render(Shader);
         void SetColor(glm::vec3);
