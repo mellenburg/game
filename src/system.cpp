@@ -32,7 +32,7 @@
 
 #define PI 3.14159265
 const float earth_radius = 6371;
-int timeFactor = 15;
+int timeFactor = 500;
 const float timeResolution = .033333333; // 1/30th of a second clock time
 
 // Camera

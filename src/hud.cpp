@@ -20,6 +20,42 @@
 #include "line.h"
 #include "hud.h"
 
+bool solveQuadratic(const GLfloat &a, const GLfloat &b, const GLfloat &c, GLfloat &x0, GLfloat &x1)
+{
+    float discr = b * b - 4 * a * c;
+    if (discr < 0) return false;
+    else if (discr == 0) x0 = x1 = - 0.5 * b / a;
+    else {
+        float q = (b > 0) ?
+            -0.5 * (b + sqrt(discr)) :
+            -0.5 * (b - sqrt(discr));
+        x0 = q / a;
+        x1 = c / q;
+    }
+    if (x0 > x1) std::swap(x0, x1);
+
+    return true;
+}
+
+bool intersect(glm::vec3 &start, glm::vec3 &end)
+{
+    GLfloat t0, t1;
+    GLfloat radius2 = 40589641;
+    glm::vec3 dir = end - start;
+    GLfloat a = glm::dot(dir, dir);
+    GLfloat b = 2 * glm::dot(dir, start);
+    GLfloat c = glm::dot(start, start) - radius2;
+    if (!solveQuadratic(a, b, c, t0, t1)) return false;
+    if (t0>t1) std::swap(t0, t1);
+    if (t0 < 0) {
+        t0 = t1;
+        if (t0 < 0) return false;
+    }
+    if (t0 > 1) return false;
+    return true;
+}
+
+
 GameScreen::GameScreen(GLuint x, GLuint y, GLuint w, GLuint h, glm::mat4 proj): text_writer_(w, h)
 {
     projection_ = proj;
@@ -45,7 +81,12 @@ void GameScreen::RenderHud(Shader shader, std::vector<Satellite>& satellites, in
         glm::vec3 other_position = satellites[i].GetR();
         glm::vec3 other_velocity = satellites[i].GetV();
         Line targeting;
-        glUniform3f(glGetUniformLocation(shader.Program, "setColor"), 1.0f, 0.0f, 0.0f);
+        shader.Use();
+        if (intersect(main_position, other_position)){
+            glUniform3f(glGetUniformLocation(shader.Program, "setColor"), 1.0f, 1.0f, 0.0f);
+        } else {
+            glUniform3f(glGetUniformLocation(shader.Program, "setColor"), 1.0f, 0.0f, 0.0f);
+        }
         targeting.Update(main_position, other_position);
         targeting.Draw(shader);
         float distance = glm::distance(main_position, other_position);
