@@ -1,4 +1,5 @@
 #include <cmath>
+#include <iostream>
 #include "orbit.h"
 
 #define PI 3.14159265
@@ -138,13 +139,33 @@ void EarthOrbit::rv2coe()
     a = p / (1.0 - pow(ecc, 2.0));
     b = a * std::sqrt(1.0 - pow(ecc, 2));
     inc = std::acos(h.k/norm(h));
-    raan = std::atan2(n.j, n.i);
     vec3D h_cross_n = cross_product(h, n);
     vec3D h_cross_n_s = vec_scale(1.0/norm_h, h_cross_n);
-    vec3D h_cross_e = cross_product(h, e);
-    vec3D h_cross_e_s = vec_scale(1.0/norm_h, h_cross_e);
-    argp = std::atan2(dot_product(e, h_cross_n_s), dot_product(e, n));
-    nu = std::atan2(dot_product(r, h_cross_e_s), dot_product(r, e));
+    float tol = 1.0e-8;
+    bool equatorial = std::abs(inc) < tol;
+    bool circular = ecc < tol;
+    if (equatorial && !circular)
+    {
+        raan = 0;
+        argp = std::atan2(e.j, e.i);
+        vec3D e_cross_r = cross_product(e, r);
+        vec3D between = vec_scale((1.0/norm_h), e_cross_r);
+        nu = std::atan2(dot_product(h, between), dot_product(r, e));
+    } else if (!equatorial && circular) {
+        raan = std::atan2(n.j, n.i);
+        argp = 0.0f;
+        nu = std::atan2(dot_product(r, h_cross_n_s), dot_product(r, n));
+    } else if (equatorial && circular) {
+        raan = 0.0;
+        argp = 0.0;
+        nu = std::atan2(r.j, r.i);
+    } else {
+        raan = std::atan2(n.j, n.i);
+        vec3D h_cross_e = cross_product(h, e);
+        vec3D h_cross_e_s = vec_scale(1.0/norm_h, h_cross_e);
+        argp = std::atan2(dot_product(e, h_cross_n_s), dot_product(e, n));
+        nu = std::atan2(dot_product(r, h_cross_e_s), dot_product(r, e));
+    }
     r_a = a * (1.0 + ecc);
     r_p = a * (1.0 - ecc);
     period = 2*PI*sqrt(pow(a, 3)/k);

@@ -23,7 +23,7 @@ class Satellite {
         vec3D v_ = {-3.56, 6.618, 2.533};
         // Geosynchronous Orbit?
         //vec3D r_ = {42164., 0., 0.};
-        //vec3D v_ = {0, 20.3, 0.};
+        //vec3D v_ = {0, 3.0646981, 0.};
         Cube cube_;
         Ellipse3d ellipse_;
     public:

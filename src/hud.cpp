@@ -91,13 +91,16 @@ void GameScreen::RenderHud(Shader shader, std::vector<Satellite>& satellites, in
         targeting.Draw(shader);
         float distance = glm::distance(main_position, other_position);
         std::stringstream s;
-        s<<"Distance: "<<std::fixed<<std::setprecision(0)<<distance<<" km";
         glm::vec3 tex_pos = ScreenPosition(other_position, view);
-        text_writer_.RenderText(s.str(), tex_pos.x, tex_pos.y, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
-        s.str("");
-        float velocity = glm::distance(main_velocity, other_velocity);
-        s<<"delta-V: "<<std::fixed<<std::setprecision(2)<<velocity<<" km/s";
-        tex_pos = ScreenPosition(other_position, view);
-        text_writer_.RenderText(s.str(), tex_pos.x, tex_pos.y-28, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
+        // only plot if position is infront of view
+        if (tex_pos.z < 1)
+        {
+            s<<"Distance: "<<std::fixed<<std::setprecision(0)<<distance<<" km";
+            text_writer_.RenderText(s.str(), tex_pos.x, tex_pos.y, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
+            s.str("");
+            float velocity = glm::distance(main_velocity, other_velocity);
+            s<<"delta-V: "<<std::fixed<<std::setprecision(2)<<velocity<<" km/s";
+            text_writer_.RenderText(s.str(), tex_pos.x, tex_pos.y-28, 1.0f, glm::vec3(0.5, 0.8f, 0.2f));
+        }
     }
 }
