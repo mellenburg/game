@@ -16,7 +16,7 @@
 #include <iomanip> //setw and setprecion
 #include <sstream>
 
-#include "satellite.h"
+#include "orbital_set.h"
 #include "writer.h"
 
 class GameScreen
@@ -28,7 +28,7 @@ class GameScreen
         glm::mat4 projection_;
         GameScreen(GLuint, GLuint, GLuint, GLuint, glm::mat4);
         glm::vec3 ScreenPosition(glm::vec3, glm::mat4);
-        void RenderHud(Shader, std::vector<Satellite>&, int, glm::mat4);
+        void RenderHud(Shader, OrbitalSet, glm::mat4);
 };
 
 

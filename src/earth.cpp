@@ -17,17 +17,10 @@
 #include <glm/gtc/type_ptr.hpp>
 
 // My stuff
-#include <vector>
 #include <iostream>
-#include <iomanip> //setw and setprecion
-#include <sstream>
 
-#include "cube.h"
-#include "ellipse_3d.h"
-#include "satellite.h"
-#include "writer.h"
-#include "line.h"
 #include "hud.h"
+#include "orbital_set.h"
 #include "earth.h"
 
 #define PI 3.14159265
@@ -79,19 +72,6 @@ void EarthSystem::UpdateEarthPhase()
         earth_phase_ -= (2.0*PI);
     }
 }
-Satellite& EarthSystem::GetSelectedShip() {
-    return satellite_pool_[selected_ship_];
-}
-
-void EarthSystem::SelectNextShip() {
-    GetSelectedShip().Unselect();
-    if( (selected_ship_ + 1) == (int) satellite_pool_.size()) {
-        selected_ship_ = 0;
-    } else {
-        selected_ship_++;
-    }
-    GetSelectedShip().Select();
-}
 
 void EarthSystem::processKeys(GLfloat deltaTime)
 {
@@ -124,39 +104,23 @@ void EarthSystem::processKeys(GLfloat deltaTime)
         timeFactor++;
     if(keys[GLFW_KEY_E] && timeFactor>0)
         timeFactor--;
-    GetSelectedShip().SetManeuver(current_maneuver);
+    real_set_.GetSelectedShip().SetManeuver(current_maneuver);
     // TODO: use a void that accepts member function pointers
     // http://stackoverflow.com/questions/12662891/c-passing-member-function-as-argument
     // Selector
     if(was_pressed[GLFW_KEY_TAB] && !keys[GLFW_KEY_TAB]){
-        this->SelectNextShip();
+        real_set_.SelectNextShip();
         was_pressed[GLFW_KEY_TAB] = false;
     }
     // Add ship
     if(was_pressed[GLFW_KEY_N] && !keys[GLFW_KEY_N]){
-        this->AddSatellite();
+        real_set_.AddSatellite();
         was_pressed[GLFW_KEY_N] = false;
     }
     // Remove ship
     if(was_pressed[GLFW_KEY_R] && !keys[GLFW_KEY_R]){
-        this->RemoveSatellite();
+        real_set_.RemoveSatellite();
         was_pressed[GLFW_KEY_R] = false;
-    }
-}
-
-void EarthSystem::AddSatellite(){
-    Satellite mySat;
-    satellite_pool_.push_back(mySat);
-    GetSelectedShip().Unselect();
-    selected_ship_ = satellite_pool_.size()-1;
-    GetSelectedShip().Select();
-}
-
-void EarthSystem::RemoveSatellite(){
-    if( satellite_pool_.size() >0 ) {
-        satellite_pool_.erase(satellite_pool_.begin()+selected_ship_);
-        this->selected_ship_ = 0;
-        GetSelectedShip().Select();
     }
 }
 
@@ -187,8 +151,8 @@ EarthSystem::EarthSystem(GLuint screenWidth, GLuint screenHeight): planet_shader
     glUniformMatrix4fv(glGetUniformLocation(planet_shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection_));
     line_shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "projection"), 1, GL_FALSE, glm::value_ptr(projection_));
-    this->AddSatellite();
-    GetSelectedShip().Select();
+    real_set_.AddSatellite();
+    real_set_.GetSelectedShip().Select();
 }
 
 void EarthSystem::step(){
@@ -209,10 +173,8 @@ void EarthSystem::step(){
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glm::mat4 model2;
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
-    glUniform3f(glGetUniformLocation(line_shader_.Program, "setColor"), 1.0f, 0.0f, 0.0f);
-    for (int i = 0; i<(int)satellite_pool_.size(); i++) {
-        satellite_pool_[i].Render(line_shader_);
-        satellite_pool_[i].AdvanceTime(timeFactor*timeResolution);
-    }
-    game_screen_.RenderHud(line_shader_, satellite_pool_, selected_ship_, view);
+    // Render orbits and their satellites
+    real_set_.RenderAndAdvance(line_shader_, timeFactor*timeResolution);
+    // Render display info and target lines
+    game_screen_.RenderHud(line_shader_, real_set_, view);
 }

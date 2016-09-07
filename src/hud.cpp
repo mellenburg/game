@@ -18,6 +18,7 @@
 #include "satellite.h"
 #include "writer.h"
 #include "line.h"
+#include "orbital_set.h"
 #include "hud.h"
 
 bool solveQuadratic(const GLfloat &a, const GLfloat &b, const GLfloat &c, GLfloat &x0, GLfloat &x1)
@@ -68,18 +69,18 @@ glm::vec3 GameScreen::ScreenPosition(glm::vec3 real_position, glm::mat4 view)
     return glm::project(view_position, glm::mat4(), projection_, screen_dim_);
 }
 
-void GameScreen::RenderHud(Shader shader, std::vector<Satellite>& satellites, int selected, glm::mat4 view)
+void GameScreen::RenderHud(Shader shader, OrbitalSet orbital_set, glm::mat4 view)
 {
-    glm::vec3 main_position = satellites[selected].GetR();
-    glm::vec3 main_velocity = satellites[selected].GetV();
-    for( int i = 0; i < int(satellites.size()); i++)
+    glm::vec3 main_position = orbital_set.GetSelectedShip().GetR();
+    glm::vec3 main_velocity = orbital_set.GetSelectedShip().GetV();
+    for( int i = 0; i < int(orbital_set.satellites_.size()); i++)
     {
-        if (i==selected)
+        if (orbital_set.satellites_[i].selected_)
         {
             continue;
         }
-        glm::vec3 other_position = satellites[i].GetR();
-        glm::vec3 other_velocity = satellites[i].GetV();
+        glm::vec3 other_position = orbital_set.satellites_[i].GetR();
+        glm::vec3 other_velocity = orbital_set.satellites_[i].GetV();
         Line targeting;
         shader.Use();
         if (intersect(main_position, other_position)){

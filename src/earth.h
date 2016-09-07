@@ -17,10 +17,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 // My stuff
-#include <vector>
-
-#include "satellite.h"
 #include "writer.h"
+#include "orbital_set.h"
 #include "hud.h"
 
 void key_callback(GLFWwindow*, int, int, int, int);
@@ -34,7 +32,7 @@ class EarthSystem
         Shader line_shader_;
         Shader planet_shader_;
         Model planet_model_;
-        vector<Satellite> satellite_pool_;
+        OrbitalSet real_set_;
         GLuint width_, height_;
         float earth_phase_ = 0.0;
         GameScreen game_screen_;
@@ -42,10 +40,6 @@ class EarthSystem
         EarthSystem(GLuint, GLuint);
         void processKeys(GLfloat);
         void step();
-        void AddSatellite();
-        void RemoveSatellite();
-        Satellite& GetSelectedShip();
-        void SelectNextShip();
         void UpdateEarthPhase();
 };
 #endif // EARTH_H_
