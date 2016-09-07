@@ -35,6 +35,22 @@ void Satellite::Render(Shader shader) {
     ellipse_.Render(shader);
 }
 
+void Satellite::AdjustManeuver(glm::vec3 input_maneuver)
+{
+    raw_current_maneuver_ = raw_current_maneuver_ + input_maneuver;
+}
+
+void Satellite::SetManeuver(glm::vec3 input_maneuver)
+{
+    did_maneuver_ = true;
+    raw_current_maneuver_ = input_maneuver;
+}
+
+glm::vec3 Satellite::GetCurrentManeuver()
+{
+    return delta_v_*glm::normalize(raw_current_maneuver_);
+}
+
 void Satellite::Select() {
     this->selected_ = true;
 }
@@ -49,4 +65,20 @@ glm::vec3 Satellite::GetR() {
 
 glm::vec3 Satellite::GetV() {
     return glm::vec3(orbit_.v.i, orbit_.v.j, orbit_.v.k);
+}
+
+void Satellite::AdvanceTime(GLfloat delta_time)
+{
+    if (did_maneuver_ && glm::length(raw_current_maneuver_) == 0.0f)
+    {
+        did_maneuver_ = false;
+    }
+    if (did_maneuver_)
+    {
+        orbit_.relative_maneuver(GetCurrentManeuver(), (double) delta_time);
+    } else {
+        orbit_.propagate(delta_time);
+    }
+    // Reset
+    did_maneuver_ = false;
 }

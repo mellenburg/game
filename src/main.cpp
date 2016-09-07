@@ -10,7 +10,7 @@
 // My stuff
 //
 #include <unistd.h>
-#include "system.h"
+#include "earth.h"
 
 #define FPS 30
 
@@ -44,7 +44,7 @@ int main()
     glewInit();
 
     //Init Module
-    GameSystem mySys(screenWidth, screenHeight);
+    EarthSystem my_earth(screenWidth, screenHeight);
 
     // Game loop
     while(!glfwWindowShouldClose(window))
@@ -62,13 +62,13 @@ int main()
 
         // Check and call events
         glfwPollEvents();
-        mySys.processKeys(deltaTime);
+        my_earth.processKeys(deltaTime);
 
         // Clear buffers
         glClearColor(0.03f, 0.03f, 0.03f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        mySys.step();
+        my_earth.step();
 
         // reset our texture binding
         glActiveTexture(GL_TEXTURE0);

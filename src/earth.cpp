@@ -28,7 +28,7 @@
 #include "writer.h"
 #include "line.h"
 #include "hud.h"
-#include "system.h"
+#include "earth.h"
 
 #define PI 3.14159265
 const float earth_radius = 6371;
@@ -71,7 +71,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
     camera.ProcessMouseMovement(xoffset, yoffset);
 }
 
-void GameSystem::UpdateEarthPhase()
+void EarthSystem::UpdateEarthPhase()
 {
     float dif = (2.0*PI/(60.0*60.0*24.0));
     earth_phase_ += dif*timeFactor*timeResolution;
@@ -79,11 +79,11 @@ void GameSystem::UpdateEarthPhase()
         earth_phase_ -= (2.0*PI);
     }
 }
-Satellite& GameSystem::GetSelectedShip() {
+Satellite& EarthSystem::GetSelectedShip() {
     return satellite_pool_[selected_ship_];
 }
 
-void GameSystem::SelectNextShip() {
+void EarthSystem::SelectNextShip() {
     GetSelectedShip().Unselect();
     if( (selected_ship_ + 1) == (int) satellite_pool_.size()) {
         selected_ship_ = 0;
@@ -93,8 +93,12 @@ void GameSystem::SelectNextShip() {
     GetSelectedShip().Select();
 }
 
-void GameSystem::processKeys(GLfloat deltaTime)
+void EarthSystem::processKeys(GLfloat deltaTime)
 {
+    glm::vec3 forward = {1.0f, 0.0f, 0.0f};
+    glm::vec3 left = {0.0f, 1.0f, 0.0f};
+    glm::vec3 up = {0.0f, 0.0f, 1.0f};
+    glm::vec3 current_maneuver = {0.0f, 0.0f, 0.0f};
     // Camera controls
     if(keys[GLFW_KEY_W])
         camera.ProcessKeyboard(FORWARD, deltaTime);
@@ -105,21 +109,22 @@ void GameSystem::processKeys(GLfloat deltaTime)
     if(keys[GLFW_KEY_D])
         camera.ProcessKeyboard(RIGHT, deltaTime);
     if(keys[GLFW_KEY_UP])
-        GetSelectedShip().thrustForward(timeFactor*timeResolution);
+        current_maneuver += forward;
     if(keys[GLFW_KEY_DOWN])
-        GetSelectedShip().thrustBackward(timeFactor*timeResolution);
+        current_maneuver -= forward;
     if(keys[GLFW_KEY_LEFT])
-        GetSelectedShip().thrustLeft(timeFactor*timeResolution);
+        current_maneuver += left;
     if(keys[GLFW_KEY_RIGHT])
-        GetSelectedShip().thrustRight(timeFactor*timeResolution);
+        current_maneuver -= left;
     if(keys[GLFW_KEY_PAGE_UP])
-        GetSelectedShip().thrustUp(timeFactor*timeResolution);
+        current_maneuver += up;
     if(keys[GLFW_KEY_PAGE_DOWN])
-        GetSelectedShip().thrustDown(timeFactor*timeResolution);
+        current_maneuver -= up;
     if(keys[GLFW_KEY_Q])
         timeFactor++;
     if(keys[GLFW_KEY_E] && timeFactor>0)
         timeFactor--;
+    GetSelectedShip().SetManeuver(current_maneuver);
     // TODO: use a void that accepts member function pointers
     // http://stackoverflow.com/questions/12662891/c-passing-member-function-as-argument
     // Selector
@@ -139,7 +144,7 @@ void GameSystem::processKeys(GLfloat deltaTime)
     }
 }
 
-void GameSystem::AddSatellite(){
+void EarthSystem::AddSatellite(){
     Satellite mySat;
     satellite_pool_.push_back(mySat);
     GetSelectedShip().Unselect();
@@ -147,7 +152,7 @@ void GameSystem::AddSatellite(){
     GetSelectedShip().Select();
 }
 
-void GameSystem::RemoveSatellite(){
+void EarthSystem::RemoveSatellite(){
     if( satellite_pool_.size() >0 ) {
         satellite_pool_.erase(satellite_pool_.begin()+selected_ship_);
         this->selected_ship_ = 0;
@@ -155,7 +160,7 @@ void GameSystem::RemoveSatellite(){
     }
 }
 
-GameSystem::GameSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_("shaders/planet.vs", "shaders/planet.frag"), planet_model_("resources/3D/earth/earth.obj"), game_screen_(0, 0, screenWidth, screenHeight, projection_), line_shader_("shaders/basic.vs", "shaders/basic.frag") {
+EarthSystem::EarthSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_("shaders/planet.vs", "shaders/planet.frag"), planet_model_("resources/3D/earth/earth.obj"), game_screen_(0, 0, screenWidth, screenHeight, projection_), line_shader_("shaders/basic.vs", "shaders/basic.frag") {
     width_=screenWidth;
     height_=screenHeight;
     // Define the viewport dimensions
@@ -186,7 +191,7 @@ GameSystem::GameSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_(
     GetSelectedShip().Select();
 }
 
-void GameSystem::step(){
+void EarthSystem::step(){
     glm::mat4 view = camera.GetViewMatrix();
     planet_shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(planet_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
@@ -204,11 +209,10 @@ void GameSystem::step(){
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glm::mat4 model2;
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
-    //glUniform3f(glGetUniformLocation(line_shader_.Program, "setColor"), color.x, color.y, color.z);
     glUniform3f(glGetUniformLocation(line_shader_.Program, "setColor"), 1.0f, 0.0f, 0.0f);
     for (int i = 0; i<(int)satellite_pool_.size(); i++) {
         satellite_pool_[i].Render(line_shader_);
-        satellite_pool_[i].orbit_.propagate(timeFactor*timeResolution);
+        satellite_pool_[i].AdvanceTime(timeFactor*timeResolution);
     }
     game_screen_.RenderHud(line_shader_, satellite_pool_, selected_ship_, view);
 }

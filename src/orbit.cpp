@@ -1,3 +1,9 @@
+// GLM Mathemtics
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
 #include <cmath>
 #include <iostream>
 #include "orbit.h"
@@ -57,13 +63,7 @@ vec3D vec_add(vec3D &u, vec3D &v){
     w.k = u.k + v.k;
     return w;
 }
-/*
-void dump_vector(string const &title, vec3D &dat)
-{
-    cout<<title;
-    printf(" : [%f, %f, %f]\n", dat.i, dat.j, dat.k);
-}
-*/
+
 double c2(double psi)
 {
     long double res;
@@ -280,42 +280,17 @@ void EarthOrbit::relative_maneuver(vec4D &dv){
     maneuver(man_t);
 }
 
-void EarthOrbit::relative_maneuver(vec3D &dv, double t){
+void EarthOrbit::relative_maneuver(glm::vec3 dv, double t){
     vec3D i = vec_scale(1.0/norm(v), v);
     vec3D r_cross_v = cross_product(r, v);
     vec3D k = vec_scale(1.0/norm(r_cross_v), r_cross_v);
     vec3D i_cross_k = cross_product(i, k);
     vec3D j = vec_scale(-1.0/norm(i_cross_k), i_cross_k);
-    i = vec_scale(dv.i, i);
-    j = vec_scale(dv.j, j);
-    k = vec_scale(dv.k, k);
+    i = vec_scale(dv.x, i);
+    j = vec_scale(dv.y, j);
+    k = vec_scale(dv.z, k);
     vec3D manjk = vec_add(j, k);
     vec3D manijk = vec_add(i , manjk);
     vec4D man_t = {manijk.i, manijk.j, manijk.k, t};
     maneuver(man_t);
 }
-/*
-void EarthOrbit::dump_state()
-{
-    printf ("Semi-major Axis (km): %f\n", a);
-    printf ("Eccentricity: %f\n", ecc);
-    printf ("Inclination (rad): %f\n", inc);
-    printf ("Right Ascension of Ascending Node (rad): %f\n", raan);
-    printf ("Argument of Pericenteri (rad): %f\n", argp);
-    printf ("True anomaly (rad): %f\n", nu);
-    printf ("Orbital Period (s): %f\n", period);
-    printf ("Orbital Period (m): %f\n", period/60);
-    printf ("Orbital Period (h): %f\n", period/3600);
-    printf ("Lowest Altitude (km): %f\n", r_p-6378.);
-    printf ("|R| (km): %f\n", norm_r);
-    printf ("|V| (km/s): %f\n", norm_v);
-    dump_vector("R", r);
-    dump_vector("V", v);
-}
-*/
-void EarthOrbit::goForward(double t){relative_maneuver(forward, t);};
-void EarthOrbit::goLeft(double t){relative_maneuver(left, t);};
-void EarthOrbit::goRight(double t){relative_maneuver(right, t);};
-void EarthOrbit::goBackward(double t){relative_maneuver(backward, t);};
-void EarthOrbit::goUp(double t){relative_maneuver(up, t);};
-void EarthOrbit::goDown(double t){relative_maneuver(down, t);};

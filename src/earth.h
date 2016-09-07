@@ -1,5 +1,5 @@
-#ifndef GAME_SYSTEM_H_
-#define GAME_SYSTEM_H_
+#ifndef GAME_EARTH_H_
+#define GAME_EARTH_H_
 // GLEW
 #define GLEW_STATIC
 #include <GL/glew.h>
@@ -26,7 +26,7 @@
 void key_callback(GLFWwindow*, int, int, int, int);
 void mouse_callback(GLFWwindow*, double, double);
 
-class GameSystem
+class EarthSystem
 {
     private:
         int selected_ship_ = 0;
@@ -39,7 +39,7 @@ class GameSystem
         float earth_phase_ = 0.0;
         GameScreen game_screen_;
     public:
-        GameSystem(GLuint, GLuint);
+        EarthSystem(GLuint, GLuint);
         void processKeys(GLfloat);
         void step();
         void AddSatellite();
@@ -48,4 +48,4 @@ class GameSystem
         void SelectNextShip();
         void UpdateEarthPhase();
 };
-#endif // GAME_SYSTEM_H_
+#endif // EARTH_H_

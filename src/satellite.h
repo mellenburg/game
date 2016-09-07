@@ -26,17 +26,17 @@ class Satellite {
         //vec3D v_ = {0, 3.0646981, 0.};
         Cube cube_;
         Ellipse3d ellipse_;
+        bool did_maneuver_;
+        glm::vec3 raw_current_maneuver_ = {0.0f, 0.0f, 0.0f};
     public:
-        bool selected_ = false;
-
-        EarthOrbit orbit_;
         Satellite();
-        void thrustUp(int time){orbit_.goUp(time);}
-        void thrustDown(int time){orbit_.goDown(time);}
-        void thrustLeft(int time){orbit_.goLeft(time);}
-        void thrustRight(int time){orbit_.goRight(time);}
-        void thrustForward(int time){orbit_.goForward(time);}
-        void thrustBackward(int time){orbit_.goBackward(time);}
+        glm::vec3 GetCurrentManeuver();
+        void AdvanceTime(GLfloat);
+        void AdjustManeuver(glm::vec3);
+        void SetManeuver(glm::vec3);
+        GLfloat delta_v_ = .050f;
+        bool selected_ = false;
+        EarthOrbit orbit_;
         void Render(Shader);
         glm::vec3 GetR();
         glm::vec3 GetV();
