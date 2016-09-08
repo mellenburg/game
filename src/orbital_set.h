@@ -29,8 +29,10 @@ class OrbitalSet
         OrbitalSet();
         Satellite& GetSelectedShip();
         void SelectNextShip();
+        void Clone(OrbitalSet&);
         void AddSatellite();
         void RemoveSatellite();
-        void RenderAndAdvance(Shader, float);
+        void Render(Shader, bool);
+        void Advance(float);
 };
 #endif // GAME_ORBITAL_SET_H_

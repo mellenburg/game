@@ -24,6 +24,13 @@ OrbitalSet::OrbitalSet()
 {
 }
 
+void OrbitalSet::Clone(OrbitalSet& input_set)
+{
+    satellites_ = input_set.satellites_;
+    selected_ship_ = input_set.selected_ship_;
+    GetSelectedShip().Select();
+}
+
 Satellite& OrbitalSet::GetSelectedShip()
 {
     return satellites_[selected_ship_];
@@ -58,10 +65,20 @@ void OrbitalSet::RemoveSatellite()
     }
 }
 
-void OrbitalSet::RenderAndAdvance(Shader shader, float delta_time){
+void OrbitalSet::Render(Shader shader, bool planning_mode)
+{
     shader.Use();
-    for (int i = 0; i<(int)satellites_.size(); i++) {
-        satellites_[i].Render(shader);
+    for (int i = 0; i<int(satellites_.size()); i++)
+    {
+        bool sat_only = planning_mode && i!=selected_ship_;
+        satellites_[i].Render(shader, sat_only);
+    }
+}
+
+void OrbitalSet::Advance(float delta_time)
+{
+    for (int i = 0; i<int(satellites_.size()); i++)
+    {
         satellites_[i].AdvanceTime(delta_time);
     }
 }

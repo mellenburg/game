@@ -37,7 +37,7 @@ class Satellite {
         GLfloat delta_v_ = .050f;
         bool selected_ = false;
         EarthOrbit orbit_;
-        void Render(Shader);
+        void Render(Shader, bool);
         glm::vec3 GetR();
         glm::vec3 GetV();
         void Select();

@@ -24,9 +24,12 @@
 #include "earth.h"
 
 #define PI 3.14159265
+bool planning_mode = false;
 const float earth_radius = 6371;
 int timeFactor = 500;
 const float timeResolution = .033333333; // 1/30th of a second clock time
+int dt = 0;
+glm::vec3 planning_maneuver = {0.0f, 0.0f, 0.0f};
 
 // Camera
 Camera camera(glm::vec3(3*earth_radius, 0.0f, 0.0f));
@@ -79,7 +82,11 @@ void EarthSystem::processKeys(GLfloat deltaTime)
     glm::vec3 left = {0.0f, 1.0f, 0.0f};
     glm::vec3 up = {0.0f, 0.0f, 1.0f};
     glm::vec3 current_maneuver = {0.0f, 0.0f, 0.0f};
-    // Camera controls
+    if(planning_mode)
+    {
+        current_maneuver = planning_maneuver;
+        planning_set_.Clone(real_set_);
+    }
     if(keys[GLFW_KEY_W])
         camera.ProcessKeyboard(FORWARD, deltaTime);
     if(keys[GLFW_KEY_S])
@@ -104,7 +111,17 @@ void EarthSystem::processKeys(GLfloat deltaTime)
         timeFactor++;
     if(keys[GLFW_KEY_E] && timeFactor>0)
         timeFactor--;
-    real_set_.GetSelectedShip().SetManeuver(current_maneuver);
+    if(keys[GLFW_KEY_T])
+        dt++;
+    if(keys[GLFW_KEY_G] && dt>0)
+        dt--;
+    if(planning_mode)
+    {
+        planning_maneuver = current_maneuver;
+        planning_set_.GetSelectedShip().SetManeuver(current_maneuver);
+    } else {
+        real_set_.GetSelectedShip().SetManeuver(current_maneuver);
+    }
     // TODO: use a void that accepts member function pointers
     // http://stackoverflow.com/questions/12662891/c-passing-member-function-as-argument
     // Selector
@@ -121,6 +138,17 @@ void EarthSystem::processKeys(GLfloat deltaTime)
     if(was_pressed[GLFW_KEY_R] && !keys[GLFW_KEY_R]){
         real_set_.RemoveSatellite();
         was_pressed[GLFW_KEY_R] = false;
+    }
+    // Planning Mode
+    if(was_pressed[GLFW_KEY_P] && !keys[GLFW_KEY_P]){
+        if (!planning_mode)
+        {
+            planning_set_.Clone(real_set_);
+            planning_mode = true;
+        } else {
+            planning_mode = false;
+        }
+        was_pressed[GLFW_KEY_P] = false;
     }
 }
 
@@ -173,8 +201,17 @@ void EarthSystem::step(){
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glm::mat4 model2;
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
+    if(planning_mode)
+    {
+        planning_set_.Advance(float(dt));
+        // Render orbits and their satellites
+        planning_set_.Render(line_shader_, true);
+        // Render display info and target lines
+        game_screen_.RenderHud(line_shader_, planning_set_, view);
+    }
     // Render orbits and their satellites
-    real_set_.RenderAndAdvance(line_shader_, timeFactor*timeResolution);
+    real_set_.Render(line_shader_, false);
+    real_set_.Advance(timeFactor*timeResolution);
     // Render display info and target lines
     game_screen_.RenderHud(line_shader_, real_set_, view);
 }

@@ -11,13 +11,15 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <iostream>
+
 #include "orbit.h"
 #include "satellite.h"
 
 Satellite::Satellite(): orbit_(r_, v_), cube_(orbit_), ellipse_(orbit_) {
 }
 
-void Satellite::Render(Shader shader) {
+void Satellite::Render(Shader shader, bool satellite_only) {
 
     if(selected_) {
         cube_.SetColor(glm::vec3(0.0f, 1.0f, 0.0f));
@@ -31,8 +33,11 @@ void Satellite::Render(Shader shader) {
     cube_.Render(shader);
 
     // Draw Orbit
-    ellipse_.Update(orbit_);
-    ellipse_.Render(shader);
+    if(!satellite_only)
+    {
+        ellipse_.Update(orbit_);
+        ellipse_.Render(shader);
+    }
 }
 
 void Satellite::AdjustManeuver(glm::vec3 input_maneuver)
@@ -48,7 +53,8 @@ void Satellite::SetManeuver(glm::vec3 input_maneuver)
 
 glm::vec3 Satellite::GetCurrentManeuver()
 {
-    return delta_v_*glm::normalize(raw_current_maneuver_);
+    //return delta_v_*glm::normalize(raw_current_maneuver_);
+    return delta_v_*raw_current_maneuver_;
 }
 
 void Satellite::Select() {

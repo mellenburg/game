@@ -69,7 +69,7 @@ glm::vec3 GameScreen::ScreenPosition(glm::vec3 real_position, glm::mat4 view)
     return glm::project(view_position, glm::mat4(), projection_, screen_dim_);
 }
 
-void GameScreen::RenderHud(Shader shader, OrbitalSet orbital_set, glm::mat4 view)
+void GameScreen::RenderHud(Shader shader, OrbitalSet& orbital_set, glm::mat4 view)
 {
     glm::vec3 main_position = orbital_set.GetSelectedShip().GetR();
     glm::vec3 main_velocity = orbital_set.GetSelectedShip().GetV();

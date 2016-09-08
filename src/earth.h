@@ -27,12 +27,14 @@ void mouse_callback(GLFWwindow*, double, double);
 class EarthSystem
 {
     private:
+        bool planning_mode_ = true;
         int selected_ship_ = 0;
         glm::mat4 projection_;
         Shader line_shader_;
         Shader planet_shader_;
         Model planet_model_;
         OrbitalSet real_set_;
+        OrbitalSet planning_set_;
         GLuint width_, height_;
         float earth_phase_ = 0.0;
         GameScreen game_screen_;
