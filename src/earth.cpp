@@ -112,9 +112,9 @@ void EarthSystem::processKeys(GLfloat deltaTime)
     if(keys[GLFW_KEY_E] && timeFactor>0)
         timeFactor--;
     if(keys[GLFW_KEY_T])
-        dt++;
+        dt+=20;
     if(keys[GLFW_KEY_G] && dt>0)
-        dt--;
+        dt-=20;
     if(planning_mode)
     {
         planning_maneuver = current_maneuver;

@@ -10,63 +10,9 @@
 
 #define PI 3.14159265
 
-vec3D cross_product (vec3D &u, vec3D &v){
-    vec3D w;
-    w.i = u.j*v.k - u.k*v.j;
-    w.j = u.k*v.i - u.i*v.k;
-    w.k = u.i*v.j - u.j*v.i;
-    return w;
-}
-
-vec3D vec_copy (vec3D &u){
-    vec3D v;
-    v.i = u.i;
-    v.j = u.j;
-    v.k = u.k;
-    return v;
-}
-
-void vec_copy_to (vec3D &u, vec3D& v){
-    v.i = u.i;
-    v.j = u.j;
-    v.k = u.k;
-}
-
-vec4D vec_copy (vec4D &u){
-    vec4D v;
-    v.i = u.i;
-    v.j = u.j;
-    v.k = u.k;
-    v.t = u.t;
-    return v;
-}
-
-double dot_product (vec3D &u, vec3D &v)
+GLfloat c2(GLfloat psi)
 {
-    return (u.i*v.i)+(u.j*v.j)+(u.k*v.k);
-}
-
-double norm (vec3D &u)
-{
-    return std::sqrt(dot_product(u, u));
-}
-
-vec3D vec_scale (double f, vec3D &u)
-{
-    return vec3D {f*u.i, f*u.j, f*u.k};
-}
-
-vec3D vec_add(vec3D &u, vec3D &v){
-    vec3D w;
-    w.i = u.i + v.i;
-    w.j = u.j + v.j;
-    w.k = u.k + v.k;
-    return w;
-}
-
-double c2(double psi)
-{
-    long double res;
+    GLfloat res;
     if (psi > 1.0)
     {
         res = (1.0 - std::cos(std::sqrt(psi))) / psi;
@@ -78,7 +24,7 @@ double c2(double psi)
     else
     {
         res = .5;
-        long double delta = (-1.0*psi) / std::tgamma(5);
+        GLfloat delta = (-1.0*psi) / std::tgamma(5);
         int k = 1;
         while (res+delta != res)
         {
@@ -87,12 +33,12 @@ double c2(double psi)
             delta = pow((-1.0*psi), k)/std::tgamma(2*k + 3);
         }
     }
-    return (double) res;
+    return (GLfloat) res;
 }
 
-double c3(double psi)
+GLfloat c3(GLfloat psi)
 {
-    long double res;
+    GLfloat res;
     if (psi > 1.0)
     {
         res =  (sqrt(psi) - sin(sqrt(psi))) / pow(psi, 1.5);
@@ -104,7 +50,7 @@ double c3(double psi)
     else
     {
         res = 1.0 / 6.0;
-        long double delta = (-1.0 * psi) / std::tgamma(6);
+        GLfloat delta = (-1.0 * psi) / std::tgamma(6);
         int k = 1;
         while (res+delta != res)
         {
@@ -113,12 +59,13 @@ double c3(double psi)
             delta = std::pow((-1.0*psi), k) / std::tgamma(2*k+4);
         }
     }
-    return (double) res;
+    return (GLfloat) res;
 }
 
-EarthOrbit::EarthOrbit (vec3D& r_in, vec3D& v_in){
-    vec_copy_to(r_in, r);
-    vec_copy_to(v_in, v);
+EarthOrbit::EarthOrbit (glm::vec3& r_in, glm::vec3& v_in)
+{
+    r = r_in;
+    v = v_in;
     rv2coe();
 }
 
@@ -126,63 +73,56 @@ EarthOrbit::~EarthOrbit (){}
 
 void EarthOrbit::rv2coe()
 {
-    vec3D z = {0., 0., 1.0};
-    vec3D h = cross_product(r, v);
-    double norm_h = norm(h);
-    vec3D z_cross_h =  cross_product(z, h);
-    vec3D n = vec_scale(1.0/norm_h, z_cross_h);
-    vec3D e_r = vec_scale((dot_product(v, v)-(k/norm(r)))/k, r);
-    vec3D e_v = vec_scale((-1.0*dot_product(r, v))/k, v);
-    vec3D e = vec_add(e_r, e_v);
-    ecc = norm(e);
-    p = dot_product(h, h) / k;
+    glm::vec3 z {0.0f, 0.0f, 1.0f};
+    glm::vec3 h = glm::cross(r, v);
+    GLfloat h_length = glm::length(h);
+    GLfloat r_length = glm::length(r);
+    glm::vec3 n = glm::cross(z, h)/h_length;
+    glm::vec3 e = (((glm::dot(v, v) - (k/r_length)) * r) - (glm::dot(r, v) * v))/k;
+    ecc = glm::length(e);
+    p = glm::dot(h, h) / k;
     a = p / (1.0 - pow(ecc, 2.0));
     b = a * std::sqrt(1.0 - pow(ecc, 2));
-    inc = std::acos(h.k/norm(h));
-    vec3D h_cross_n = cross_product(h, n);
-    vec3D h_cross_n_s = vec_scale(1.0/norm_h, h_cross_n);
-    float tol = 1.0e-8;
+    inc = std::acos(h.z/h_length);
+    glm::vec3 h_cross_n_s = glm::cross(h, n)/h_length;
+    GLfloat tol = 1.0e-8;
     bool equatorial = std::abs(inc) < tol;
     bool circular = ecc < tol;
     if (equatorial && !circular)
     {
         raan = 0;
-        argp = std::atan2(e.j, e.i);
-        vec3D e_cross_r = cross_product(e, r);
-        vec3D between = vec_scale((1.0/norm_h), e_cross_r);
-        nu = std::atan2(dot_product(h, between), dot_product(r, e));
+        argp = std::atan2(e.y, e.x);
+        nu = std::atan2(glm::dot(h, glm::cross(e, r)/h_length), glm::dot(r, e));
     } else if (!equatorial && circular) {
-        raan = std::atan2(n.j, n.i);
+        raan = std::atan2(n.y, n.x);
         argp = 0.0f;
-        nu = std::atan2(dot_product(r, h_cross_n_s), dot_product(r, n));
+        nu = std::atan2(glm::dot(r, h_cross_n_s), glm::dot(r, n));
     } else if (equatorial && circular) {
         raan = 0.0;
         argp = 0.0;
-        nu = std::atan2(r.j, r.i);
+        nu = std::atan2(r.y, r.x);
     } else {
-        raan = std::atan2(n.j, n.i);
-        vec3D h_cross_e = cross_product(h, e);
-        vec3D h_cross_e_s = vec_scale(1.0/norm_h, h_cross_e);
-        argp = std::atan2(dot_product(e, h_cross_n_s), dot_product(e, n));
-        nu = std::atan2(dot_product(r, h_cross_e_s), dot_product(r, e));
+        raan = std::atan2(n.y, n.x);
+        argp = std::atan2(glm::dot(e, h_cross_n_s), glm::dot(e, n));
+        nu = std::atan2(glm::dot(r, glm::cross(h, e)/h_length), glm::dot(r, e));
     }
     r_a = a * (1.0 + ecc);
     r_p = a * (1.0 - ecc);
     period = 2*PI*sqrt(pow(a, 3)/k);
-    norm_r = norm(r);
-    norm_v = norm(v);
+    norm_r = glm::length(r);
+    norm_v = glm::length(v);
 }
 
-void EarthOrbit::propagate(double tof)
+void EarthOrbit::propagate(GLfloat tof)
 {
     //Compute Lagrange coefficients
-    vec3D r0 = vec_copy(r);
-    vec3D v0 = vec_copy(v);
-    double dot_r0v0 = dot_product(r0, v0);
-    double norm_r0 = norm(r0);
-    double sqrt_mu = std::pow(k, .5);
-    double alpha = (2/norm_r0)-(dot_product(v0, v0)/k);
-    double xi_new;
+    glm::vec3 r0 = r;
+    glm::vec3 v0 = v;
+    GLfloat dot_r0v0 = glm::dot(r0, v0);
+    GLfloat norm_r0 = glm::length(r0);
+    GLfloat sqrt_mu = std::pow(k, .5);
+    GLfloat alpha = (2/norm_r0)-(glm::dot(v0, v0)/k);
+    GLfloat xi_new;
     if (alpha > 0)
     {
         //Elliptical Orbit
@@ -200,11 +140,11 @@ void EarthOrbit::propagate(double tof)
     }
     //Newton-Raphson iteration on the Kepler equation
     int count = 0;
-    double xi;
-    double psi;
-    double c2_psi;
-    double c3_psi;
-    double norm_r;
+    GLfloat xi;
+    GLfloat psi;
+    GLfloat c2_psi;
+    GLfloat c3_psi;
+    GLfloat norm_r;
     while (count < numiter)
     {
         xi = xi_new;
@@ -227,30 +167,26 @@ void EarthOrbit::propagate(double tof)
         }
         // TODO: raise error when too many iterations reached
     }
-    double f = 1.0 - std::pow(xi, 2) / norm_r0 * c2_psi;
-    double g = tof - std::pow(xi, 3) / sqrt_mu * c3_psi;
-    double gdot = 1.0 - std::pow(xi, 2) / norm_r * c2_psi;
-    double fdot = sqrt_mu / (norm_r * norm_r0) * xi * (psi * c3_psi - 1.0);
-    vec3D f_r0 = vec_scale(f, r0);
-    vec3D g_v0 = vec_scale(g, v0);
-    r = vec_add(f_r0, g_v0);
-    vec3D fdot_r0 = vec_scale(fdot, r0);
-    vec3D gdot_v0 = vec_scale(gdot, v0);
-    v = vec_add(fdot_r0, gdot_v0);
+    GLfloat f = 1.0 - std::pow(xi, 2) / norm_r0 * c2_psi;
+    GLfloat g = tof - std::pow(xi, 3) / sqrt_mu * c3_psi;
+    GLfloat gdot = 1.0 - std::pow(xi, 2) / norm_r * c2_psi;
+    GLfloat fdot = sqrt_mu / (norm_r * norm_r0) * xi * (psi * c3_psi - 1.0);
+    r = f * r0 + g * v0;
+    v = fdot * r0 + gdot * v0;
     rv2coe();
 }
 
-void EarthOrbit::maneuver(vec4D &dv){
-    propagate(dv.t);
-    vec3D v0 = v;
-    vec3D dv_space = {dv.i, dv.j, dv.k};
-    v = vec_add(v0, dv_space);
+void EarthOrbit::maneuver(glm::vec4 &dv)
+{
+    propagate(dv.w);
+    v = v + glm::vec3(dv);
     rv2coe();
 }
 
-void EarthOrbit::clone(EarthOrbit& e) {
-    vec_copy_to(e.r, r);
-    vec_copy_to(e.v, v);
+void EarthOrbit::clone(EarthOrbit& e)
+{
+    r = e.r;
+    v = e.v;
     r_p = e.r_p;
     r_a = e.r_a;
     ecc = e.ecc;
@@ -265,32 +201,12 @@ void EarthOrbit::clone(EarthOrbit& e) {
     norm_v = e.norm_v;
 }
 
-void EarthOrbit::relative_maneuver(vec4D &dv){
-    vec3D i = vec_scale(1.0/norm(v), v);
-    vec3D r_cross_v = cross_product(r, v);
-    vec3D k = vec_scale(1.0/norm(r_cross_v), r_cross_v);
-    vec3D i_cross_k = cross_product(i, k);
-    vec3D j = vec_scale(-1.0/norm(i_cross_k), i_cross_k);
-    i = vec_scale(dv.i, i);
-    j = vec_scale(dv.j, j);
-    k = vec_scale(dv.k, k);
-    vec3D manjk = vec_add(j, k);
-    vec3D manijk = vec_add(i , manjk);
-    vec4D man_t = {manijk.i, manijk.j, manijk.k, dv.t};
-    maneuver(man_t);
-}
-
-void EarthOrbit::relative_maneuver(glm::vec3 dv, double t){
-    vec3D i = vec_scale(1.0/norm(v), v);
-    vec3D r_cross_v = cross_product(r, v);
-    vec3D k = vec_scale(1.0/norm(r_cross_v), r_cross_v);
-    vec3D i_cross_k = cross_product(i, k);
-    vec3D j = vec_scale(-1.0/norm(i_cross_k), i_cross_k);
-    i = vec_scale(dv.x, i);
-    j = vec_scale(dv.y, j);
-    k = vec_scale(dv.z, k);
-    vec3D manjk = vec_add(j, k);
-    vec3D manijk = vec_add(i , manjk);
-    vec4D man_t = {manijk.i, manijk.j, manijk.k, t};
+void EarthOrbit::relative_maneuver(glm::vec3 dv, GLfloat t)
+{
+    glm::vec3 i = glm::normalize(v);
+    glm::vec3 k = glm::normalize(glm::cross(r, v));
+    glm::vec3 j = -1.0f * glm::normalize(glm::cross(i, k));
+    glm::vec4 man_t = glm::vec4(dv.x*i + dv.y*j + dv.z*k, t);
+    // FIXME: refactor time scaling in here:
     maneuver(man_t);
 }

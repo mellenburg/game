@@ -66,11 +66,11 @@ void Satellite::Unselect() {
 }
 
 glm::vec3 Satellite::GetR() {
-    return glm::vec3(orbit_.r.i, orbit_.r.j, orbit_.r.k);
+    return orbit_.r;
 }
 
 glm::vec3 Satellite::GetV() {
-    return glm::vec3(orbit_.v.i, orbit_.v.j, orbit_.v.k);
+    return orbit_.v;
 }
 
 void Satellite::AdvanceTime(GLfloat delta_time)

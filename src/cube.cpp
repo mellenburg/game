@@ -21,7 +21,7 @@ void Cube::SetColor(glm::vec3 color)
 
 void Cube::Update(EarthOrbit& orbit)
 {
-    position_ = glm::vec3(orbit.r.i, orbit.r.j, orbit.r.k);
+    position_ = orbit.r;
 }
 
 Cube::Cube(EarthOrbit& orbit)

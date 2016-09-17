@@ -1,51 +1,42 @@
 #ifndef ORBIT_H
 #define ORBIT_H
+#define GLEW_STATIC
+#include <GL/glew.h>
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
 #include <cmath>
-
-struct vec3D {
-    double i;
-    double j;
-    double k;
-};
-
-struct vec4D {
-    double i;
-    double j;
-    double k;
-    double t;
-};
 
 class EarthOrbit
 {
     int numiter = 35;
-    double rtol = 1e-10;
-    double k = 398600.4415;
+    GLfloat rtol = 1e-10;
+    GLfloat k = 398600.4415;
     void rv2coe();
-    double DV = .015;
 
   public:
-    vec3D r;
-    vec3D v;
-    double r_p;
-    double r_a;
-    double ecc;
-    double p;
-    double a;
-    double b;
-    double inc;
-    double raan;
-    double argp;
-    double nu;
-    double norm_r;
-    double norm_v;
-    double period;
-    EarthOrbit(vec3D&, vec3D&);
+    glm::vec3 r;
+    glm::vec3 v;
+    GLfloat r_p;
+    GLfloat r_a;
+    GLfloat ecc;
+    GLfloat p;
+    GLfloat a;
+    GLfloat b;
+    GLfloat inc;
+    GLfloat raan;
+    GLfloat argp;
+    GLfloat nu;
+    GLfloat norm_r;
+    GLfloat norm_v;
+    GLfloat period;
+    EarthOrbit(glm::vec3&, glm::vec3&);
     ~EarthOrbit();
     void clone(EarthOrbit&);
-    void propagate(double);
-    void maneuver(vec4D&);
-    void relative_maneuver(vec4D&);
-    void relative_maneuver(glm::vec3, double);
-    void dump_state();
+    void propagate(GLfloat);
+    void maneuver(glm::vec4&);
+    void relative_maneuver(glm::vec3, GLfloat);
 };
 #endif
