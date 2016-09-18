@@ -30,6 +30,7 @@ void Ellipse3d::SetColor(glm::vec3 color) {
 }
 
 void Ellipse3d::Update(EarthOrbit& update) {
+    update.rv2coe();
     a_ = update.a;
     ecc_ = update.ecc;
     r_p_ = update.r_p;
@@ -39,7 +40,7 @@ void Ellipse3d::Update(EarthOrbit& update) {
 }
 
 void Ellipse3d::Render(Shader shader) {
-    GenerateEllipse(a_, ecc_, r_p_, inc_, raan_, argp_);
+    GenerateEllipse();
     glBindVertexArray(eVAO);
     glBindBuffer(GL_ARRAY_BUFFER, eVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_), vertices_, GL_STATIC_DRAW);
@@ -54,37 +55,37 @@ void Ellipse3d::Render(Shader shader) {
     orbit_line_.Draw(shader);
 }
 
-void Ellipse3d::GenerateEllipse(float a, float ecc, float r_p, float inc, float raan, float argp) {
-    float b = a * sqrt(1 - pow(ecc, 2));
-    glm::vec4 U = {a, 0.0f, 0.0f, 1.0f};
+void Ellipse3d::GenerateEllipse() {
+    float b = a_ * sqrt(1 - pow(ecc_, 2));
+    glm::vec4 U = {a_, 0.0f, 0.0f, 1.0f};
     glm::vec4 V = {0.0f, b, 0.0f, 1.0f};
     glm::mat4 trans_argp;
     //Translate so pnet is in center
-    trans_argp = glm::translate(trans_argp, glm::vec3((r_p-a), 0.0f, 0.0f));
+    trans_argp = glm::translate(trans_argp, glm::vec3((r_p_-a_), 0.0f, 0.0f));
     //Rotate out of plane for inclination
     glm::mat4 rot_inc;
-    rot_inc = glm::rotate(rot_inc, inc, glm::vec3(0.0f, -1.0f, 0.0f));
+    rot_inc = glm::rotate(rot_inc, inc_, glm::vec3(0.0f, -1.0f, 0.0f));
     //Rotate around Y axis for RAAN
     float foo;
-    if( inc <= PI){
+    if( inc_ <= PI){
         foo = 1;
     } else {
         foo = -1;
     }
     glm::mat4 rot_raan;
-    rot_raan = glm::rotate(rot_raan, float(raan + foo*(PI/2.0f)), glm::vec3(0.0f, 0.0f, 1.0f));
+    rot_raan = glm::rotate(rot_raan, float(raan_ + foo*(PI/2.0f)), glm::vec3(0.0f, 0.0f, 1.0f));
     // Find normal axis to current U and V to define how to rotate argp
     glm::vec3 U_t = glm::vec3(rot_raan * rot_inc * trans_argp * U);
     glm::vec3 V_t = glm::vec3(rot_raan * rot_inc * trans_argp * V);
     glm::vec3 argp_axis = glm::normalize(glm::cross(U_t, V_t));
     // Do argp rotation
     glm::mat4 rot_argp;
-    rot_argp = glm::rotate(rot_argp, argp-foo*float(PI/2.0f), argp_axis);
+    rot_argp = glm::rotate(rot_argp, argp_-foo*float(PI/2.0f), argp_axis);
     // Finish transformation
     U = rot_argp * rot_raan * rot_inc * trans_argp * U;
     V = rot_argp * rot_raan * rot_inc * trans_argp * V;
     //Find displacement vector
-    glm::vec3 A = a*glm::normalize(glm::vec3(U));
+    glm::vec3 A = a_*glm::normalize(glm::vec3(U));
     glm::vec3 delta = glm::vec3(U) - A;
     glm::vec3 B = b*glm::normalize(glm::vec3(V) - delta);
     //Finally step throuh a circle of the unit vectors and translate

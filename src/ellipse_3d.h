@@ -29,7 +29,7 @@ class Ellipse3d {
         // periapsis and apoasis
         glm::vec3 x1_, x2_;
         Line orbit_line_;
-        void GenerateEllipse(float, float, float, float, float, float);
+        void GenerateEllipse();
         glm::vec3 color_ = {0.0f, 1.0f, 0.0f};
     public:
         Ellipse3d(EarthOrbit&);

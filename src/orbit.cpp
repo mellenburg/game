@@ -66,7 +66,6 @@ EarthOrbit::EarthOrbit (glm::vec3& r_in, glm::vec3& v_in)
 {
     r = r_in;
     v = v_in;
-    rv2coe();
 }
 
 EarthOrbit::~EarthOrbit (){}
@@ -109,8 +108,6 @@ void EarthOrbit::rv2coe()
     r_a = a * (1.0 + ecc);
     r_p = a * (1.0 - ecc);
     period = 2*PI*sqrt(pow(a, 3)/k);
-    norm_r = glm::length(r);
-    norm_v = glm::length(v);
 }
 
 void EarthOrbit::propagate(GLfloat tof)
@@ -173,14 +170,12 @@ void EarthOrbit::propagate(GLfloat tof)
     GLfloat fdot = sqrt_mu / (norm_r * norm_r0) * xi * (psi * c3_psi - 1.0);
     r = f * r0 + g * v0;
     v = fdot * r0 + gdot * v0;
-    rv2coe();
 }
 
 void EarthOrbit::maneuver(glm::vec4 &dv)
 {
     propagate(dv.w);
     v = v + glm::vec3(dv);
-    rv2coe();
 }
 
 void EarthOrbit::clone(EarthOrbit& e)
@@ -197,8 +192,6 @@ void EarthOrbit::clone(EarthOrbit& e)
     raan = e.raan;
     argp = e.argp;
     nu = e.nu;
-    norm_r = e.norm_r;
-    norm_v = e.norm_v;
 }
 
 void EarthOrbit::relative_maneuver(glm::vec3 dv, GLfloat t)

@@ -14,9 +14,9 @@ class EarthOrbit
     int numiter = 35;
     GLfloat rtol = 1e-10;
     GLfloat k = 398600.4415;
-    void rv2coe();
 
   public:
+    void rv2coe();
     glm::vec3 r;
     glm::vec3 v;
     GLfloat r_p;
@@ -29,8 +29,6 @@ class EarthOrbit
     GLfloat raan;
     GLfloat argp;
     GLfloat nu;
-    GLfloat norm_r;
-    GLfloat norm_v;
     GLfloat period;
     EarthOrbit(glm::vec3&, glm::vec3&);
     ~EarthOrbit();
