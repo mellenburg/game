@@ -26,8 +26,7 @@
 #define PI 3.14159265
 bool planning_mode = false;
 const float earth_radius = 6371;
-int timeFactor = 500;
-const float timeResolution = .033333333; // 1/30th of a second clock time
+int timeFactor = 10;
 int dt = 0;
 glm::vec3 planning_maneuver = {0.0f, 0.0f, 0.0f};
 
@@ -70,7 +69,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 void EarthSystem::UpdateEarthPhase()
 {
     float dif = (2.0*PI/(60.0*60.0*24.0));
-    earth_phase_ += dif*timeFactor*timeResolution;
+    earth_phase_ += dif*timeFactor*TIME_RESOLUTION;
     if( earth_phase_ > (2.0*PI) ) {
         earth_phase_ -= (2.0*PI);
     }
@@ -211,7 +210,7 @@ void EarthSystem::step(){
     }
     // Render orbits and their satellites
     real_set_.Render(line_shader_, false);
-    real_set_.Advance(timeFactor*timeResolution);
+    real_set_.Advance(timeFactor*TIME_RESOLUTION);
     // Render display info and target lines
     game_screen_.RenderHud(line_shader_, real_set_, view);
 }

@@ -10,6 +10,7 @@
 
 #define PI 3.14159265
 
+
 GLfloat c2(GLfloat psi)
 {
     GLfloat res;
@@ -193,13 +194,30 @@ void EarthOrbit::clone(EarthOrbit& e)
     argp = e.argp;
     nu = e.nu;
 }
-
+/*
 void EarthOrbit::relative_maneuver(glm::vec3 dv, GLfloat t)
 {
     glm::vec3 i = glm::normalize(v);
     glm::vec3 k = glm::normalize(glm::cross(r, v));
     glm::vec3 j = -1.0f * glm::normalize(glm::cross(i, k));
     glm::vec4 man_t = glm::vec4(dv.x*i + dv.y*j + dv.z*k, t);
-    // FIXME: refactor time scaling in here:
     maneuver(man_t);
+}
+*/
+void EarthOrbit::relative_maneuver(glm::vec3 dv, GLfloat t)
+{
+    //printf("%f, %f, %f, %f, %f\n", dv.x, dv.y, dv.z, t, TIME_RESOLUTION);
+    int time_steps = int(round(t/TIME_RESOLUTION));
+    //int time_steps = 1;
+    //printf("%i\n", time_steps);
+    glm::vec3 ddv = dv / GLfloat(time_steps);
+    for(int q=0; q < time_steps; q++)
+    {
+        glm::vec3 i = glm::normalize(v);
+        glm::vec3 k = glm::normalize(glm::cross(r, v));
+        glm::vec3 j = -1.0f * glm::normalize(glm::cross(i, k));
+        glm::vec4 man_t = glm::vec4(ddv.x*i + ddv.y*j + ddv.z*k, TIME_RESOLUTION);
+        //glm::vec4 man_t = glm::vec4(dv.x*i + dv.y*j + dv.z*k, t);
+        maneuver(man_t);
+    }
 }

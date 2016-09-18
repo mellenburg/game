@@ -9,6 +9,8 @@
 
 #include <cmath>
 
+const GLfloat TIME_RESOLUTION = 5.0f;
+
 class EarthOrbit
 {
     int numiter = 35;

@@ -19,11 +19,11 @@
 
 class Satellite {
     private:
-        //glm::vec3 r_ = {-6045., -3490., 2500.};
-        //glm::vec3 v_ = {-3.56, 6.618, 2.533};
-        // Geosynchronous Orbit?
-        glm::vec3 r_ = {42164., 0., 0.};
-        glm::vec3 v_ = {0, 3.0646981, 0.};
+        glm::vec3 r_ = {-6045., -3490., 2500.};
+        glm::vec3 v_ = {-3.56, 6.618, 2.533};
+        // Geosynchronous Orbit
+        //glm::vec3 r_ = {42164., 0., 0.};
+        //glm::vec3 v_ = {0, 3.0646981, 0.};
         Cube cube_;
         Ellipse3d ellipse_;
         bool did_maneuver_;
