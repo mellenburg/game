@@ -34,7 +34,7 @@ FtWriter::FtWriter(GLuint WIDTH, GLuint HEIGHT): shader_("shaders/text.vs", "sha
     // Load font as face
     FT_Face face;
     //if (FT_New_Face(ft, "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf", 0, &face))
-    if (FT_New_Face(ft, "/home/michael/game/exp/digital-7.ttf", 0, &face))
+    if (FT_New_Face(ft, "/home/michael/game/resources/fonts//digital-7.ttf", 0, &face))
         std::cout << "ERROR::FREETYPE: Failed to load font" << std::endl;
 
     // Set size to load glyphs as
