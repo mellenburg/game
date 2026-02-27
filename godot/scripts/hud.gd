@@ -3,6 +3,8 @@ extends Control
 ## HUD overlay showing orbital info, targeting lines, and LOS indicators.
 ## Port of hud.cpp.
 
+const Satellite = preload("res://scripts/satellite.gd")
+
 const EARTH_RADIUS_SQ: float = 6371.0 * 6371.0  # km^2
 
 @onready var info_label: RichTextLabel = $InfoLabel
@@ -135,6 +137,6 @@ func _draw() -> void:
 		if behind_a and behind_b:
 			continue
 
-		var blocked := HUD.check_los_blocked(selected.get_r(), other.get_r())
+		var blocked := check_los_blocked(selected.get_r(), other.get_r())
 		var line_color := Color.YELLOW if blocked else Color.RED
 		draw_line(screen_a, screen_b, line_color, 1.0)

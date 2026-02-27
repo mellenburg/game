@@ -2,6 +2,8 @@ extends Node3D
 ## Main game controller — port of EarthSystem from earth.cpp.
 ## Manages satellites, input, simulation time, and planning mode.
 
+const Satellite = preload("res://scripts/satellite.gd")
+
 const TIME_RESOLUTION: float = 1.0 / 30.0  # base tick rate
 
 var time_factor: int = 500
@@ -16,9 +18,9 @@ var planning_selected: int = 0
 var planning_maneuver := Vector3.ZERO
 
 # Node references
-@onready var earth: Earth = $Earth
-@onready var camera: OrbitCamera = $OrbitCamera
-@onready var hud: HUD = $CanvasLayer/HUD
+@onready var earth: MeshInstance3D = $Earth
+@onready var camera: Camera3D = $OrbitCamera
+@onready var hud: Control = $CanvasLayer/HUD
 @onready var satellite_container: Node3D = $Satellites
 @onready var planning_container: Node3D = $PlanningSatellites
 @onready var sun_light: DirectionalLight3D = $SunLight

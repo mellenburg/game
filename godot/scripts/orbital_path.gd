@@ -3,6 +3,8 @@ extends MeshInstance3D
 ## Draws a 3D elliptical orbit path as a line loop.
 ## Port of ellipse_3d.cpp — generates orbit geometry from orbital elements.
 
+const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+
 const POINTS: int = 1000
 const SCALE: float = 1.0 / 1000.0  # km to scene units
 

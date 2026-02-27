@@ -3,6 +3,9 @@ extends Node3D
 ## A spacecraft with orbital mechanics, visual marker, and orbit path.
 ## Port of satellite.cpp/h.
 
+const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const OrbitalPath = preload("res://scripts/orbital_path.gd")
+
 const SCALE: float = 1.0 / 1000.0  # km to scene units
 const DEFAULT_R := Vector3(-6045.0, -3490.0, 2500.0)
 const DEFAULT_V := Vector3(-3.56, 6.618, 2.533)
