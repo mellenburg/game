@@ -69,6 +69,29 @@ glm::vec3 GameScreen::ScreenPosition(glm::vec3 real_position, glm::mat4 view)
     return glm::project(view_position, glm::mat4(), projection_, screen_dim_);
 }
 
+void GameScreen::RenderHelp()
+{
+    GLfloat x = 10.0f;
+    GLfloat top = screen_dim_.w - 30.0f; // start near top of screen
+    GLfloat line_height = 22.0f;
+    GLfloat scale = 0.8f;
+    glm::vec3 white(1.0f, 1.0f, 1.0f);
+    glm::vec3 dim(0.6f, 0.6f, 0.6f);
+
+    text_writer_.RenderText("-- Controls --", x, top, scale, white);
+    text_writer_.RenderText("WASD     Move camera", x, top - 1*line_height, scale, dim);
+    text_writer_.RenderText("Mouse    Look around", x, top - 2*line_height, scale, dim);
+    text_writer_.RenderText("Arrows   Maneuver", x, top - 3*line_height, scale, dim);
+    text_writer_.RenderText("PgUp/Dn  Maneuver up/down", x, top - 4*line_height, scale, dim);
+    text_writer_.RenderText("Q/E      Speed up/down", x, top - 5*line_height, scale, dim);
+    text_writer_.RenderText("T/G      Time step +/-", x, top - 6*line_height, scale, dim);
+    text_writer_.RenderText("N        Add satellite", x, top - 7*line_height, scale, dim);
+    text_writer_.RenderText("R        Remove satellite", x, top - 8*line_height, scale, dim);
+    text_writer_.RenderText("Tab      Select next", x, top - 9*line_height, scale, dim);
+    text_writer_.RenderText("P        Planning mode", x, top - 10*line_height, scale, dim);
+    text_writer_.RenderText("Esc      Quit", x, top - 11*line_height, scale, dim);
+}
+
 void GameScreen::RenderHud(Shader shader, OrbitalSet& orbital_set, glm::mat4 view)
 {
     glm::vec3 main_position = orbital_set.GetSelectedShip().GetR();

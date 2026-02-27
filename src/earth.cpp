@@ -214,4 +214,6 @@ void EarthSystem::step(){
     real_set_.Advance(time_factor_*kTimeResolution);
     // Render display info and target lines
     game_screen_.RenderHud(line_shader_, real_set_, view);
+    // Render key mapping overlay
+    game_screen_.RenderHelp();
 }
