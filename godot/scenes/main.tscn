@@ -1,0 +1,96 @@
+[gd_scene load_steps=7 format=3 uid="uid://main_scene"]
+
+[ext_resource type="Script" path="res://scripts/earth_system.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/earth.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/hud.gd" id="4"]
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 1
+background_color = Color(0.03, 0.03, 0.03, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.15, 0.15, 0.2, 1)
+ambient_light_energy = 0.3
+
+[sub_resource type="CameraAttributesPractical" id="CameraAttributes_1"]
+
+[node name="EarthSystem" type="Node3D"]
+script = ExtResource("1")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
+
+[node name="Earth" type="MeshInstance3D" parent="."]
+script = ExtResource("2")
+
+[node name="OrbitCamera" type="Camera3D" parent="."]
+attributes = SubResource("CameraAttributes_1")
+fov = 45.0
+script = ExtResource("3")
+
+[node name="SunLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20, 0, 0)
+rotation_degrees = Vector3(0, 0, 0)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="Satellites" type="Node3D" parent="."]
+
+[node name="PlanningSatellites" type="Node3D" parent="."]
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="HUD" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4")
+
+[node name="InfoLabel" type="RichTextLabel" parent="CanvasLayer/HUD"]
+layout_mode = 1
+anchors_preset = 0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 350.0
+offset_bottom = 600.0
+mouse_filter = 2
+bbcode_enabled = true
+scroll_active = false
+
+[node name="TargetContainer" type="Control" parent="CanvasLayer/HUD"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="HelpLabel" type="RichTextLabel" parent="CanvasLayer/HUD"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -320.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 300.0
+mouse_filter = 2
+bbcode_enabled = true
+scroll_active = false
+text = "[font_size=12][color=gray]Controls:
+WASD - Move camera
+Mouse - Look around
+Arrow Keys - Thrust (pro/retro/lateral)
+PgUp/PgDn - Thrust (normal)
+Q/E - Speed up/down time
+Tab - Select next satellite
+N - Add satellite
+R - Remove satellite
+P - Toggle planning mode
+T/G - Advance/retard plan time
+Esc - Release mouse[/color][/font_size]"
