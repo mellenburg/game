@@ -1,3 +1,4 @@
+class_name HUD
 extends Control
 ## HUD overlay showing orbital info, targeting lines, and LOS indicators.
 ## Port of hud.cpp.
@@ -48,8 +49,8 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 	if not info_label:
 		return
 
-	var satellites := orbital_set.satellites
-	var selected_idx := orbital_set.selected_ship
+	var satellites = orbital_set.satellites
+	var selected_idx = orbital_set.selected_ship
 	if satellites.is_empty():
 		info_label.text = ""
 		return

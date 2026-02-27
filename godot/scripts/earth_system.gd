@@ -16,9 +16,9 @@ var planning_selected: int = 0
 var planning_maneuver := Vector3.ZERO
 
 # Node references
-@onready var earth: MeshInstance3D = $Earth
-@onready var camera: Camera3D = $OrbitCamera
-@onready var hud: Control = $CanvasLayer/HUD
+@onready var earth: Earth = $Earth
+@onready var camera: OrbitCamera = $OrbitCamera
+@onready var hud: HUD = $CanvasLayer/HUD
 @onready var satellite_container: Node3D = $Satellites
 @onready var planning_container: Node3D = $PlanningSatellites
 @onready var sun_light: DirectionalLight3D = $SunLight

@@ -43,7 +43,7 @@ func update_orbit(orbit: EarthOrbit) -> void:
 	var v := Vector4(0.0, b_val * SCALE, 0.0, 1.0)
 
 	var u_t := _transform_vec4(rot_raan * rot_inc * trans_argp, u)
-	var v_t := _transform_vec4(rot_raan * rot_inc * v)
+	var v_t := _transform_vec4(rot_raan * rot_inc, v)
 
 	# Find argp rotation axis
 	var u_t3 := Vector3(u_t.x, u_t.y, u_t.z)
