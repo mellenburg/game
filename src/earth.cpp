@@ -187,7 +187,7 @@ void EarthSystem::step(){
     glm::mat4 view = camera.GetViewMatrix();
     planet_shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(planet_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glm::mat4 model;
+    glm::mat4 model(1.0f);
     float pscale = 18.4759f;
     model = glm::rotate(model, earth_phase_, glm::vec3(0.0f, 0.0f, 1.0f));
     model = glm::rotate(model, float(PI/2.0), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -199,7 +199,7 @@ void EarthSystem::step(){
 
     line_shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glm::mat4 model2;
+    glm::mat4 model2(1.0f);
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
     if(planning_mode)
     {

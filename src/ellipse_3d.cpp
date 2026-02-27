@@ -58,11 +58,11 @@ void Ellipse3d::GenerateEllipse(float a, float ecc, float r_p, float inc, float 
     float b = a * sqrt(1 - pow(ecc, 2));
     glm::vec4 U = {a, 0.0f, 0.0f, 1.0f};
     glm::vec4 V = {0.0f, b, 0.0f, 1.0f};
-    glm::mat4 trans_argp;
+    glm::mat4 trans_argp(1.0f);
     //Translate so pnet is in center
     trans_argp = glm::translate(trans_argp, glm::vec3((r_p-a), 0.0f, 0.0f));
     //Rotate out of plane for inclination
-    glm::mat4 rot_inc;
+    glm::mat4 rot_inc(1.0f);
     rot_inc = glm::rotate(rot_inc, inc, glm::vec3(0.0f, -1.0f, 0.0f));
     //Rotate around Y axis for RAAN
     float foo;
@@ -71,14 +71,14 @@ void Ellipse3d::GenerateEllipse(float a, float ecc, float r_p, float inc, float 
     } else {
         foo = -1;
     }
-    glm::mat4 rot_raan;
+    glm::mat4 rot_raan(1.0f);
     rot_raan = glm::rotate(rot_raan, float(raan + foo*(PI/2.0f)), glm::vec3(0.0f, 0.0f, 1.0f));
     // Find normal axis to current U and V to define how to rotate argp
     glm::vec3 U_t = glm::vec3(rot_raan * rot_inc * trans_argp * U);
     glm::vec3 V_t = glm::vec3(rot_raan * rot_inc * trans_argp * V);
     glm::vec3 argp_axis = glm::normalize(glm::cross(U_t, V_t));
     // Do argp rotation
-    glm::mat4 rot_argp;
+    glm::mat4 rot_argp(1.0f);
     rot_argp = glm::rotate(rot_argp, argp-foo*float(PI/2.0f), argp_axis);
     // Finish transformation
     U = rot_argp * rot_raan * rot_inc * trans_argp * U;
