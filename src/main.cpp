@@ -43,6 +43,9 @@ int main()
     glewExperimental = GL_TRUE;
     glewInit();
 
+    // Enable vsync - critical for stable rendering under llvmpipe/Crostini
+    glfwSwapInterval(1);
+
     //Init Module
     EarthSystem my_earth(screenWidth, screenHeight);
 
@@ -55,8 +58,8 @@ int main()
         lastFrame = currentFrame;
 
         //printf("%f\n", deltaTime);
-        if(deltaTime < float(1/FPS)){
-            unsigned int t = (1000000*float(1/FPS)*deltaTime);
+        if(deltaTime < 1.0f/FPS){
+            unsigned int t = (unsigned int)(1000000*(1.0f/FPS - deltaTime));
             usleep(t);
         }
 
@@ -73,6 +76,9 @@ int main()
         // reset our texture binding
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, 0);
+
+        // Ensure rendering is complete before swapping (helps with software renderers)
+        glFinish();
 
         // Swap the buffers
         glfwSwapBuffers(window);
