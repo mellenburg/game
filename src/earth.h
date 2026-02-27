@@ -9,6 +9,7 @@
 
 // GL includes
 #include "shader.h"
+#include "camera.h"
 #include "model.h"
 
 // GLM Mathemtics
@@ -21,16 +22,34 @@
 #include "orbital_set.h"
 #include "hud.h"
 
-void key_callback(GLFWwindow*, int, int, int, int);
-void mouse_callback(GLFWwindow*, double, double);
-
 class EarthSystem
 {
+    public:
+        static constexpr float kEarthRadius = 6371.0f;
+        static constexpr float kTimeResolution = 1.0f / 30.0f;
+
+        EarthSystem(GLFWwindow* window, GLuint width, GLuint height);
+        void processKeys(GLfloat deltaTime);
+        void step();
+
+        void HandleKey(int key, int action);
+        void HandleMouseMove(double xpos, double ypos);
+
     private:
-        bool planning_mode_ = true;
-        int selected_ship_ = 0;
+        void UpdateEarthPhase();
+
+        GLFWwindow* window_;
+        Camera camera_;
+        bool keys_[1024] = {};
+        bool was_pressed_[1024] = {};
+        GLfloat last_x_ = 400.0f, last_y_ = 300.0f;
+        bool first_mouse_ = true;
+        int time_factor_ = 500;
+        int dt_ = 0;
+        bool planning_mode_ = false;
+        glm::vec3 planning_maneuver_ = {0.0f, 0.0f, 0.0f};
+
         glm::mat4 projection_;
-        Shader line_shader_;
         Shader planet_shader_;
         Model planet_model_;
         OrbitalSet real_set_;
@@ -38,10 +57,6 @@ class EarthSystem
         GLuint width_, height_;
         float earth_phase_ = 0.0;
         GameScreen game_screen_;
-    public:
-        EarthSystem(GLuint, GLuint);
-        void processKeys(GLfloat);
-        void step();
-        void UpdateEarthPhase();
+        Shader line_shader_;
 };
 #endif // EARTH_H_

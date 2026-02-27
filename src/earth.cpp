@@ -23,56 +23,49 @@
 #include "orbital_set.h"
 #include "earth.h"
 
-#define PI 3.14159265
-bool planning_mode = false;
-const float earth_radius = 6371;
-int timeFactor = 500;
-const float timeResolution = .033333333; // 1/30th of a second clock time
-int dt = 0;
-glm::vec3 planning_maneuver = {0.0f, 0.0f, 0.0f};
+// PI is already defined as a macro in ellipse_3d.h (included transitively)
 
-// Camera
-Camera camera(glm::vec3(3*earth_radius, 0.0f, 0.0f));
-bool keys[1024];
-// This array will only flip back once an action undoes it
-bool was_pressed[1024];
-GLfloat lastX = 400, lastY = 300;
-bool firstMouse = true;
-
-void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
-{
-    if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+namespace {
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode) {
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GL_TRUE);
+    auto* earth = static_cast<EarthSystem*>(glfwGetWindowUserPointer(window));
+    if (earth) earth->HandleKey(key, action);
+}
+void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    auto* earth = static_cast<EarthSystem*>(glfwGetWindowUserPointer(window));
+    if (earth) earth->HandleMouseMove(xpos, ypos);
+}
+} // namespace
 
-    if(action == GLFW_PRESS) {
-        keys[key] = true;
-        was_pressed[key] = true;
-    } else if(action == GLFW_RELEASE) {
-        keys[key] = false;
+void EarthSystem::HandleKey(int key, int action) {
+    if (action == GLFW_PRESS) {
+        keys_[key] = true;
+        was_pressed_[key] = true;
+    } else if (action == GLFW_RELEASE) {
+        keys_[key] = false;
     }
 }
 
-void mouse_callback(GLFWwindow* window, double xpos, double ypos)
-{
-    if(firstMouse)
-    {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
+void EarthSystem::HandleMouseMove(double xpos, double ypos) {
+    if (first_mouse_) {
+        last_x_ = xpos;
+        last_y_ = ypos;
+        first_mouse_ = false;
     }
-    GLfloat xoffset = xpos - lastX;
-    GLfloat yoffset = lastY - ypos;
-    lastX = xpos;
-    lastY = ypos;
-    camera.ProcessMouseMovement(xoffset, yoffset);
+    GLfloat xoffset = xpos - last_x_;
+    GLfloat yoffset = last_y_ - ypos;
+    last_x_ = xpos;
+    last_y_ = ypos;
+    camera_.ProcessMouseMovement(xoffset, yoffset);
 }
 
 void EarthSystem::UpdateEarthPhase()
 {
-    float dif = (2.0*PI/(60.0*60.0*24.0));
-    earth_phase_ += dif*timeFactor*timeResolution;
-    if( earth_phase_ > (2.0*PI) ) {
-        earth_phase_ -= (2.0*PI);
+    float dif = (2.0f*PI/(60.0f*60.0f*24.0f));
+    earth_phase_ += dif*time_factor_*kTimeResolution;
+    if( earth_phase_ > (2.0f*PI) ) {
+        earth_phase_ -= (2.0f*PI);
     }
 }
 
@@ -82,79 +75,91 @@ void EarthSystem::processKeys(GLfloat deltaTime)
     glm::vec3 left = {0.0f, 1.0f, 0.0f};
     glm::vec3 up = {0.0f, 0.0f, 1.0f};
     glm::vec3 current_maneuver = {0.0f, 0.0f, 0.0f};
-    if(planning_mode)
+    if(planning_mode_)
     {
-        current_maneuver = planning_maneuver;
+        current_maneuver = planning_maneuver_;
         planning_set_.Clone(real_set_);
     }
-    if(keys[GLFW_KEY_W])
-        camera.ProcessKeyboard(FORWARD, deltaTime);
-    if(keys[GLFW_KEY_S])
-        camera.ProcessKeyboard(BACKWARD, deltaTime);
-    if(keys[GLFW_KEY_A])
-        camera.ProcessKeyboard(LEFT, deltaTime);
-    if(keys[GLFW_KEY_D])
-        camera.ProcessKeyboard(RIGHT, deltaTime);
-    if(keys[GLFW_KEY_UP])
+    if(keys_[GLFW_KEY_W])
+        camera_.ProcessKeyboard(FORWARD, deltaTime);
+    if(keys_[GLFW_KEY_S])
+        camera_.ProcessKeyboard(BACKWARD, deltaTime);
+    if(keys_[GLFW_KEY_A])
+        camera_.ProcessKeyboard(LEFT, deltaTime);
+    if(keys_[GLFW_KEY_D])
+        camera_.ProcessKeyboard(RIGHT, deltaTime);
+    if(keys_[GLFW_KEY_UP])
         current_maneuver += forward;
-    if(keys[GLFW_KEY_DOWN])
+    if(keys_[GLFW_KEY_DOWN])
         current_maneuver -= forward;
-    if(keys[GLFW_KEY_LEFT])
+    if(keys_[GLFW_KEY_LEFT])
         current_maneuver += left;
-    if(keys[GLFW_KEY_RIGHT])
+    if(keys_[GLFW_KEY_RIGHT])
         current_maneuver -= left;
-    if(keys[GLFW_KEY_PAGE_UP])
+    if(keys_[GLFW_KEY_PAGE_UP])
         current_maneuver += up;
-    if(keys[GLFW_KEY_PAGE_DOWN])
+    if(keys_[GLFW_KEY_PAGE_DOWN])
         current_maneuver -= up;
-    if(keys[GLFW_KEY_Q])
-        timeFactor++;
-    if(keys[GLFW_KEY_E] && timeFactor>0)
-        timeFactor--;
-    if(keys[GLFW_KEY_T])
-        dt++;
-    if(keys[GLFW_KEY_G] && dt>0)
-        dt--;
-    if(planning_mode)
+    if(keys_[GLFW_KEY_Q])
+        time_factor_++;
+    if(keys_[GLFW_KEY_E] && time_factor_>0)
+        time_factor_--;
+    if(keys_[GLFW_KEY_T])
+        dt_++;
+    if(keys_[GLFW_KEY_G] && dt_>0)
+        dt_--;
+    if(planning_mode_)
     {
-        planning_maneuver = current_maneuver;
+        planning_maneuver_ = current_maneuver;
         planning_set_.GetSelectedShip().SetManeuver(current_maneuver);
     } else {
         real_set_.GetSelectedShip().SetManeuver(current_maneuver);
     }
-    // TODO: use a void that accepts member function pointers
-    // http://stackoverflow.com/questions/12662891/c-passing-member-function-as-argument
     // Selector
-    if(was_pressed[GLFW_KEY_TAB] && !keys[GLFW_KEY_TAB]){
+    if(was_pressed_[GLFW_KEY_TAB] && !keys_[GLFW_KEY_TAB]){
         real_set_.SelectNextShip();
-        was_pressed[GLFW_KEY_TAB] = false;
+        was_pressed_[GLFW_KEY_TAB] = false;
     }
     // Add ship
-    if(was_pressed[GLFW_KEY_N] && !keys[GLFW_KEY_N]){
+    if(was_pressed_[GLFW_KEY_N] && !keys_[GLFW_KEY_N]){
         real_set_.AddSatellite();
-        was_pressed[GLFW_KEY_N] = false;
+        was_pressed_[GLFW_KEY_N] = false;
     }
     // Remove ship
-    if(was_pressed[GLFW_KEY_R] && !keys[GLFW_KEY_R]){
+    if(was_pressed_[GLFW_KEY_R] && !keys_[GLFW_KEY_R]){
         real_set_.RemoveSatellite();
-        was_pressed[GLFW_KEY_R] = false;
+        was_pressed_[GLFW_KEY_R] = false;
     }
     // Planning Mode
-    if(was_pressed[GLFW_KEY_P] && !keys[GLFW_KEY_P]){
-        if (!planning_mode)
+    if(was_pressed_[GLFW_KEY_P] && !keys_[GLFW_KEY_P]){
+        if (!planning_mode_)
         {
             planning_set_.Clone(real_set_);
-            planning_mode = true;
+            planning_mode_ = true;
         } else {
-            planning_mode = false;
+            planning_mode_ = false;
         }
-        was_pressed[GLFW_KEY_P] = false;
+        was_pressed_[GLFW_KEY_P] = false;
     }
 }
 
-EarthSystem::EarthSystem(GLuint screenWidth, GLuint screenHeight): planet_shader_("shaders/planet.vs", "shaders/planet.frag"), planet_model_("resources/3D/earth/earth.obj"), game_screen_(0, 0, screenWidth, screenHeight, projection_), line_shader_("shaders/basic.vs", "shaders/basic.frag") {
+EarthSystem::EarthSystem(GLFWwindow* window, GLuint screenWidth, GLuint screenHeight)
+    : window_(window),
+      camera_(glm::vec3(3 * kEarthRadius, 0.0f, 0.0f)),
+      planet_shader_("shaders/planet.vs", "shaders/planet.frag"),
+      planet_model_("resources/3D/earth/earth.obj"),
+      game_screen_(0, 0, screenWidth, screenHeight, projection_),
+      line_shader_("shaders/basic.vs", "shaders/basic.frag")
+{
     width_=screenWidth;
     height_=screenHeight;
+
+    // Register GLFW callbacks
+    glfwSetWindowUserPointer(window_, this);
+    glfwSetKeyCallback(window_, key_callback);
+    glfwSetCursorPosCallback(window_, mouse_callback);
+    glfwSetInputMode(window_, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
     // Define the viewport dimensions
     glViewport(0, 0, screenWidth, screenHeight);
 
@@ -164,14 +169,9 @@ EarthSystem::EarthSystem(GLuint screenWidth, GLuint screenHeight): planet_shader
     // Enable transparency
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    // this should be enabled for performance
-    //glEnable(GL_CULL_FACE);
-
-    // Draw in wireframe
-    //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
     // Setup consistent projection_ for system
-    projection_ = glm::perspective(45.0f, (GLfloat)screenWidth/(GLfloat)screenHeight, 300.0f, 100*earth_radius);
+    projection_ = glm::perspective(45.0f, (GLfloat)screenWidth/(GLfloat)screenHeight, 300.0f, 100*kEarthRadius);
 
     game_screen_.projection_ = projection_;
     // Setup planet just once
@@ -184,7 +184,7 @@ EarthSystem::EarthSystem(GLuint screenWidth, GLuint screenHeight): planet_shader
 }
 
 void EarthSystem::step(){
-    glm::mat4 view = camera.GetViewMatrix();
+    glm::mat4 view = camera_.GetViewMatrix();
     planet_shader_.Use();
     glUniformMatrix4fv(glGetUniformLocation(planet_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glm::mat4 model(1.0f);
@@ -201,9 +201,9 @@ void EarthSystem::step(){
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glm::mat4 model2(1.0f);
     glUniformMatrix4fv(glGetUniformLocation(line_shader_.Program, "model"), 1, GL_FALSE, glm::value_ptr(model2));
-    if(planning_mode)
+    if(planning_mode_)
     {
-        planning_set_.Advance(float(dt));
+        planning_set_.Advance(float(dt_));
         // Render orbits and their satellites
         planning_set_.Render(line_shader_, true);
         // Render display info and target lines
@@ -211,7 +211,7 @@ void EarthSystem::step(){
     }
     // Render orbits and their satellites
     real_set_.Render(line_shader_, false);
-    real_set_.Advance(timeFactor*timeResolution);
+    real_set_.Advance(time_factor_*kTimeResolution);
     // Render display info and target lines
     game_screen_.RenderHud(line_shader_, real_set_, view);
 }

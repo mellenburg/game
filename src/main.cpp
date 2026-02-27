@@ -12,16 +12,13 @@
 #include <unistd.h>
 #include "earth.h"
 
-#define FPS 30
-
-GLfloat deltaTime = 0.0f;
-GLfloat lastFrame = 0.0f;
-
-// Properties
-GLuint screenWidth = 1200, screenHeight = 1000;
-
 int main()
 {
+    constexpr int FPS = 30;
+    GLfloat deltaTime = 0.0f;
+    GLfloat lastFrame = 0.0f;
+    GLuint screenWidth = 1200, screenHeight = 1000;
+
     // Init GLFW
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -32,13 +29,6 @@ int main()
     GLFWwindow* window = glfwCreateWindow(screenWidth, screenHeight, "LearnOpenGL", nullptr, nullptr); // Windowed
     glfwMakeContextCurrent(window);
 
-    // Set the required callback functions
-    glfwSetKeyCallback(window, key_callback);
-    glfwSetCursorPosCallback(window, mouse_callback);
-
-    // Options
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
     // Initialize GLEW to setup the OpenGL Function pointers
     glewExperimental = GL_TRUE;
     glewInit();
@@ -47,7 +37,7 @@ int main()
     glfwSwapInterval(1);
 
     //Init Module
-    EarthSystem my_earth(screenWidth, screenHeight);
+    EarthSystem my_earth(window, screenWidth, screenHeight);
 
     // Game loop
     while(!glfwWindowShouldClose(window))
