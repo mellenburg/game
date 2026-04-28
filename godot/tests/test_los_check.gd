@@ -1,4 +1,4 @@
-extends "res://tests/test_framework.gd"
+extends "res://tests/framework.gd"
 ## Line-of-sight ray-vs-Earth-sphere tests.
 
 const LosCheck = preload("res://scripts/los_check.gd")

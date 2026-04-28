@@ -28,7 +28,7 @@ push and PR — see `.github/workflows/godot-ci.yml`.
       shaders/planet.gdshader
       resources/            # Textures, models, fonts (with .import sidecars)
       tests/                # Headless GDScript test suite
-        test_framework.gd   # Tiny RefCounted assertion harness
+        framework.gd        # Tiny RefCounted assertion harness
         run_tests.gd        # SceneTree entry — discovers test_*.gd
         test_*.gd
 

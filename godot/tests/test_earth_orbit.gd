@@ -1,4 +1,4 @@
-extends "res://tests/test_framework.gd"
+extends "res://tests/framework.gd"
 ## Orbital mechanics tests.
 
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")

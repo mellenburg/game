@@ -1,15 +1,18 @@
-class_name TestCase
 extends RefCounted
 ## Tiny assertion harness. Each test file extends this class and adds
 ## test_* methods; run_tests.gd discovers them by name. Keeping it small
 ## and dependency-free so CI doesn't need to pull a third-party addon.
+##
+## Not registered as a class_name — test files extend it via path. That
+## keeps it out of the global script class cache, which is fragile
+## across renames.
 
 var _failures: PackedStringArray = PackedStringArray()
 var _ran: int = 0
 var _current_test: String = ""
 
 
-func test_file_name() -> String:
+func script_name() -> String:
 	return get_script().resource_path.get_file().get_basename()
 
 
@@ -54,7 +57,7 @@ func assert_close(actual: float, expected: float, tol: float = 1.0e-6, msg: Stri
 		fail("%s: non-finite (%s vs %s)%s" % [_caller_test(), actual, expected, _suffix(msg)])
 		return
 	if absf(actual - expected) > tol:
-		fail("%s: %.10g vs %.10g (tol %g)%s" % [
+		fail("%s: %.10f vs %.10f (tol %.10f)%s" % [
 			_caller_test(), actual, expected, tol, _suffix(msg)
 		])
 
@@ -64,7 +67,7 @@ func assert_vec_close(actual: Vector3, expected: Vector3, tol: float = 1.0e-6, m
 		fail("%s: non-finite vector%s" % [_caller_test(), _suffix(msg)])
 		return
 	if (actual - expected).length() > tol:
-		fail("%s: %s vs %s (tol %g)%s" % [
+		fail("%s: %s vs %s (tol %.10f)%s" % [
 			_caller_test(), actual, expected, tol, _suffix(msg)
 		])
 
@@ -88,8 +91,8 @@ func _suffix(msg: String) -> String:
 
 func _caller_test() -> String:
 	if _current_test == "":
-		return test_file_name()
-	return "%s::%s" % [test_file_name(), _current_test]
+		return script_name()
+	return "%s::%s" % [script_name(), _current_test]
 
 
 static func _vec_finite(v: Vector3) -> bool:

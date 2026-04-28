@@ -1,4 +1,4 @@
-extends "res://tests/test_framework.gd"
+extends "res://tests/framework.gd"
 ## Orbital path geometry. Verifies the perifocal-frame ellipse generator
 ## without spinning up a SceneTree (the static rotation math is checked
 ## by reproducing it locally and comparing to the orbit's own r vector).
@@ -44,14 +44,17 @@ func test_apoapsis_distance_matches_elements() -> void:
 
 func test_perifocal_axes_are_orthonormal_to_h() -> void:
 	# px and py must both lie in the orbital plane => orthogonal to h.
+	# Tolerance of 1e-6 accounts for Vector3's 32-bit float precision —
+	# cross() and normalize() each lose a few ulps even though the
+	# trig calls themselves are 64-bit.
 	var o := EarthOrbit.new(
 		Vector3(-6045.0, -3490.0, 2500.0),
 		Vector3(-3.56, 6.618, 2.533),
 	)
 	var cols := _pqw_to_eci_columns(o)
 	var h := o.r.cross(o.v).normalized()
-	assert_close(cols[0].dot(h), 0.0, 1.0e-9)
-	assert_close(cols[1].dot(h), 0.0, 1.0e-9)
+	assert_close(cols[0].dot(h), 0.0, 1.0e-6)
+	assert_close(cols[1].dot(h), 0.0, 1.0e-6)
 
 
 func test_actual_position_lies_on_the_ellipse() -> void:
