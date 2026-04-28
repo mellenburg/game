@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - 'claude/**'
+  pull_request:
+    branches:
+      - master
+      - main
+
+jobs:
+  # GL-free unit tests over the sim layer. Fast: only needs glm headers.
+  test:
+    name: sim unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libglm-dev
+
+      - name: Build tests
+        run: make tests
+
+      - name: Run tests
+        run: make check
+
+  # Full game build. Confirms the render/app layers still link against the
+  # current sim API. Does not run the game (no display).
+  build:
+    name: full game build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libglfw3-dev libglew-dev libglm-dev \
+            libassimp-dev libsoil-dev libfreetype-dev \
+            libgoogle-perftools-dev \
+            libgl-dev libx11-dev \
+            libxi-dev libxxf86vm-dev libxinerama-dev \
+            libxcursor-dev libxrandr-dev
+
+      - name: Build
+        run: make
