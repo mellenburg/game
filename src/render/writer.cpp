@@ -15,8 +15,8 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 // GL includes
-#include "shader.h"
-#include "writer.h"
+#include "render/shader.h"
+#include "render/writer.h"
 
 FtWriter::FtWriter(GLuint WIDTH, GLuint HEIGHT): shader_("shaders/text.vs", "shaders/text.frag") {
 
@@ -77,7 +77,7 @@ FtWriter::FtWriter(GLuint WIDTH, GLuint HEIGHT): shader_("shaders/text.vs", "sha
         texture,
         glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
         glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
-        face->glyph->advance.x
+        static_cast<GLuint>(face->glyph->advance.x)
     };
     Characters.insert(std::pair<GLchar, Character>(c, character));
     }

@@ -3,7 +3,7 @@
 #include <GL/glew.h>
 
 // GL includes
-#include "shader.h"
+#include "render/shader.h"
 
 // GLM Mathemtics
 #define GLM_FORCE_RADIANS
@@ -11,7 +11,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "line.h"
+#include "render/line.h"
 
 Line::Line()
 {

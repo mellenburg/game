@@ -14,8 +14,8 @@ using namespace std;
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#include "shader.h"
-#include "mesh.h"
+#include "render/shader.h"
+#include "render/mesh.h"
 
 GLint TextureFromFile(const char*, string, bool gamma = false);
 

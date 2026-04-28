@@ -2,6 +2,8 @@
 #define ORBIT_H
 #include <cmath>
 
+#include <glm/glm.hpp>
+
 struct vec3D {
     double i;
     double j;
@@ -21,7 +23,6 @@ class EarthOrbit
     double rtol = 1e-10;
     double k = 398600.4415;
     void rv2coe();
-    double DV = .015;
 
   public:
     vec3D r;
@@ -39,13 +40,12 @@ class EarthOrbit
     double norm_r;
     double norm_v;
     double period;
-    EarthOrbit(vec3D&, vec3D&);
+    EarthOrbit(const vec3D&, const vec3D&);
     ~EarthOrbit();
-    void clone(EarthOrbit&);
+    void clone(const EarthOrbit&);
     void propagate(double);
-    void maneuver(vec4D&);
-    void relative_maneuver(vec4D&);
+    void maneuver(const vec4D&);
+    void relative_maneuver(const vec4D&);
     void relative_maneuver(glm::vec3, double);
-    void dump_state();
 };
 #endif

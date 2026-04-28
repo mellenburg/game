@@ -8,7 +8,7 @@
 #include <GLFW/glfw3.h>
 
 // GL includes
-#include "shader.h"
+#include "render/shader.h"
 
 // GLM Mathemtics
 #define GLM_FORCE_RADIANS
@@ -16,8 +16,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "orbit.h"
-#include "line.h"
+#include "sim/orbit.h"
+#include "render/line.h"
 #define PI 3.14159265
 
 class Ellipse3d {
@@ -32,8 +32,11 @@ class Ellipse3d {
         void GenerateEllipse(float, float, float, float, float, float);
         glm::vec3 color_ = {0.0f, 1.0f, 0.0f};
     public:
-        Ellipse3d(EarthOrbit&);
-        void Update(EarthOrbit&);
+        Ellipse3d(const EarthOrbit&);
+        ~Ellipse3d();
+        Ellipse3d(const Ellipse3d&) = delete;
+        Ellipse3d& operator=(const Ellipse3d&) = delete;
+        void Update(const EarthOrbit&);
         void Render(Shader);
         void SetColor(glm::vec3);
 };

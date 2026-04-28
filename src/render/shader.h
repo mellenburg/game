@@ -51,9 +51,10 @@ public:
 				geometryCode = gShaderStream.str();
 			}
         }
-        catch (std::ifstream::failure e)
+        catch (const std::ifstream::failure& e)
         {
-            std::cout << "ERROR::SHADER::FILE_NOT_SUCCESFULLY_READ" << std::endl;
+            std::cout << "ERROR::SHADER::FILE_NOT_SUCCESFULLY_READ: "
+                      << e.what() << std::endl;
         }
         const GLchar* vShaderCode = vertexCode.c_str();
         const GLchar * fShaderCode = fragmentCode.c_str();

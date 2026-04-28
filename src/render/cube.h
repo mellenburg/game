@@ -5,14 +5,14 @@
 #include <GL/glew.h>
 
 // GL includes
-#include "shader.h"
+#include "render/shader.h"
 
 // GLM Mathemtics
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include "orbit.h"
+#include "sim/orbit.h"
 
 class Cube {
     private:
@@ -65,8 +65,11 @@ class Cube {
         glm::vec3 position_;
         glm::vec3 color_;
     public:
-        Cube(EarthOrbit&);
-        void Update(EarthOrbit&);
+        Cube(const EarthOrbit&);
+        ~Cube();
+        Cube(const Cube&) = delete;
+        Cube& operator=(const Cube&) = delete;
+        void Update(const EarthOrbit&);
         void Render(Shader);
         void SetColor(glm::vec3);
 };

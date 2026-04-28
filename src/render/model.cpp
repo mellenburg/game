@@ -15,9 +15,9 @@ using namespace std;
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#include "shader.h"
-#include "mesh.h"
-#include "model.h"
+#include "render/shader.h"
+#include "render/mesh.h"
+#include "render/model.h"
 
 /*  Model Data */
 vector<Texture> textures_loaded;	// Stores all the textures loaded so far, optimization to make sure textures aren't loaded more than once.

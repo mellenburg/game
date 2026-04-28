@@ -14,7 +14,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 // GL includes
-#include "shader.h"
+#include "render/shader.h"
 
 struct Character {
     GLuint TextureID;   // ID handle of the glyph texture

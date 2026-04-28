@@ -6,11 +6,11 @@
 
 #include <cmath>
 #include <iostream>
-#include "orbit.h"
+#include "sim/orbit.h"
 
 #define PI 3.14159265
 
-vec3D cross_product (vec3D &u, vec3D &v){
+static vec3D cross_product(const vec3D& u, const vec3D& v) {
     vec3D w;
     w.i = u.j*v.k - u.k*v.j;
     w.j = u.k*v.i - u.i*v.k;
@@ -18,45 +18,29 @@ vec3D cross_product (vec3D &u, vec3D &v){
     return w;
 }
 
-vec3D vec_copy (vec3D &u){
-    vec3D v;
-    v.i = u.i;
-    v.j = u.j;
-    v.k = u.k;
-    return v;
+static vec3D vec_copy(const vec3D& u) {
+    return vec3D{u.i, u.j, u.k};
 }
 
-void vec_copy_to (vec3D &u, vec3D& v){
+static void vec_copy_to(const vec3D& u, vec3D& v) {
     v.i = u.i;
     v.j = u.j;
     v.k = u.k;
 }
 
-vec4D vec_copy (vec4D &u){
-    vec4D v;
-    v.i = u.i;
-    v.j = u.j;
-    v.k = u.k;
-    v.t = u.t;
-    return v;
-}
-
-double dot_product (vec3D &u, vec3D &v)
-{
+static double dot_product(const vec3D& u, const vec3D& v) {
     return (u.i*v.i)+(u.j*v.j)+(u.k*v.k);
 }
 
-double norm (vec3D &u)
-{
+static double norm(const vec3D& u) {
     return std::sqrt(dot_product(u, u));
 }
 
-vec3D vec_scale (double f, vec3D &u)
-{
-    return vec3D {f*u.i, f*u.j, f*u.k};
+static vec3D vec_scale(double f, const vec3D& u) {
+    return vec3D{f*u.i, f*u.j, f*u.k};
 }
 
-vec3D vec_add(vec3D &u, vec3D &v){
+static vec3D vec_add(const vec3D& u, const vec3D& v) {
     vec3D w;
     w.i = u.i + v.i;
     w.j = u.j + v.j;
@@ -116,7 +100,7 @@ double c3(double psi)
     return (double) res;
 }
 
-EarthOrbit::EarthOrbit (vec3D& r_in, vec3D& v_in){
+EarthOrbit::EarthOrbit(const vec3D& r_in, const vec3D& v_in) {
     vec_copy_to(r_in, r);
     vec_copy_to(v_in, v);
     rv2coe();
@@ -240,7 +224,7 @@ void EarthOrbit::propagate(double tof)
     rv2coe();
 }
 
-void EarthOrbit::maneuver(vec4D &dv){
+void EarthOrbit::maneuver(const vec4D& dv) {
     propagate(dv.t);
     vec3D v0 = v;
     vec3D dv_space = {dv.i, dv.j, dv.k};
@@ -248,7 +232,7 @@ void EarthOrbit::maneuver(vec4D &dv){
     rv2coe();
 }
 
-void EarthOrbit::clone(EarthOrbit& e) {
+void EarthOrbit::clone(const EarthOrbit& e) {
     vec_copy_to(e.r, r);
     vec_copy_to(e.v, v);
     r_p = e.r_p;
@@ -265,7 +249,7 @@ void EarthOrbit::clone(EarthOrbit& e) {
     norm_v = e.norm_v;
 }
 
-void EarthOrbit::relative_maneuver(vec4D &dv){
+void EarthOrbit::relative_maneuver(const vec4D& dv) {
     vec3D i = vec_scale(1.0/norm(v), v);
     vec3D r_cross_v = cross_product(r, v);
     vec3D k = vec_scale(1.0/norm(r_cross_v), r_cross_v);
@@ -280,7 +264,7 @@ void EarthOrbit::relative_maneuver(vec4D &dv){
     maneuver(man_t);
 }
 
-void EarthOrbit::relative_maneuver(glm::vec3 dv, double t){
+void EarthOrbit::relative_maneuver(glm::vec3 dv, double t) {
     vec3D i = vec_scale(1.0/norm(v), v);
     vec3D r_cross_v = cross_product(r, v);
     vec3D k = vec_scale(1.0/norm(r_cross_v), r_cross_v);

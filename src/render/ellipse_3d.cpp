@@ -6,7 +6,7 @@
 #include <GLFW/glfw3.h>
 
 // GL includes
-#include "shader.h"
+#include "render/shader.h"
 
 // GLM Mathemtics
 #define GLM_FORCE_RADIANS
@@ -14,22 +14,27 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "orbit.h"
-#include "line.h"
-#include "ellipse_3d.h"
+#include "sim/orbit.h"
+#include "render/line.h"
+#include "render/ellipse_3d.h"
 #define PI 3.14159265
 
-Ellipse3d::Ellipse3d(EarthOrbit& orbit): orbit_line_() {
+Ellipse3d::Ellipse3d(const EarthOrbit& orbit): orbit_line_() {
     this->Update(orbit);
     glGenVertexArrays(1, &eVAO);
     glGenBuffers(1, &eVBO);
+}
+
+Ellipse3d::~Ellipse3d() {
+    glDeleteBuffers(1, &eVBO);
+    glDeleteVertexArrays(1, &eVAO);
 }
 
 void Ellipse3d::SetColor(glm::vec3 color) {
     color_ = color;
 }
 
-void Ellipse3d::Update(EarthOrbit& update) {
+void Ellipse3d::Update(const EarthOrbit& update) {
     a_ = update.a;
     ecc_ = update.ecc;
     r_p_ = update.r_p;

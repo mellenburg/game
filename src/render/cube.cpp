@@ -3,7 +3,7 @@
 #include <GL/glew.h>
 
 // GL includes
-#include "shader.h"
+#include "render/shader.h"
 
 // GLM Mathemtics
 #define GLM_FORCE_RADIANS
@@ -11,24 +11,30 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "orbit.h"
-#include "cube.h"
+#include "sim/orbit.h"
+#include "render/cube.h"
 
 void Cube::SetColor(glm::vec3 color)
 {
     color_ = color;
 }
 
-void Cube::Update(EarthOrbit& orbit)
+void Cube::Update(const EarthOrbit& orbit)
 {
     position_ = glm::vec3(orbit.r.i, orbit.r.j, orbit.r.k);
 }
 
-Cube::Cube(EarthOrbit& orbit)
+Cube::Cube(const EarthOrbit& orbit)
 {
     this->Update(orbit);
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
+}
+
+Cube::~Cube()
+{
+    glDeleteBuffers(1, &VBO);
+    glDeleteVertexArrays(1, &VAO);
 }
 
 void Cube::Render(Shader shader) {

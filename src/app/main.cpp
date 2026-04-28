@@ -10,7 +10,7 @@
 // My stuff
 //
 #include <unistd.h>
-#include "earth.h"
+#include "app/earth.h"
 
 int main()
 {
@@ -61,7 +61,7 @@ int main()
         glClearColor(0.03f, 0.03f, 0.03f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        my_earth.step();
+        my_earth.step(deltaTime);
 
         // reset our texture binding
         glActiveTexture(GL_TEXTURE0);
