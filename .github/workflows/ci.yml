@@ -47,7 +47,9 @@ jobs:
             libglfw3-dev libglew-dev libglm-dev \
             libassimp-dev libsoil-dev libfreetype-dev \
             libgoogle-perftools-dev \
-            libxi-dev libxxf86vm-dev libxinerama-dev libxcursor-dev
+            libgl-dev libx11-dev \
+            libxi-dev libxxf86vm-dev libxinerama-dev \
+            libxcursor-dev libxrandr-dev
 
       - name: Build
         run: make
