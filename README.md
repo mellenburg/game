@@ -1,11 +1,65 @@
-# Requirements
-* OpenGL
-* GLFW
-* GLEW
-* Assimp
-* SOIL
-* GLM
-* FreeType
+# Orbital Mechanics Game
+
+A real-time Keplerian orbit simulator. The original implementation under `src/`
+is C++ + OpenGL; the cross-platform target lives under `godot/` (Godot 4) and is
+the path forward for Chromebook / Android / iOS.
+
+## Godot project (`godot/`)
+
+Targets desktop, web, Android, and iOS. Uses the GL Compatibility renderer so
+it runs on Chromebook (Crostini / llvmpipe) and mobile GPUs without Vulkan.
+
+Run with the editor or:
+
+    make godot-run               # opens the project window
+    make godot-test              # headless unit tests
+    GODOT=~/godot/godot make godot-test    # if Godot isn't on PATH
+
+CI runs `godot --headless --quit --script res://tests/run_tests.gd` on every
+push and PR — see `.github/workflows/godot-ci.yml`.
+
+### Layout
+
+    godot/
+      project.godot         # GL Compatibility, input map, scene config
+      scenes/main.tscn      # Root scene
+      scripts/              # All gameplay logic (each script has a class_name
+                            # and uses preload() for cross-script references)
+      shaders/planet.gdshader
+      resources/            # Textures, models, fonts (with .import sidecars)
+      tests/                # Headless GDScript test suite
+        test_framework.gd   # Tiny RefCounted assertion harness
+        run_tests.gd        # SceneTree entry — discovers test_*.gd
+        test_*.gd
+
+### Why this port shape
+
+Earlier attempt (PR #1, branch `claude/enhance-orbit-simulator-9zgDD`) crashed
+after ~1 minute. Lessons baked into this port:
+
+1. **Cache meshes & materials** — the previous orbit renderer allocated a
+   fresh `ImmediateMesh` and `StandardMaterial3D` every frame per satellite.
+   `OrbitalPath` now builds a single `ArrayMesh` once and rewrites its vertex
+   buffer in place only when the orbital elements actually change.
+2. **Bound the simulation time factor** and rate-scale by frame delta. The
+   previous controller incremented `time_factor` per frame while a key was
+   held, eventually driving universal-variable Newton-Raphson into NaN.
+3. **`is_state_valid()` guards on every propagate** with NaN-detection on
+   inputs and outputs; satellites whose orbit goes pathological are flagged
+   `orbit_alive = false` rather than feeding NaN vertices to the renderer.
+4. **Use Godot's import pipeline for textures** instead of
+   `Image.load_from_file()` — that pattern decoded ~200 MB of 4K JPEG into
+   uncompressed VRAM at runtime.
+5. **Simulation runs in `_physics_process`** at a fixed tick rate. The
+   previous port ran in `_process` with a hardcoded `1/30` step.
+6. **`class_name` + `preload()` everywhere** for cross-script references, and
+   strongly-typed `@onready` vars / parameters — the patterns required by the
+   commits on the previous branch (1b530d0, 07f8385).
+
+# Legacy C++ build (`src/`)
+
+Requirements: OpenGL, GLFW, GLEW, Assimp, SOIL, GLM, FreeType. `make` builds
+`./test`. Kept around for reference; not the active target.
 
 # Goals
 * DONE: Make a basic orbital physics simlutation in 3D

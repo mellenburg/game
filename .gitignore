@@ -1,2 +1,11 @@
 exp/*
 core
+
+# C++ build artifact
+test
+
+# Godot
+godot/.godot/
+godot/.import/
+godot/export.cfg
+godot/export_presets.cfg

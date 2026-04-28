@@ -1,0 +1,55 @@
+name: Godot CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    name: Headless GDScript tests
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.3"
+      GODOT_RELEASE: "stable"
+      GODOT_PROJECT_PATH: godot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot binary
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux-x86_64
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} (${{ env.GODOT_RELEASE }})
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          mkdir -p ~/godot
+          ZIP="Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64.zip"
+          URL="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}/${ZIP}"
+          curl -fsSL --retry 4 --retry-delay 5 -o /tmp/godot.zip "$URL"
+          unzip -q /tmp/godot.zip -d ~/godot
+          mv ~/godot/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64 ~/godot/godot
+          chmod +x ~/godot/godot
+
+      - name: Add Godot to PATH
+        run: echo "$HOME/godot" >> "$GITHUB_PATH"
+
+      - name: Show Godot version
+        run: godot --version
+
+      # Prime the .godot/ import cache. A fresh checkout has the .import
+      # sidecars committed but no compiled resources yet; importing builds
+      # them. We don't gate CI on this exit code because some warnings
+      # surface as non-zero exits — the test step is the real gate.
+      - name: Import resources
+        working-directory: ${{ env.GODOT_PROJECT_PATH }}
+        run: godot --headless --import || true
+
+      - name: Run unit tests
+        working-directory: ${{ env.GODOT_PROJECT_PATH }}
+        run: godot --headless --quit --script res://tests/run_tests.gd

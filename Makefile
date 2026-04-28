@@ -18,3 +18,18 @@ OBJ_NAME = test
 #This is the target that compiles our executable
 all : $(OBJS)
 		$(CC) $(OBJS) $(COMPILER_FLAGS) -o $(OBJ_NAME) $(LINKER_FLAGS)
+
+# Godot targets. Override GODOT if not on PATH (e.g. GODOT=~/godot/godot).
+GODOT ?= godot
+GODOT_PROJECT = godot
+
+.PHONY: godot-import godot-test godot-run
+
+godot-import:
+		$(GODOT) --headless --path $(GODOT_PROJECT) --import
+
+godot-test: godot-import
+		$(GODOT) --headless --path $(GODOT_PROJECT) --quit --script res://tests/run_tests.gd
+
+godot-run:
+		$(GODOT) --path $(GODOT_PROJECT)
