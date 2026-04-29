@@ -42,6 +42,9 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 		return
 
 	var selected: Satellite = satellites[selected_idx]
+	if not selected.alive:
+		info_label.text = "[color=red]Selected satellite is destroyed.[/color]"
+		return
 	if not selected.orbit_alive:
 		info_label.text = "[color=red]Selected satellite is dead.[/color]"
 		return
@@ -57,7 +60,12 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 	if planning_mode:
 		lines.append("Planning dt: %d" % dt)
 	lines.append("")
-	lines.append("[color=green]Selected Ship[/color]")
+	var team_label := "Enemy" if selected.team == Satellite.TEAM_ENEMY else "Selected Ship"
+	var team_color := "red" if selected.team == Satellite.TEAM_ENEMY else "green"
+	lines.append("[color=%s]%s[/color]" % [team_color, team_label])
+	lines.append("  HP: %.0f / %.0f" % [selected.hp, Satellite.MAX_HP])
+	if selected.weapon != null:
+		lines.append("  Energy: %d%%" % int(selected.weapon.energy * 100.0))
 	lines.append("  Alt: %.0f km" % (selected.orbit.norm_r - 6371.0))
 	lines.append("  Vel: %.3f km/s" % selected.orbit.norm_v)
 	lines.append("  Ecc: %.4f" % selected.orbit.ecc)
@@ -70,7 +78,7 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 		if i == selected_idx:
 			continue
 		var other: Satellite = satellites[i]
-		if not other.orbit_alive:
+		if not other.orbit_alive or not other.alive:
 			continue
 		var other_pos: Vector3 = other.orbit.r
 		var other_vel: Vector3 = other.orbit.v
@@ -78,7 +86,9 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 		var rel_vel := main_vel.distance_to(other_vel)
 		var blocked := LosCheck.is_blocked(main_pos, other_pos)
 		var los_color := "yellow" if blocked else "red"
-		lines.append("[color=%s]Target %d[/color]" % [los_color, i])
+		var label := "Enemy %d" if other.team == Satellite.TEAM_ENEMY else "Target %d"
+		lines.append("[color=%s]%s[/color]" % [los_color, label % i])
+		lines.append("  HP: %.0f / %.0f" % [other.hp, Satellite.MAX_HP])
 		lines.append("  Distance: %.0f km" % distance)
 		lines.append("  delta-V: %.2f km/s" % rel_vel)
 		lines.append("  LOS: %s" % ("BLOCKED" if blocked else "CLEAR"))
@@ -104,7 +114,7 @@ func _draw() -> void:
 	if satellites.is_empty() or selected_idx < 0 or selected_idx >= satellites.size():
 		return
 	var selected: Satellite = satellites[selected_idx]
-	if not selected.orbit_alive:
+	if not selected.orbit_alive or not selected.alive:
 		return
 	var main_eci := selected.orbit.r
 	var main_scene := main_eci * Satellite.SCENE_SCALE
@@ -113,7 +123,7 @@ func _draw() -> void:
 		if i == selected_idx:
 			continue
 		var other: Satellite = satellites[i]
-		if not other.orbit_alive:
+		if not other.orbit_alive or not other.alive:
 			continue
 		var other_scene := other.orbit.r * Satellite.SCENE_SCALE
 		if _camera.is_position_behind(main_scene) and _camera.is_position_behind(other_scene):
