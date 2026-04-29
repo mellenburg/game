@@ -42,14 +42,7 @@ jobs:
       - name: Show Godot version
         run: godot --version
 
-      # Prime the .godot/ import cache. A fresh checkout has the .import
-      # sidecars committed but no compiled resources yet; importing builds
-      # them. We don't gate CI on this exit code because some warnings
-      # surface as non-zero exits — the test step is the real gate.
-      - name: Import resources
-        working-directory: ${{ env.GODOT_PROJECT_PATH }}
-        run: godot --headless --import || true
-
+      # `make test` runs --import then the test suite. Import is a fast
+      # no-op when the .godot/ cache is warm (cached above on cache hit).
       - name: Run unit tests
-        working-directory: ${{ env.GODOT_PROJECT_PATH }}
-        run: godot --headless --quit --script res://tests/run_tests.gd
+        run: make test

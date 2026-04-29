@@ -1,9 +1,3 @@
-exp/*
-core
-
-# C++ build artifact
-test
-
 # Godot
 godot/.godot/
 godot/.import/
