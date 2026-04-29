@@ -70,13 +70,93 @@ CI runs `make test` on every push and PR — see `.github/workflows/godot-ci.yml
 - [ ] Galactic background sphere
 - [ ] Distinct color/style for projection (planning) data
 
-## Gameplay ideas
+## Gameplay
 
-- Model gameplay on [Ogre](http://www.sjgames.com/ogre/) — asymmetric
-  unit distribution: dozens of small nimble units vs. one behemoth.
-- Kinetic weapons:
-  1. Radically adjust the foe's momentum → forces them to spend fuel to
-     restore their flight path.
-  2. Firing changes your own ship's momentum equally; depending on
-     target geometry and orbital position, firing can be disastrous or
-     advantageous.
+The game is **RTS + tower defense, with orbital physics as the core
+mechanic**. The marketing surface and GUI should feel like tower defense
+— mass-market appeal, low entry barrier — while the underlying mechanics
+are RTS-flavored and physics-driven. The MVP is autonomous tower defense
+(units fire on their own); manual orbital maneuvers and fire control are
+follow-on capabilities.
+
+### Units and weapons
+
+Satellites are the units. Every unit fires automatically when a valid
+target is in range; players intervene to launch new units, position
+them, and (later) coordinate maneuvers or fire control.
+
+- **Energy weapons** — strict line-of-sight only in normal gravity.
+  Photons go straight; if the planet, another body, or terrain occludes
+  the target, no shot.
+- **Kinetic weapons (railguns)** — LOS at close range; at long range the
+  projectile follows a noticeable parabolic / orbital arc and can hit
+  beyond a strict-LOS check. The transition from "treat as straight" to
+  "must integrate trajectory" is a tuning knob.
+- **Missiles** — full satellites in their own right. They're kamikaze
+  units that deal damage when they get within a kill radius of the
+  target. Their orbital state is simulated like any other satellite.
+
+### Economy
+
+Players generate resources (**metals**, **rare metals**, **chemicals**,
+**exotics**) at a fixed rate during prototyping. Resource competition
+mechanics come later. Players have:
+
+- A **production capacity** — consumes resources to build queued units.
+- A **launch capacity** — places built units as satellites in orbit.
+
+Both capacities are fixed at prototype; later they become upgradable /
+contested. Unit cost is a per-resource ratio determined by the unit's
+weaponry, thrust capability, and health. **These ratios must be
+data-driven and easy to tune** — balance work will dominate later.
+
+### PvE (the prototype's primary gameplay)
+
+Enemy satellites populate the arena via these spawn behaviors:
+
+1. Appear in orbit and stay in orbit.
+2. Enter from outside the arena, slingshot around the gravitational
+   centre, and exit the arena.
+3. Enter from outside and decelerate into a captured orbit.
+4. Launch from the planet's surface into orbit.
+5. After entering or appearing, stay in orbit for a limited time, then
+   change velocity enough to escape.
+
+### PvP (deferred)
+
+PvP is a major element of the final product but is **deprioritized for
+prototyping** because it requires a game server. The intended design:
+each player chooses a maximum time-dilation factor; the server
+propagates the world at the minimum of the two. Each client is a viewer
+of server-authoritative orbits.
+
+We aren't building the server yet, but **code separation must respect
+that future**: keep simulation, intent, and rendering distinct so
+authority can later move to a server with no rewrite of the orbital
+math.
+
+### Maps
+
+The central body is **not** fixed to Earth. Future maps include black
+holes, neutron stars, red giants, gas giants (some with rings), smaller
+rocky planets, etc. Implications:
+
+- **Gravity is not constant between maps.** `MU` and the planet's
+  visual/collision radius must be map parameters, not constants buried
+  in `EarthOrbit`.
+- Some maps have no surface to launch from — production / launch
+  capacity rules need a "supports surface launch?" flag per map.
+- Renderer should pick body appearance (texture set, ring system,
+  accretion disc shader for black holes) by map descriptor.
+
+### Difficulty curve
+
+- **Novice play (MVP)** — launch units, watch them auto-engage, earn
+  points. No required micromanagement.
+- **Intermediate** — light positional adjustments to optimise coverage
+  or extend engagement windows.
+- **Advanced** — coordinated orbital maneuvers, deliberate fire control,
+  resource-aware build orders.
+
+These mechanics inform architecture even where they aren't yet
+implemented; reserve seams now so each layer can drop in cleanly.
