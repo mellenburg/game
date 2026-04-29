@@ -18,6 +18,12 @@ const SIDEREAL_DAY_SECONDS: float = 86164.0
 var earth_phase: float = 0.0
 var rotation_rate: float
 
+# SphereMesh's poles sit on local Y, but the world is Z-up (the
+# orbital-mechanics convention used throughout the project). This basis
+# rotates the mesh once so its north pole points at +Z; daily rotation is
+# then composed on top of it.
+const POLE_ALIGN := Basis(Vector3(1.0, 0.0, 0.0), PI / 2.0)
+
 
 func _ready() -> void:
 	rotation_rate = TAU / SIDEREAL_DAY_SECONDS
@@ -29,6 +35,7 @@ func _ready() -> void:
 	sphere.rings = 32
 	mesh = sphere
 
+	transform.basis = POLE_ALIGN
 	_setup_material()
 
 
@@ -69,4 +76,7 @@ func _load_texture(path: String) -> Texture2D:
 
 func advance_phase(sim_delta: float) -> void:
 	earth_phase = fposmod(earth_phase + rotation_rate * sim_delta, TAU)
-	rotation.z = earth_phase  # Z-up world: spin about Z
+	# Daily spin about world Z, applied on top of the pole-alignment basis.
+	# Counterclockwise viewed from +Z, matching Earth's actual rotation.
+	var daily := Basis(Vector3(0.0, 0.0, 1.0), earth_phase)
+	transform.basis = daily * POLE_ALIGN
