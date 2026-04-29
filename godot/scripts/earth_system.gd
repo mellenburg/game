@@ -8,8 +8,6 @@ const Satellite = preload("res://scripts/satellite.gd")
 const Earth = preload("res://scripts/earth.gd")
 const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
-const Sun = preload("res://scripts/sun.gd")
-const LensFlare = preload("res://scripts/lens_flare.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -33,15 +31,12 @@ var _planning_dt_accum: float = 0.0
 @onready var hud: HUD = $CanvasLayer/HUD as HUD
 @onready var satellite_container: Node3D = $Satellites as Node3D
 @onready var planning_container: Node3D = $PlanningSatellites as Node3D
-@onready var sun: Sun = $Sun as Sun
-@onready var lens_flare: LensFlare = $CanvasLayer/LensFlare as LensFlare
 
 var satellites: Array[Satellite]:
 	get: return planning_satellites if planning_mode else real_satellites
 
 
 func _ready() -> void:
-	lens_flare.bind(camera, sun)
 	add_satellite()
 	if not real_satellites.is_empty():
 		real_satellites[0].select()

@@ -1,11 +1,10 @@
-[gd_scene load_steps=9 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=8 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
 [ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="3_camera"]
 [ext_resource type="Script" path="res://scripts/hud.gd" id="4_hud"]
 [ext_resource type="Script" path="res://scripts/sun.gd" id="5_sun"]
-[ext_resource type="Script" path="res://scripts/lens_flare.gd" id="6_flare"]
 
 [sub_resource type="Environment" id="Env_main"]
 background_mode = 1
@@ -45,17 +44,6 @@ script = ExtResource("5_sun")
 [node name="PlanningSatellites" type="Node3D" parent="."]
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
-
-[node name="LensFlare" type="ColorRect" parent="CanvasLayer"]
-layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-color = Color(0, 0, 0, 0)
-script = ExtResource("6_flare")
 
 [node name="HUD" type="Control" parent="CanvasLayer"]
 layout_mode = 3
