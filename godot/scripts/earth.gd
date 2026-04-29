@@ -25,6 +25,13 @@ var rotation_rate: float
 # then composed on top of it.
 const POLE_ALIGN := Basis(Vector3(1.0, 0.0, 0.0), PI / 2.0)
 
+# Earth's axial tilt (obliquity of the ecliptic): 23.5° away from the
+# world Z axis. Applied last so the daily spin happens about the tilted
+# pole, while the sun direction (a shader uniform) stays unchanged —
+# the asymmetric illumination this produces is the seasonal effect.
+const AXIAL_TILT_RAD: float = 23.5 * PI / 180.0
+const AXIAL_TILT := Basis(Vector3(1.0, 0.0, 0.0), AXIAL_TILT_RAD)
+
 
 func _ready() -> void:
 	rotation_rate = TAU / SIDEREAL_DAY_SECONDS
@@ -36,7 +43,7 @@ func _ready() -> void:
 	sphere.rings = 32
 	mesh = sphere
 
-	transform.basis = POLE_ALIGN
+	transform.basis = AXIAL_TILT * POLE_ALIGN
 	_setup_material()
 
 
@@ -80,7 +87,9 @@ func _load_texture(path: String) -> Texture2D:
 
 func advance_phase(sim_delta: float) -> void:
 	earth_phase = fposmod(earth_phase + rotation_rate * sim_delta, TAU)
-	# Daily spin about world Z, applied on top of the pole-alignment basis.
-	# Counterclockwise viewed from +Z, matching Earth's actual rotation.
+	# Composition order (right-to-left): align mesh poles to local Z,
+	# spin daily about that local Z, then tilt the whole thing 23.5° so
+	# the spin axis tilts away from world Z but the sun direction
+	# (world frame) is untouched.
 	var daily := Basis(Vector3(0.0, 0.0, 1.0), earth_phase)
-	transform.basis = daily * POLE_ALIGN
+	transform.basis = AXIAL_TILT * daily * POLE_ALIGN
