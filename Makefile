@@ -23,7 +23,7 @@ all : $(OBJS)
 GODOT ?= godot
 GODOT_PROJECT = godot
 
-.PHONY: godot-import godot-test godot-run
+.PHONY: godot-import godot-test godot-run godot-edit
 
 godot-import:
 		$(GODOT) --headless --path $(GODOT_PROJECT) --import
@@ -31,5 +31,10 @@ godot-import:
 godot-test: godot-import
 		$(GODOT) --headless --path $(GODOT_PROJECT) --quit --script res://tests/run_tests.gd
 
+# Run the game (main scene).
 godot-run:
 		$(GODOT) --path $(GODOT_PROJECT)
+
+# Open the Godot editor on the project.
+godot-edit:
+		$(GODOT) -e --path $(GODOT_PROJECT)
