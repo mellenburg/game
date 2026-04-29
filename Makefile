@@ -31,10 +31,11 @@ godot-import:
 godot-test: godot-import
 		$(GODOT) --headless --path $(GODOT_PROJECT) --quit --script res://tests/run_tests.gd
 
-# Run the game (main scene).
-godot-run:
+# Run the game (main scene). Depends on godot-import so the .ctex
+# texture cache exists; --import is fast/no-op when nothing's stale.
+godot-run: godot-import
 		$(GODOT) --path $(GODOT_PROJECT)
 
 # Open the Godot editor on the project.
-godot-edit:
+godot-edit: godot-import
 		$(GODOT) -e --path $(GODOT_PROJECT)
