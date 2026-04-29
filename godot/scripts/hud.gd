@@ -30,8 +30,14 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 	_last_text_update = now
 
 	var satellites: Array = orbital_set.satellites
-	var selected_idx: int = orbital_set.selected_ship
-	if satellites.is_empty():
+	# In planning mode, satellites is planning_satellites and the active
+	# index is planning_selected — selected_ship indexes real_satellites
+	# and can disagree if the user has added/removed ships mid-plan.
+	var selected_idx: int = (
+		orbital_set.planning_selected if planning_mode
+		else orbital_set.selected_ship
+	)
+	if satellites.is_empty() or selected_idx < 0 or selected_idx >= satellites.size():
 		info_label.text = ""
 		return
 
@@ -91,8 +97,11 @@ func _draw() -> void:
 	if _system == null or _camera == null:
 		return
 	var satellites: Array = _system.satellites
-	var selected_idx: int = _system.selected_ship
-	if satellites.is_empty():
+	var selected_idx: int = (
+		_system.planning_selected if _system.planning_mode
+		else _system.selected_ship
+	)
+	if satellites.is_empty() or selected_idx < 0 or selected_idx >= satellites.size():
 		return
 	var selected: Satellite = satellites[selected_idx]
 	if not selected.orbit_alive:

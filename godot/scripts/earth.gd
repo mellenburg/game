@@ -14,6 +14,7 @@ const SIDEREAL_DAY_SECONDS: float = 86164.0
 @export var albedo_path: String = "res://resources/3D/earth/4096_earth.jpg"
 @export var night_path: String = "res://resources/3D/earth/4096_night_lights.jpg"
 @export var normal_path: String = "res://resources/3D/earth/4096_normal.jpg"
+@export var clouds_path: String = "res://resources/3D/earth/4096_clouds.jpg"
 
 var earth_phase: float = 0.0
 var rotation_rate: float
@@ -55,6 +56,7 @@ func _setup_material() -> void:
 	var albedo := _load_texture(albedo_path)
 	var night := _load_texture(night_path)
 	var normal_map := _load_texture(normal_path)
+	var clouds := _load_texture(clouds_path)
 
 	if albedo:
 		mat.set_shader_parameter("albedo_texture", albedo)
@@ -62,6 +64,8 @@ func _setup_material() -> void:
 		mat.set_shader_parameter("night_texture", night)
 	if normal_map:
 		mat.set_shader_parameter("normal_texture", normal_map)
+	if clouds:
+		mat.set_shader_parameter("clouds_texture", clouds)
 	mat.set_shader_parameter("sun_direction", Vector3(1.0, 0.0, 0.0))
 
 	material_override = mat

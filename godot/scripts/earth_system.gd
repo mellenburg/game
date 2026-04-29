@@ -59,6 +59,7 @@ func _physics_process(delta: float) -> void:
 		sat.render_orbit(true)
 
 	if planning_mode:
+		_sync_planning_to_reality()
 		var window := float(planning_dt)
 		for i in range(planning_satellites.size()):
 			# Snap orbit-state from reality but keep the operator's queued
@@ -183,3 +184,21 @@ func _clear_planning() -> void:
 		sat.queue_free()
 	planning_satellites.clear()
 	planning_dt = 0
+
+
+# Keep planning_satellites length matched to real_satellites. add/remove
+# of real ships during planning would otherwise leave the arrays
+# misaligned and the HUD/selection logic indexing past the planning end.
+func _sync_planning_to_reality() -> void:
+	while planning_satellites.size() < real_satellites.size():
+		var clone := Satellite.new()
+		planning_container.add_child(clone)
+		clone.clone_from(real_satellites[planning_satellites.size()])
+		planning_satellites.append(clone)
+	while planning_satellites.size() > real_satellites.size():
+		var sat := planning_satellites.pop_back()
+		sat.queue_free()
+	if planning_satellites.is_empty():
+		planning_selected = 0
+	else:
+		planning_selected = clampi(planning_selected, 0, planning_satellites.size() - 1)
