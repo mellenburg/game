@@ -41,7 +41,6 @@ Run / test:
         los_check.gd        # Pure RefCounted ray-vs-sphere
       shaders/planet.gdshader
       resources/3D/earth/   # Day/night/normal/clouds JPEGs + .import
-      resources/2D/         # Project icon
       tests/
         framework.gd        # Tiny RefCounted assertion harness
         run_tests.gd        # SceneTree entry — discovers test_*.gd
