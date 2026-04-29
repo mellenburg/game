@@ -1,0 +1,48 @@
+name: Godot CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    name: Headless GDScript tests
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.3"
+      GODOT_RELEASE: "stable"
+      GODOT_PROJECT_PATH: godot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot binary
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux-x86_64
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} (${{ env.GODOT_RELEASE }})
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          mkdir -p ~/godot
+          ZIP="Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64.zip"
+          URL="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}/${ZIP}"
+          curl -fsSL --retry 4 --retry-delay 5 -o /tmp/godot.zip "$URL"
+          unzip -q /tmp/godot.zip -d ~/godot
+          mv ~/godot/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64 ~/godot/godot
+          chmod +x ~/godot/godot
+
+      - name: Add Godot to PATH
+        run: echo "$HOME/godot" >> "$GITHUB_PATH"
+
+      - name: Show Godot version
+        run: godot --version
+
+      # `make test` runs --import then the test suite. Import is a fast
+      # no-op when the .godot/ cache is warm (cached above on cache hit).
+      - name: Run unit tests
+        run: make test

@@ -1,2 +1,5 @@
-exp/*
-core
+# Godot
+godot/.godot/
+godot/.import/
+godot/export.cfg
+godot/export_presets.cfg

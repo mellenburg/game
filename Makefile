@@ -1,20 +1,32 @@
-#OBJS specifies which files to compile as part of the project
-#OBJS = rotate-ellipse.cpp
-OBJS = src/*.cpp
+# Makefile for the Godot 4 orbital mechanics simulator.
+# Override GODOT if your Godot 4.3 binary isn't on PATH:
+#   GODOT=~/godot/godot make godot-run
 
-#CC specifies which compiler we're using
-CC = g++
+GODOT ?= godot
+GODOT_PROJECT = godot
 
-#COMPILER_FLAGS specifies the additional compilation options we're using
-# -w suppresses all warnings
-COMPILER_FLAGS = -g -Wall -I/usr/local/include -I/usr/include/freetype2 -I/usr/include/libpng16 -L/usr/local/lib -L/usr/lib64 -std=c++11 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
+.PHONY: all import test run edit clean
 
-#LINKER_FLAGS specifies the libraries we're linking against
-LINKER_FLAGS = -lGLEW -lSOIL -lglfw -lGL -lX11 -lpthread -lXrandr -lXi -lXxf86vm -ldl -lXinerama -lXcursor -lassimp -ltcmalloc -lfreetype -lz
+all: test
 
-#OBJ_NAME specifies the name of our exectuable
-OBJ_NAME = test
+# Prime the .godot/ import cache. Idempotent — fast no-op when nothing
+# is stale. Other targets depend on this so first-run users get the
+# compiled .ctex textures generated automatically.
+import:
+	$(GODOT) --headless --path $(GODOT_PROJECT) --import
 
-#This is the target that compiles our executable
-all : $(OBJS)
-		$(CC) $(OBJS) $(COMPILER_FLAGS) -o $(OBJ_NAME) $(LINKER_FLAGS)
+# Headless GDScript test suite. CI runs this same command.
+test: import
+	$(GODOT) --headless --path $(GODOT_PROJECT) --quit --script res://tests/run_tests.gd
+
+# Run the game (main scene).
+run: import
+	$(GODOT) --path $(GODOT_PROJECT)
+
+# Open the Godot editor on the project.
+edit: import
+	$(GODOT) -e --path $(GODOT_PROJECT)
+
+# Drop the editor's import cache. Forces full reimport on next build.
+clean:
+	rm -rf $(GODOT_PROJECT)/.godot

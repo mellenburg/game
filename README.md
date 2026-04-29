@@ -1,35 +1,162 @@
-# Requirements
-* OpenGL
-* GLFW
-* GLEW
-* Assimp
-* SOIL
-* GLM
-* FreeType
+# Orbital Mechanics Game
 
-# Goals
-* DONE: Make a basic orbital physics simlutation in 3D
-* DONE: Refactor src/ with classes such that an arbitrary number of orbits may be added by user
-* DONE: Figure out how to do transparent textures of assimp imported models
-* Ship spites - sprites are harder than models... I'll just stick with cubes for simplicity for now
-* DONE: allow selection of a single ship, selection will cause the orbit and cube marker to change color. All other orbits will be colored homogeneously
-* Fix infinite loop hang in tgammma function during orbit calculation
-* add handler for press and release keys
-* once an oribt is selected, draw a line from the ship to every other ship and color that line one color if the line intersects Earth or another color if it does not
-* DONE: for each of the other ("targeted") ships, display distance from selected ship and relative velocity beteen the two
-* DONE: Consistently tick time. E.G. if a ship moves in a time period, don't propogate it
-* create interface for calculated application of thrust. I.E. 0: display pitch, yaw, DV, DT 1: define unit vector of thrust 2: define delta V of thrust 3. define duration 4. execute
-* Refactor orbit.cpp such that every orbital param is only derived once per R-V. Then an arbitrary number of calls will not repeat calculations
-* Create object for the orbital system such that I can clone the current set of orbits and selectively display elements of that set propogated at the same time as "reality"
-* create a planning mode where I can queue up a number of orbital maneuvers and see what their affect would be from the current orbital position
-* refactor camera to snap to locations
-* refactor camera to provide only pitch/yaw in a view
-* add galactic plane mapped to sphere for background
-* different color/style for projection data
-* make time resolution a part of orbit.cpp so that way predicted orbits are not glaringly inaccurate
+A real-time Keplerian orbit simulator built in Godot 4. Targets desktop, web,
+Android, and iOS. Uses the GL Compatibility renderer so it runs on Chromebook
+(Crostini / llvmpipe) and mobile GPUs without requiring Vulkan.
 
-# Gameplay Ideas
-* Model gamplay on [Ogre](http://www.sjgames.com/ogre/). E.G. Asymmetrical unit distribution pitting dozens of smaller, more nimble units vs one giant behemoth.
-* Use kinetic weapons:
-1. By radically adjusting your foes momentum, you will force them to expend fuel to make up the delta V and rectify their flight path
-2. By using the weapon offensively, your own unit will have it's momentum changed an equal amount, so depending on the direction of the target and the position of your ship in orbit, firing can be potentially disasterous or advantageous.
+## Quick start
+
+Requires Godot 4.3 on `PATH` (override with `GODOT=/path/to/godot`).
+
+    make run     # launch the main scene
+    make edit    # open the editor
+    make test    # headless unit tests
+    make clean   # drop the import cache
+
+CI runs `make test` on every push and PR — see `.github/workflows/godot-ci.yml`.
+
+## Layout
+
+    godot/
+      project.godot         # GL Compatibility, input map, strict warnings
+      scenes/main.tscn      # Root scene
+      scripts/              # All gameplay logic
+      shaders/planet.gdshader
+      resources/            # Earth textures (with .import sidecars)
+      tests/
+        framework.gd        # RefCounted assertion harness
+        run_tests.gd        # SceneTree entry — discovers test_*.gd
+        test_*.gd
+
+## Architecture notes
+
+- **Coordinate convention**: Z-up world (orbital-mechanics convention). The
+  Earth `SphereMesh` is rotated once at `_ready` so its texture poles align
+  with world Z, then composed with a 23.5° axial tilt and the daily spin.
+- **`class_name` + `preload()` for cross-script references** so type
+  resolution doesn't depend on the editor's `.godot/` cache being warm.
+  `@onready` vars and parameters are strongly typed.
+- **Sim runs in `_physics_process`** at a fixed tick rate; `_process` is
+  reserved for camera + HUD. HUD BBCode rebuilds throttled to ~10 Hz.
+- **Cached meshes & materials**. `OrbitalPath` builds a single `ArrayMesh`
+  + `StandardMaterial3D` once and rewrites the vertex buffer in place only
+  when orbital elements drift past tolerance. The marker mesh + material
+  on each `Satellite` is built once in `_ready` and reused.
+- **Defensive orbit propagation**. `EarthOrbit.propagate()` subdivides
+  large `tof` values, validates `is_finite` on every step's inputs and
+  outputs, and returns `false` rather than escaping NaN. Satellites flag
+  `orbit_alive = false` on a failure so the renderer never sees NaN.
+- **Time factor is clamped and rate-scaled by frame delta** so holding
+  speed-up doesn't blow up the propagator.
+- **Strict GDScript warnings**. `inference_on_variant` is promoted to
+  error in `project.godot` so `var x := typed_array.pop_back()` (which
+  silently returns Variant in 4.3) fails at parse time.
+
+## Goals
+
+- [x] Basic orbital physics simulation in 3D
+- [x] Refactor with classes so an arbitrary number of orbits may be added
+- [x] Per-ship selection — selected ship and orbit colored differently
+- [x] LOS line from selected ship to every other ship, colored by whether
+  it intersects Earth
+- [x] Distance and relative velocity readout for every targeted ship
+- [x] Consistent time ticking — propagation does not accumulate drift
+- [x] One derivation of orbital elements per R-V update
+- [x] Planning mode — clone orbital state, scrub through "what if I'm
+  here in N seconds"
+- [x] Tilt Earth's axis 23.5° (obliquity of the ecliptic)
+- [ ] Calculated thrust UI: display pitch/yaw/ΔV/ΔT, queue maneuvers
+- [ ] Camera snap-to-target locations and pitch/yaw-only orbital view
+- [ ] Galactic background sphere
+- [ ] Distinct color/style for projection (planning) data
+
+## Gameplay
+
+The game is **RTS + tower defense, with orbital physics as the core
+mechanic**. The marketing surface and GUI should feel like tower defense
+— mass-market appeal, low entry barrier — while the underlying mechanics
+are RTS-flavored and physics-driven. The MVP is autonomous tower defense
+(units fire on their own); manual orbital maneuvers and fire control are
+follow-on capabilities.
+
+### Units and weapons
+
+Satellites are the units. Every unit fires automatically when a valid
+target is in range; players intervene to launch new units, position
+them, and (later) coordinate maneuvers or fire control.
+
+- **Energy weapons** — strict line-of-sight only in normal gravity.
+  Photons go straight; if the planet, another body, or terrain occludes
+  the target, no shot.
+- **Kinetic weapons (railguns)** — LOS at close range; at long range the
+  projectile follows a noticeable parabolic / orbital arc and can hit
+  beyond a strict-LOS check. The transition from "treat as straight" to
+  "must integrate trajectory" is a tuning knob.
+- **Missiles** — full satellites in their own right. They're kamikaze
+  units that deal damage when they get within a kill radius of the
+  target. Their orbital state is simulated like any other satellite.
+
+### Economy
+
+Players generate resources (**metals**, **rare metals**, **chemicals**,
+**exotics**) at a fixed rate during prototyping. Resource competition
+mechanics come later. Players have:
+
+- A **production capacity** — consumes resources to build queued units.
+- A **launch capacity** — places built units as satellites in orbit.
+
+Both capacities are fixed at prototype; later they become upgradable /
+contested. Unit cost is a per-resource ratio determined by the unit's
+weaponry, thrust capability, and health. **These ratios must be
+data-driven and easy to tune** — balance work will dominate later.
+
+### PvE (the prototype's primary gameplay)
+
+Enemy satellites populate the arena via these spawn behaviors:
+
+1. Appear in orbit and stay in orbit.
+2. Enter from outside the arena, slingshot around the gravitational
+   centre, and exit the arena.
+3. Enter from outside and decelerate into a captured orbit.
+4. Launch from the planet's surface into orbit.
+5. After entering or appearing, stay in orbit for a limited time, then
+   change velocity enough to escape.
+
+### PvP (deferred)
+
+PvP is a major element of the final product but is **deprioritized for
+prototyping** because it requires a game server. The intended design:
+each player chooses a maximum time-dilation factor; the server
+propagates the world at the minimum of the two. Each client is a viewer
+of server-authoritative orbits.
+
+We aren't building the server yet, but **code separation must respect
+that future**: keep simulation, intent, and rendering distinct so
+authority can later move to a server with no rewrite of the orbital
+math.
+
+### Maps
+
+The central body is **not** fixed to Earth. Future maps include black
+holes, neutron stars, red giants, gas giants (some with rings), smaller
+rocky planets, etc. Implications:
+
+- **Gravity is not constant between maps.** `MU` and the planet's
+  visual/collision radius must be map parameters, not constants buried
+  in `EarthOrbit`.
+- Some maps have no surface to launch from — production / launch
+  capacity rules need a "supports surface launch?" flag per map.
+- Renderer should pick body appearance (texture set, ring system,
+  accretion disc shader for black holes) by map descriptor.
+
+### Difficulty curve
+
+- **Novice play (MVP)** — launch units, watch them auto-engage, earn
+  points. No required micromanagement.
+- **Intermediate** — light positional adjustments to optimise coverage
+  or extend engagement windows.
+- **Advanced** — coordinated orbital maneuvers, deliberate fire control,
+  resource-aware build orders.
+
+These mechanics inform architecture even where they aren't yet
+implemented; reserve seams now so each layer can drop in cleanly.
