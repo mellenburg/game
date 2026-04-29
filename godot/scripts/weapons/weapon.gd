@@ -8,6 +8,11 @@ extends RefCounted
 const FULL_ENERGY: float = 1.0
 
 var energy: float = 0.0
+# Sim-seconds the weapon is locked out for after firing. Lives on the
+# base so consumers (HUD, future targeting AI) can read it without
+# downcasting; concrete weapons that don't use cooldowns just leave
+# it at 0.0.
+var cooldown_remaining: float = 0.0
 
 
 ## Return true once the weapon has accumulated enough energy to fire.

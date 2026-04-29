@@ -22,8 +22,6 @@ const ENERGY_PER_SHOT: float = 0.5
 # cooldown corresponds to 3.6 real seconds.
 const COOLDOWN_SIM_SEC: float = 1800.0
 
-var cooldown_remaining: float = 0.0
-
 
 func can_fire() -> bool:
 	return energy >= FULL_ENERGY and cooldown_remaining <= 0.0

@@ -66,6 +66,11 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 	lines.append("  HP: %.0f / %.0f" % [selected.hp, Satellite.MAX_HP])
 	if selected.weapon != null:
 		lines.append("  Energy: %d%%" % int(selected.weapon.energy * 100.0))
+		if selected.weapon.cooldown_remaining > 0.0:
+			lines.append(
+				"  [color=orange]Cooldown: %d s[/color]"
+				% int(ceil(selected.weapon.cooldown_remaining))
+			)
 	lines.append("  Alt: %.0f km" % (selected.orbit.norm_r - 6371.0))
 	lines.append("  Vel: %.3f km/s" % selected.orbit.norm_v)
 	lines.append("  Ecc: %.4f" % selected.orbit.ecc)
