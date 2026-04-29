@@ -1,14 +1,21 @@
-[gd_scene load_steps=8 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=11 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
 [ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="3_camera"]
 [ext_resource type="Script" path="res://scripts/hud.gd" id="4_hud"]
 [ext_resource type="Script" path="res://scripts/sun.gd" id="5_sun"]
+[ext_resource type="Shader" path="res://shaders/sky.gdshader" id="7_sky"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
+shader = ExtResource("7_sky")
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ShaderMat_sky")
 
 [sub_resource type="Environment" id="Env_main"]
-background_mode = 1
-background_color = Color(0.03, 0.03, 0.03, 1)
+background_mode = 2
+sky = SubResource("Sky_main")
 ambient_light_source = 2
 ambient_light_color = Color(0.15, 0.15, 0.2, 1)
 ambient_light_energy = 0.3
