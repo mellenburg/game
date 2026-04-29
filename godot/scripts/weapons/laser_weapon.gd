@@ -13,6 +13,10 @@ const DAMAGE: float = 25.0
 # real-time (time_factor=1) it takes 100 s, matching the "100 ticks at
 # 1%" framing.
 const ENERGY_RATE_PER_SIM_SEC: float = 0.01
+# Fraction of full charge consumed per shot. Half a tank means a fully
+# charged weapon can fire twice in quick succession before having to
+# wait for recharge.
+const ENERGY_PER_SHOT: float = 0.5
 
 
 func charge(sim_delta: float) -> void:
@@ -39,5 +43,5 @@ func fire(attacker, target) -> bool:
 	if not is_target_in_engagement_envelope(attacker, target):
 		return false
 	target.take_damage(DAMAGE)
-	energy = 0.0
+	energy = maxf(energy - ENERGY_PER_SHOT, 0.0)
 	return true

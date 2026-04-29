@@ -71,14 +71,27 @@ func test_cannot_fire_below_full() -> void:
 	assert_eq(target.hp, 100.0)
 
 
-func test_fires_and_resets_energy() -> void:
+func test_fires_and_consumes_half_charge() -> void:
 	var w := LaserWeapon.new()
 	w.charge(10000.0)
 	var attacker := _make_player()
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_true(w.fire(attacker, target))
 	assert_close(target.hp, 75.0)
+	assert_close(w.energy, 0.5)
+
+
+func test_fully_charged_can_fire_twice_in_series() -> void:
+	var w := LaserWeapon.new()
+	w.charge(10000.0)
+	var attacker := _make_player()
+	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	assert_true(w.fire(attacker, target))
+	assert_true(w.can_fire())
+	assert_true(w.fire(attacker, target))
+	assert_close(target.hp, 50.0)
 	assert_close(w.energy, 0.0)
+	assert_false(w.can_fire())
 
 
 func test_does_not_engage_same_team() -> void:
@@ -118,7 +131,7 @@ func test_kills_after_four_hits() -> void:
 	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	for _i in range(4):
 		var w := LaserWeapon.new()
-		w.charge(10000.0)
+		w.charge(10000.0)  # full charge each shot
 		assert_true(w.fire(attacker, enemy))
 	assert_close(enemy.hp, 0.0)
 	assert_false(enemy.alive)
