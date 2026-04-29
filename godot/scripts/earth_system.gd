@@ -196,7 +196,7 @@ func _sync_planning_to_reality() -> void:
 		clone.clone_from(real_satellites[planning_satellites.size()])
 		planning_satellites.append(clone)
 	while planning_satellites.size() > real_satellites.size():
-		var sat := planning_satellites.pop_back()
+		var sat: Satellite = planning_satellites.pop_back()
 		sat.queue_free()
 	if planning_satellites.is_empty():
 		planning_selected = 0

@@ -11,6 +11,13 @@ run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 config/icon="res://resources/2D/redfighter.png"
 
+[debug]
+
+; Promote "inferring type from Variant" to an error. The default is a
+; warning, but this class of bug (typed-array pop_back returns Variant
+; in 4.3) is silent until CI runs on a stricter setup. Fail at parse.
+gdscript/warnings/inference_on_variant=2
+
 [display]
 
 window/size/viewport_width=1200
