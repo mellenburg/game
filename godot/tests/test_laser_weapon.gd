@@ -48,22 +48,28 @@ func _make_enemy(pos: Vector3) -> FakeSat:
 func test_charge_accumulates_with_sim_delta() -> void:
 	var w := LaserWeapon.new()
 	assert_close(w.energy, 0.0)
-	w.charge(10.0)  # 10 sim seconds * 0.01 = 0.1
+	# Drive in units of the configured rate so the test doesn't lie if the
+	# constant changes — what matters is that energy grows linearly with
+	# sim_delta.
+	var step := 1.0 / LaserWeapon.ENERGY_RATE_PER_SIM_SEC * 0.1  # 10% per step
+	w.charge(step)
 	assert_close(w.energy, 0.1)
-	w.charge(50.0)
+	w.charge(step * 5.0)
 	assert_close(w.energy, 0.6)
 
 
 func test_charge_clamps_at_full() -> void:
 	var w := LaserWeapon.new()
-	w.charge(10000.0)
+	w.charge(1.0e9)
 	assert_close(w.energy, 1.0)
 	assert_true(w.can_fire())
 
 
 func test_cannot_fire_below_full() -> void:
 	var w := LaserWeapon.new()
-	w.charge(50.0)  # 50%
+	# 50% charge — well below full.
+	var half := 0.5 / LaserWeapon.ENERGY_RATE_PER_SIM_SEC
+	w.charge(half)
 	var attacker := _make_player()
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_false(w.can_fire())
@@ -73,30 +79,45 @@ func test_cannot_fire_below_full() -> void:
 
 func test_fires_and_consumes_half_charge() -> void:
 	var w := LaserWeapon.new()
-	w.charge(10000.0)
+	w.charge(1.0e9)
 	var attacker := _make_player()
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_true(w.fire(attacker, target))
 	assert_close(target.hp, 75.0)
 	assert_close(w.energy, 0.5)
+	assert_close(w.cooldown_remaining, LaserWeapon.COOLDOWN_SIM_SEC)
 
 
-func test_fully_charged_can_fire_twice_in_series() -> void:
+func test_cooldown_blocks_immediate_followup_shot() -> void:
+	# Even with energy left over, cooldown gates the next shot until the
+	# locked-out window passes.
 	var w := LaserWeapon.new()
-	w.charge(10000.0)
+	w.charge(1.0e9)
 	var attacker := _make_player()
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_true(w.fire(attacker, target))
+	assert_false(w.can_fire())  # 50% energy, but cooldown active
+	assert_false(w.fire(attacker, target))
+	assert_close(target.hp, 75.0)
+
+
+func test_can_fire_again_after_cooldown_expires() -> void:
+	var w := LaserWeapon.new()
+	w.charge(1.0e9)
+	var attacker := _make_player()
+	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	assert_true(w.fire(attacker, target))
+	# Advance enough sim time to refill energy AND clear cooldown.
+	w.charge(1.0e9)
+	assert_close(w.cooldown_remaining, 0.0)
 	assert_true(w.can_fire())
 	assert_true(w.fire(attacker, target))
 	assert_close(target.hp, 50.0)
-	assert_close(w.energy, 0.0)
-	assert_false(w.can_fire())
 
 
 func test_does_not_engage_same_team() -> void:
 	var w := LaserWeapon.new()
-	w.charge(10000.0)
+	w.charge(1.0e9)
 	var attacker := _make_player()
 	var ally := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_false(w.is_target_in_engagement_envelope(attacker, ally))
@@ -107,7 +128,7 @@ func test_does_not_engage_same_team() -> void:
 
 func test_does_not_engage_when_los_blocked() -> void:
 	var w := LaserWeapon.new()
-	w.charge(10000.0)
+	w.charge(1.0e9)
 	# Antipodal: ray passes through Earth.
 	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
 	var enemy := _make_enemy(Vector3(-(EARTH_RADIUS_KM + 500.0), 0.0, 0.0))
@@ -118,7 +139,7 @@ func test_does_not_engage_when_los_blocked() -> void:
 
 func test_does_not_engage_dead_target() -> void:
 	var w := LaserWeapon.new()
-	w.charge(10000.0)
+	w.charge(1.0e9)
 	var attacker := _make_player()
 	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	enemy.alive = false
@@ -131,7 +152,7 @@ func test_kills_after_four_hits() -> void:
 	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	for _i in range(4):
 		var w := LaserWeapon.new()
-		w.charge(10000.0)  # full charge each shot
+		w.charge(1.0e9)  # full charge each shot
 		assert_true(w.fire(attacker, enemy))
 	assert_close(enemy.hp, 0.0)
 	assert_false(enemy.alive)
