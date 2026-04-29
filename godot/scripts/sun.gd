@@ -22,11 +22,11 @@ const WORLD_DIRECTION := Vector3(1.0, 0.0, 0.0)
 const DISTANCE: float = 600.0
 
 # Visual size of the quad (scene units). The shader confines the bright
-# region to the inner ~25% so the quad edges fade to black cleanly.
-const QUAD_SIZE: float = 60.0
+# region to the inner ~50% so the quad edges fade to black cleanly.
+const QUAD_SIZE: float = 80.0
 
-@export var core_color: Color = Color(1.0, 0.99, 0.95)
-@export var corona_color: Color = Color(1.0, 0.7, 0.35)
+@export var core_color: Color = Color(1.0, 0.97, 0.85)
+@export var corona_color: Color = Color(1.0, 0.65, 0.25)
 
 var _quad: MeshInstance3D
 
