@@ -41,7 +41,7 @@ const BAR_FONT_SIZE: int = 9
 
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
-const HIT_LINE := Color(1.0, 0.55, 0.0)         # orange
+const HIT_LINE := Color(1.0, 0.25, 0.05)        # red-orange
 const HIT_LINE_WIDTH: float = 2.5
 
 # Wall-clock duration of the hit pulse. Wall-clock (not sim-seconds) so
@@ -345,15 +345,23 @@ func _update_box(
 		var row := rows.get_child(2 + i) as Control
 		if row == null:
 			continue
-		var prog := w.cooldown_progress()
-		var is_ready := w.cooldown_remaining <= 0.0
-		var fill_color := BAR_READY if is_ready else BAR_COOLDOWN
-		var text := "Laser %d  READY" % (i + 1) if is_ready \
-			else "Laser %d  %d%%" % [i + 1, int(round(prog * 100.0))]
-		# Always paint the bar at full when ready; otherwise grow with
-		# cooldown progress so the orange fill matches the readout.
-		var fraction := 1.0 if is_ready else prog
-		_update_bar_row(row, fill_color, text, fraction)
+		var prog := w.ready_progress()
+		var pct := int(round(prog * 100.0))
+		# Three states: OVERHEAT (locked, cooling back to 100%), READY
+		# (full and unlocked), or partial (firing or recovering toward
+		# READY without having tripped the lockout).
+		var text: String
+		var fill_color: Color
+		if w.overheated:
+			text = "Laser %d  OVERHEAT %d%%" % [i + 1, pct]
+			fill_color = BAR_COOLDOWN
+		elif prog >= 1.0:
+			text = "Laser %d  READY" % (i + 1)
+			fill_color = BAR_READY
+		else:
+			text = "Laser %d  %d%%" % [i + 1, pct]
+			fill_color = BAR_COOLDOWN
+		_update_bar_row(row, fill_color, text, prog)
 
 
 func draw_target_lines(orbital_set: Node, cam: Camera3D) -> void:

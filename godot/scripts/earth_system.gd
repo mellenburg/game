@@ -119,21 +119,25 @@ func _physics_process(delta: float) -> void:
 			sat.visible = false
 
 
-# Charge each satellite's energy pool, tick every weapon's cooldown,
-# then let any armed satellite auto-fire on the closest valid enemy
-# (LOS clear, opposing team, both alive). Tower-defense: no player
-# input needed.
+# Charge each satellite's energy pool, then either fire each weapon
+# at the closest valid enemy or let it cool. Lasers are continuous-
+# fire now: the same call applies dt-scaled damage, energy drain, and
+# heating; weapons that don't fire this tick cool toward ready instead.
+# Tower-defense: no player input needed.
 func _process_combat(sim_delta: float) -> void:
 	for sat in real_satellites:
 		if not sat.alive:
 			continue
 		sat.tick_combat(sim_delta)
 		for w in sat.weapons:
-			if not w.can_fire(sat):
-				continue
-			var target := _pick_target_for_weapon(sat, w)
-			if target != null and w.fire(sat, target):
-				hud.register_hit(sat, target)
+			var fired := false
+			if w.can_fire(sat):
+				var target := _pick_target_for_weapon(sat, w)
+				if target != null and w.fire(sat, target, sim_delta):
+					fired = true
+					hud.register_hit(sat, target)
+			if not fired:
+				w.tick(sim_delta)
 
 
 func _pick_target_for_weapon(attacker: Satellite, w: Weapon) -> Satellite:

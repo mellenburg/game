@@ -21,7 +21,7 @@ const COLOR_SELECTED := Color(0.2, 1.0, 0.2)
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_METEORITE := Color(1.0, 0.85, 0.4)
-const COLOR_HIT := Color(1.0, 0.55, 0.0)
+const COLOR_HIT := Color(1.0, 0.25, 0.05)
 
 const MAX_HP: float = 100.0
 const ENERGY_MAX: float = 1.0
@@ -67,15 +67,14 @@ func _init() -> void:
 	weapons = [LaserWeapon.new(), LaserWeapon.new()]
 
 
-## Charge the shared energy pool and tick every weapon's cooldown.
-## Called from EarthSystem._process_combat once per physics tick with
-## the time-factor-scaled sim_delta.
+## Charge the shared energy pool. Per-weapon cooling is driven by
+## EarthSystem._process_combat — only weapons that did NOT fire this
+## tick get their tick() called, since fire() handles its own heat
+## bookkeeping.
 func tick_combat(sim_delta: float) -> void:
 	if sim_delta <= 0.0:
 		return
 	energy = clampf(energy + ENERGY_RATE_PER_SIM_SEC * sim_delta, 0.0, ENERGY_MAX)
-	for w in weapons:
-		w.tick(sim_delta)
 
 
 func _ready() -> void:

@@ -6,47 +6,58 @@ extends RefCounted
 ## so weapon math can be unit-tested headlessly.
 ##
 ## Energy lives on the attacker (Satellite) — multiple weapons share one
-## reservoir. Cooldown is per-weapon so two lasers on the same hull
-## recover independently.
+## reservoir. Heat is per-weapon: each weapon owns a `ready_fraction`
+## that drops while firing and recovers while idle, so two lasers on the
+## same hull manage their thermal budgets independently.
 
-# Sim-seconds remaining until this weapon is off cooldown. The HUD also
-# reads this to drive the per-weapon recovery bar; concrete weapons that
-# don't use cooldowns just leave it at 0.0.
-var cooldown_remaining: float = 0.0
+# 1.0 = fully ready, 0.0 = overheated. Drops while firing at the
+# weapon's heat_rate, climbs while cooling at cool_rate. The HUD reads
+# this directly to draw the per-weapon recovery bar.
+var ready_fraction: float = 1.0
+# Latched when ready_fraction reaches 0; cleared only when it returns
+# to 1.0. Locks the weapon out of fire() for the entire cool window so
+# brief ready upticks don't let the operator dribble out shots.
+var overheated: bool = false
 
 
-## Cost in `attacker.energy` fractions to fire one shot. Concrete
-## weapons override; the default of 0 means a free-to-fire weapon
+## Cost in `attacker.energy` fractions per simulated second of fire.
+## Concrete weapons override; default 0 means a free-to-fire weapon
 ## (none of those exist yet, but the strategy interface allows it).
-func cost_per_shot() -> float:
+func cost_per_second() -> float:
 	return 0.0
 
 
-## Maximum cooldown after a shot, in sim-seconds. The HUD divides
-## cooldown_remaining by this to draw the recovery bar.
-func cooldown_max() -> float:
+## Heat applied to ready_fraction per sim-second of fire. Concrete
+## weapons override.
+func heat_rate() -> float:
 	return 0.0
 
 
-## 0.0 = just fired, 1.0 = ready. Returns 1.0 if the weapon doesn't
-## have a cooldown concept, so the HUD bar renders as full/READY.
-func cooldown_progress() -> float:
-	var m := cooldown_max()
-	if m <= 0.0:
-		return 1.0
-	return clampf(1.0 - cooldown_remaining / m, 0.0, 1.0)
+## Recovery applied to ready_fraction per sim-second of cooling.
+## By convention 4x slower than heat_rate for energy weapons.
+func cool_rate() -> float:
+	return 0.0
 
 
-## Advance per-weapon state by `sim_delta`. Default behaviour is just
-## the cooldown countdown; concrete weapons may extend.
+## 0.0 = just overheated, 1.0 = ready. Mirror of ready_fraction so
+## HUD code reads a stable progress accessor.
+func ready_progress() -> float:
+	return ready_fraction
+
+
+## Cool the weapon by cool_rate * sim_delta. Called from EarthSystem
+## once per physics tick, but ONLY when the weapon did not fire this
+## tick — firing already mutates ready_fraction itself.
 func tick(sim_delta: float) -> void:
 	if sim_delta <= 0.0:
 		return
-	cooldown_remaining = maxf(cooldown_remaining - sim_delta, 0.0)
+	ready_fraction = clampf(ready_fraction + cool_rate() * sim_delta, 0.0, 1.0)
+	if overheated and ready_fraction >= 1.0:
+		overheated = false
 
 
 ## Whether the weapon can fire right now given the attacker's state
-## (cooldown clear, enough energy in the shared pool).
+## (overheat lock cleared, some energy in the shared pool).
 func can_fire(_attacker) -> bool:
 	return false
 
@@ -57,7 +68,8 @@ func is_target_in_engagement_envelope(_attacker, _target) -> bool:
 	return false
 
 
-## Apply the weapon's effect to `target` if eligible. Returns true if a
-## shot was actually taken (caller can use that to drive feedback).
-func fire(_attacker, _target) -> bool:
+## Apply the weapon's effect to `target` over `sim_delta` simulated
+## seconds. Returns true if any fire actually took place this tick
+## (caller can use that to drive feedback and to skip cooling).
+func fire(_attacker, _target, _sim_delta: float) -> bool:
 	return false
