@@ -150,7 +150,7 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 
 	for i in range(POINTS + 1):
 		var t := float(i) / float(POINTS)
-		var nu := lerp(nu0, nu_target, t)
+		var nu := lerpf(nu0, nu_target, t)
 		var r_at := p_slr / (1.0 + e * cos(nu))
 		var p_local := r_at * cos(nu)
 		var q_local := r_at * sin(nu)
