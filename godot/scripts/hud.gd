@@ -39,6 +39,14 @@ const BAR_READY := Color(0.25, 0.80, 0.30, 0.90)
 const BAR_ROW_HEIGHT: float = 13.0
 const BAR_FONT_SIZE: int = 9
 
+# Fire-control readout — green to match the on-orbit range circle so
+# the two surfaces read as the same control surfaced twice. Sized
+# slightly smaller than the bar text since it's a single line of meta
+# rather than a per-tick gauge.
+const FC_TEXT_COLOR := Color(0.55, 0.95, 0.65, 1.0)
+const FC_FONT_SIZE: int = 10
+const FC_NODE_NAME: String = "FCStatus"
+
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 
@@ -269,6 +277,15 @@ func _make_bar_row() -> Control:
 	return row
 
 
+func _make_fc_label() -> Label:
+	var l := Label.new()
+	l.name = FC_NODE_NAME
+	l.add_theme_font_size_override("font_size", FC_FONT_SIZE)
+	l.add_theme_color_override("font_color", FC_TEXT_COLOR)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
 func _update_bar_row(row: Control, fill_color: Color, text: String, fraction: float) -> void:
 	var fill := row.get_child(1) as ColorRect
 	if fill != null:
@@ -298,12 +315,17 @@ func _update_box(
 	if rows == null:
 		return
 
-	# Index 0 is the HP label; everything after is a bar row. Resize the
-	# bar tail to (1 energy row + N weapon rows), or 0 rows if the unit
-	# has no weapons (unarmed enemy → HP only).
+	# Index 0 is the HP label; bar rows follow; an optional FC status
+	# label tails the box when fire control is active. Detach the FC
+	# label first so the bar-resize loop's child-count math stays
+	# unchanged — we re-append (or drop) it after the bars settle.
 	var hp_label := rows.get_child(0) as Label
 	if hp_label != null:
 		hp_label.text = "HP %d/%d" % [int(sat.hp), int(Satellite.MAX_HP)]
+
+	var fc_label := rows.get_node_or_null(FC_NODE_NAME) as Label
+	if fc_label != null:
+		rows.remove_child(fc_label)
 
 	var desired_bars := 0
 	if not sat.weapons.is_empty():
@@ -317,6 +339,19 @@ func _update_box(
 		rows.remove_child(stale)
 		stale.queue_free()
 		current_bars -= 1
+
+	# Reattach (or drop) the FC label after the bars are in their
+	# final shape. Only armed satellites can have fire control on; an
+	# unarmed unit shouldn't carry the label even if some upstream
+	# state ever flipped the flag.
+	var want_fc := sat.fire_control_active and not sat.weapons.is_empty()
+	if want_fc:
+		if fc_label == null:
+			fc_label = _make_fc_label()
+		fc_label.text = "FC ON  %d km" % int(round(sat.engagement_range_km))
+		rows.add_child(fc_label)
+	elif fc_label != null:
+		fc_label.queue_free()
 
 	if desired_bars == 0:
 		return
