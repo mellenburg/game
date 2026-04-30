@@ -63,7 +63,7 @@ const METEORITE_PERIAPSIS_TARGET_KM: float = (
 const METEORITE_LATERAL_SPREAD_KM: float = 3000.0
 const METEORITE_ALT_JITTER_KM: float = 1500.0
 const METEORITE_VELOCITY_JITTER: float = 0.4
-const METEORITE_HP: float = 1000.0
+const METEORITE_HP: float = 100.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
