@@ -28,18 +28,20 @@ const ENEMY_ALT_MAX_KM: float = 2000.0
 const METEORITES_PER_STORM: int = 3
 const METEORITE_ALT_MIN_KM: float = 20000.0
 const METEORITE_ALT_MAX_KM: float = 35000.0
-# Speeds picked so v < escape velocity at the spawn altitude (≈ 4 km/s
-# at 30000 km altitude) — bound elliptical trajectory guaranteed.
-const METEORITE_RADIAL_SPEED_MIN: float = 1.5
-const METEORITE_RADIAL_SPEED_MAX: float = 3.0
-const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.1
-const METEORITE_TANGENTIAL_SPEED_MAX: float = 0.6
-# Cluster scatter relative to the storm's nominal entry point. A few
-# hundred km of lateral offset and minor altitude / velocity jitter so
-# the bodies arrive visibly distinct but read as a single swarm.
-const METEORITE_LATERAL_SPREAD_KM: float = 800.0
-const METEORITE_ALT_JITTER_KM: float = 400.0
-const METEORITE_VELOCITY_JITTER: float = 0.3
+# Speeds picked so v < escape velocity at the spawn altitude (≈ 4.4 km/s
+# at 35000 km altitude) — bound elliptical trajectory guaranteed even
+# under jitter at the worst-case alignment.
+const METEORITE_RADIAL_SPEED_MIN: float = 2.0
+const METEORITE_RADIAL_SPEED_MAX: float = 3.5
+const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.2
+const METEORITE_TANGENTIAL_SPEED_MAX: float = 0.8
+# Cluster scatter relative to the storm's nominal entry point. Thousands
+# of km of lateral offset + altitude jitter so the three trajectory
+# lines fan out clearly on screen rather than overlapping; per-axis
+# velocity jitter peels each path further apart over time.
+const METEORITE_LATERAL_SPREAD_KM: float = 3000.0
+const METEORITE_ALT_JITTER_KM: float = 1500.0
+const METEORITE_VELOCITY_JITTER: float = 0.4
 # Meteorites are softer than orbital enemies — one laser hit removes them.
 const METEORITE_HP: float = 25.0
 
