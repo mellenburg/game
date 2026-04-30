@@ -65,16 +65,31 @@ func test_charge_clamps_at_full() -> void:
 	assert_true(w.can_fire())
 
 
-func test_cannot_fire_below_full() -> void:
+func test_cannot_fire_below_one_shot_cost() -> void:
 	var w := LaserWeapon.new()
-	# 50% charge — well below full.
-	var half := 0.5 / LaserWeapon.ENERGY_RATE_PER_SIM_SEC
-	w.charge(half)
+	# Charge to just under the per-shot cost — weapon can't afford a shot.
+	var almost := (LaserWeapon.ENERGY_PER_SHOT - 0.01) / LaserWeapon.ENERGY_RATE_PER_SIM_SEC
+	w.charge(almost)
 	var attacker := _make_player()
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_false(w.can_fire())
 	assert_false(w.fire(attacker, target))
 	assert_eq(target.hp, 100.0)
+
+
+func test_fires_as_soon_as_one_shot_is_affordable() -> void:
+	# Fire-when-affordable: the laser shouldn't sit idle on a 50% reservoir
+	# while a target is in sights — it should engage as soon as energy
+	# reaches the per-shot cost.
+	var w := LaserWeapon.new()
+	var to_threshold := LaserWeapon.ENERGY_PER_SHOT / LaserWeapon.ENERGY_RATE_PER_SIM_SEC
+	w.charge(to_threshold)
+	var attacker := _make_player()
+	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	assert_true(w.can_fire())
+	assert_true(w.fire(attacker, target))
+	assert_close(target.hp, 75.0)
+	assert_close(w.energy, 0.0)
 
 
 func test_fires_and_consumes_half_charge() -> void:

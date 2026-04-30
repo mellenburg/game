@@ -13,9 +13,12 @@ const DAMAGE: float = 25.0
 # time_factor=500). Time-factor scales sim_delta upstream, so holding
 # speed-up shortens the charge the same way it shortens orbital motion.
 const ENERGY_RATE_PER_SIM_SEC: float = 0.00007
-# Fraction of full charge consumed per shot. Half a tank means a freshly
-# off-cooldown weapon that's been sitting at full charge can in principle
-# fire twice — but the cooldown below is the dominant gate during play.
+# Fraction of full charge consumed per shot. The weapon fires as soon
+# as it can afford the next shot (energy >= ENERGY_PER_SHOT), not when
+# the reservoir is full — sitting on a fully-charged laser while a
+# valid target is in sights would waste DPS. With ENERGY_PER_SHOT at
+# half the cap, a freshly off-cooldown weapon at full charge can fire
+# twice in close succession before energy gates further shots.
 const ENERGY_PER_SHOT: float = 0.5
 # Seconds of simulated time the weapon is locked out after firing. Like
 # the charge rate, this is in sim-seconds — at time_factor=500 a 1800 s
@@ -24,7 +27,7 @@ const COOLDOWN_SIM_SEC: float = 1800.0
 
 
 func can_fire() -> bool:
-	return energy >= FULL_ENERGY and cooldown_remaining <= 0.0
+	return energy >= ENERGY_PER_SHOT and cooldown_remaining <= 0.0
 
 
 func charge(sim_delta: float) -> void:
