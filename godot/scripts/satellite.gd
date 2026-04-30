@@ -67,15 +67,14 @@ func _init() -> void:
 	weapons = [LaserWeapon.new(), LaserWeapon.new()]
 
 
-## Charge the shared energy pool and tick every weapon's cooldown.
-## Called from EarthSystem._process_combat once per physics tick with
-## the time-factor-scaled sim_delta.
+## Charge the shared energy pool. Per-weapon cooling is driven by
+## EarthSystem._process_combat — only weapons that did NOT fire this
+## tick get their tick() called, since fire() handles its own heat
+## bookkeeping.
 func tick_combat(sim_delta: float) -> void:
 	if sim_delta <= 0.0:
 		return
 	energy = clampf(energy + ENERGY_RATE_PER_SIM_SEC * sim_delta, 0.0, ENERGY_MAX)
-	for w in weapons:
-		w.tick(sim_delta)
 
 
 func _ready() -> void:
