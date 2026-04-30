@@ -26,12 +26,14 @@ const ENEMY_ALT_MAX_KM: float = 2000.0
 # that periapsis lands well below Earth's surface — guaranteeing impact
 # (and exit-from-play) within a few minutes of sim time.
 const METEORITES_PER_STORM: int = 3
-const METEORITE_ALT_MIN_KM: float = 4000.0
-const METEORITE_ALT_MAX_KM: float = 10000.0
-const METEORITE_RADIAL_SPEED_MIN: float = 2.0
-const METEORITE_RADIAL_SPEED_MAX: float = 5.0
+const METEORITE_ALT_MIN_KM: float = 20000.0
+const METEORITE_ALT_MAX_KM: float = 35000.0
+# Speeds picked so v < escape velocity at the spawn altitude (≈ 4 km/s
+# at 30000 km altitude) — bound elliptical trajectory guaranteed.
+const METEORITE_RADIAL_SPEED_MIN: float = 1.5
+const METEORITE_RADIAL_SPEED_MAX: float = 3.0
 const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.1
-const METEORITE_TANGENTIAL_SPEED_MAX: float = 0.8
+const METEORITE_TANGENTIAL_SPEED_MAX: float = 0.6
 # Cluster scatter relative to the storm's nominal entry point. A few
 # hundred km of lateral offset and minor altitude / velocity jitter so
 # the bodies arrive visibly distinct but read as a single swarm.

@@ -198,16 +198,17 @@ func render_orbit(show_path: bool) -> void:
 	if not orbit_alive or not alive:
 		path_visual.visible = false
 		return
-	# A meteorite's "orbit" is a half-ellipse that tunnels through Earth
-	# — drawing it adds noise without information.
-	if is_meteorite:
-		path_visual.visible = false
-		return
 	path_visual.visible = show_path
 	if not show_path:
 		return
 	path_visual.color = COLOR_SELECTED if selected else _base_color()
-	path_visual.update_orbit(orbit)
+	# Meteorites get the truncated-trajectory renderer: the same line
+	# style as a regular orbit, but cut off at the surface so the part
+	# that would tunnel through Earth isn't drawn.
+	if is_meteorite:
+		path_visual.update_trajectory(orbit)
+	else:
+		path_visual.update_orbit(orbit)
 
 
 ## Full clone — orbital state and operator-queued maneuver intent.

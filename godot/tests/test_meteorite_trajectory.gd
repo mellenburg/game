@@ -43,6 +43,33 @@ func test_propagation_reaches_ground() -> void:
 	assert_true(hit, "meteorite never crossed Earth surface")
 
 
+func test_surface_crossing_anomaly_lies_on_ellipse() -> void:
+	# The trajectory renderer needs to know at what true anomaly the
+	# orbit dips through Earth's surface. r(nu) = p_slr / (1 + e*cos(nu))
+	# evaluated at that nu must equal EARTH_RADIUS_KM exactly.
+	var o := _make_inbound()
+	var cos_nu_surf := (o.p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / o.ecc
+	assert_true(cos_nu_surf >= -1.0 and cos_nu_surf <= 1.0)
+	var nu_surf := acos(cos_nu_surf)
+	var r_at := o.p_slr / (1.0 + o.ecc * cos(nu_surf))
+	assert_close(r_at, EarthOrbit.EARTH_RADIUS_KM, 1.0e-3)
+
+
+func test_inbound_nu_is_before_surface_nu() -> void:
+	# Renderer assumes the body's current nu (negative for inbound,
+	# branch-folded if needed) is "before" the surface-crossing nu —
+	# i.e. nu_target = -nu_surf is greater than nu0. If this ordering
+	# breaks the lerp would sweep the wrong arc.
+	var o := _make_inbound()
+	var nu0: float = o.nu
+	if nu0 > 0.0:
+		nu0 -= TAU
+	var cos_nu_surf := (o.p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / o.ecc
+	var nu_target := -acos(cos_nu_surf)
+	assert_true(nu_target > nu0,
+		"nu0=%f vs nu_target=%f" % [nu0, nu_target])
+
+
 func test_tangential_only_does_not_impact() -> void:
 	# Sanity check: a circular-ish orbit at the same altitude must NOT
 	# trip the impact condition — we only want sub-orbital trajectories
