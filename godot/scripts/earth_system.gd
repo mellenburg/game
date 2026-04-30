@@ -20,18 +20,24 @@ const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
 const ENEMY_ALT_MAX_KM: float = 2000.0
 
-# Meteorite storms: many fragile, sub-orbital incoming bodies. They're
-# spawned high enough to give the player a window to engage, with the
-# tangential component small enough that periapsis lands well below
-# Earth's surface — guaranteeing impact (and exit-from-play) within a
-# few minutes of sim time.
-const METEORITES_PER_STORM: int = 8
+# Meteorite storms: a small cluster of fragile, sub-orbital bodies all
+# incoming from one random direction. Spawned high enough to give the
+# player a window to engage, with the tangential component small enough
+# that periapsis lands well below Earth's surface — guaranteeing impact
+# (and exit-from-play) within a few minutes of sim time.
+const METEORITES_PER_STORM: int = 3
 const METEORITE_ALT_MIN_KM: float = 4000.0
 const METEORITE_ALT_MAX_KM: float = 10000.0
 const METEORITE_RADIAL_SPEED_MIN: float = 2.0
 const METEORITE_RADIAL_SPEED_MAX: float = 5.0
 const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.1
 const METEORITE_TANGENTIAL_SPEED_MAX: float = 0.8
+# Cluster scatter relative to the storm's nominal entry point. A few
+# hundred km of lateral offset and minor altitude / velocity jitter so
+# the bodies arrive visibly distinct but read as a single swarm.
+const METEORITE_LATERAL_SPREAD_KM: float = 800.0
+const METEORITE_ALT_JITTER_KM: float = 400.0
+const METEORITE_VELOCITY_JITTER: float = 0.3
 # Meteorites are softer than orbital enemies — one laser hit removes them.
 const METEORITE_HP: float = 25.0
 
@@ -246,38 +252,63 @@ func add_enemies(count: int = ENEMIES_PER_SPAWN) -> void:
 		real_satellites.append(sat)
 
 
-# Spawn a batch of meteorites — sub-orbital, unarmed, fragile. Each is
-# on a highly eccentric trajectory whose periapsis is below Earth's
-# surface, so they impact and exit play on their own. Lasers can pick
-# them off in transit.
+# Spawn a cluster of meteorites all incoming from one random direction
+# — sub-orbital, unarmed, fragile. The cluster shares an entry point
+# and base velocity, jittered per body so they arrive separated by a
+# few hundred km. Lasers can pick them off in transit; any survivors
+# self-terminate on ground impact.
 func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
-	for _i in range(count):
-		var sat := _make_meteorite()
-		satellite_container.add_child(sat)
-		real_satellites.append(sat)
-
-
-func _make_meteorite() -> Satellite:
-	var sat := Satellite.new()
-	sat.team = Satellite.TEAM_ENEMY
-	sat.weapons.clear()
-	sat.is_meteorite = true
-	sat.hp = METEORITE_HP
-
-	var altitude := _rng.randf_range(METEORITE_ALT_MIN_KM, METEORITE_ALT_MAX_KM)
-	var radius := EarthOrbit.EARTH_RADIUS_KM + altitude
 	var r_hat := _random_unit_vector()
 	var tangent := _random_perpendicular_unit(r_hat)
+	var base_altitude := _rng.randf_range(
+		METEORITE_ALT_MIN_KM, METEORITE_ALT_MAX_KM
+	)
 	var radial_speed := _rng.randf_range(
 		METEORITE_RADIAL_SPEED_MIN, METEORITE_RADIAL_SPEED_MAX
 	)
 	var tangential_speed := _rng.randf_range(
 		METEORITE_TANGENTIAL_SPEED_MIN, METEORITE_TANGENTIAL_SPEED_MAX
 	)
-	sat.orbit = EarthOrbit.new(
-		r_hat * radius,
-		-r_hat * radial_speed + tangent * tangential_speed,
+	var base_velocity := -r_hat * radial_speed + tangent * tangential_speed
+	for _i in range(count):
+		var sat := _make_meteorite(r_hat, tangent, base_altitude, base_velocity)
+		satellite_container.add_child(sat)
+		real_satellites.append(sat)
+
+
+func _make_meteorite(
+	r_hat: Vector3,
+	tangent: Vector3,
+	base_altitude: float,
+	base_velocity: Vector3,
+) -> Satellite:
+	var sat := Satellite.new()
+	sat.team = Satellite.TEAM_ENEMY
+	sat.weapons.clear()
+	sat.is_meteorite = true
+	sat.hp = METEORITE_HP
+
+	# Lateral offset uses the in-plane basis (tangent + bitangent); the
+	# bitangent is just r_hat × tangent so the offset stays in the plane
+	# perpendicular to the entry vector.
+	var bitangent := r_hat.cross(tangent).normalized()
+	var lateral_angle := _rng.randf_range(0.0, TAU)
+	var lateral_dist := _rng.randf_range(0.0, METEORITE_LATERAL_SPREAD_KM)
+	var altitude := base_altitude + _rng.randf_range(
+		-METEORITE_ALT_JITTER_KM, METEORITE_ALT_JITTER_KM
 	)
+	var pos := r_hat * (EarthOrbit.EARTH_RADIUS_KM + altitude) + (
+		tangent * cos(lateral_angle) + bitangent * sin(lateral_angle)
+	) * lateral_dist
+	# Velocity jitter as a small fraction of the base; same direction
+	# basis so all bodies remain inbound rather than scattering randomly.
+	var jitter := METEORITE_VELOCITY_JITTER
+	var vel := base_velocity + Vector3(
+		_rng.randf_range(-jitter, jitter),
+		_rng.randf_range(-jitter, jitter),
+		_rng.randf_range(-jitter, jitter),
+	)
+	sat.orbit = EarthOrbit.new(pos, vel)
 	return sat
 
 
