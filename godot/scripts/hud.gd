@@ -19,7 +19,19 @@ const PLAYER_BG := Color(0.06, 0.25, 0.10, 0.65)
 const PLAYER_BG_SEL := Color(0.20, 0.65, 0.25, 0.90)
 const ENEMY_BG := Color(0.30, 0.06, 0.06, 0.65)
 const ENEMY_BG_SEL := Color(0.85, 0.20, 0.20, 0.90)
+const HIT_BG := Color(1.0, 0.55, 0.0, 0.95)
 const BOX_MIN_SIZE := Vector2(96, 60)
+
+const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
+const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
+const HIT_LINE := Color(1.0, 0.55, 0.0)         # orange
+const HIT_LINE_WIDTH: float = 2.5
+
+# Wall-clock duration of the hit pulse. Wall-clock (not sim-seconds) so
+# the visual feedback survives compression at high time_factor — at
+# time_factor=5000 a sim-second is 0.2 ms, which would be invisible.
+# 0.25 s is long enough to register, short enough to feel like a hit.
+const HIT_DURATION: float = 0.25
 
 @onready var info_label: RichTextLabel = $InfoLabel as RichTextLabel
 @onready var player_roster: HBoxContainer = $PlayerRoster as HBoxContainer
@@ -30,9 +42,54 @@ var _camera: Camera3D
 var _system: Node = null
 var _last_text_update: float = 0.0
 
+# Active weapon-hit pulses. Each entry: {attacker, target, expires_at}
+# where expires_at is wall-clock seconds. Pruned lazily during render.
+var _hits: Array[Dictionary] = []
+
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+## Called by the combat loop when a weapon successfully fires. The HUD
+## records the (attacker, target) pair for HIT_DURATION wall-clock
+## seconds so it can paint a hit pulse in the next frame's _draw.
+func register_hit(attacker: Satellite, target: Satellite) -> void:
+	if attacker == null or target == null:
+		return
+	_hits.append({
+		"attacker": attacker,
+		"target": target,
+		"expires_at": _now() + HIT_DURATION,
+	})
+
+
+func _now() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
+
+# Drop expired hits and any whose attacker/target has been freed (a
+# satellite can die between a fire() and the next render tick).
+func _prune_hits() -> void:
+	var now := _now()
+	var live: Array[Dictionary] = []
+	for h in _hits:
+		var attacker: Satellite = h["attacker"]
+		var target: Satellite = h["target"]
+		var expires: float = h["expires_at"]
+		if expires <= now:
+			continue
+		if not is_instance_valid(attacker) or not is_instance_valid(target):
+			continue
+		live.append(h)
+	_hits = live
+
+
+func _is_hit_target(sat: Satellite) -> bool:
+	for h in _hits:
+		if h["target"] == sat:
+			return true
+	return false
 
 
 func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: int) -> void:
@@ -138,7 +195,9 @@ func _update_box(
 ) -> void:
 	var sb := box.get_theme_stylebox("panel") as StyleBoxFlat
 	if sb != null:
-		if is_enemy:
+		if _is_hit_target(sat):
+			sb.bg_color = HIT_BG
+		elif is_enemy:
 			sb.bg_color = ENEMY_BG_SEL if is_selected else ENEMY_BG
 		else:
 			sb.bg_color = PLAYER_BG_SEL if is_selected else PLAYER_BG
@@ -168,6 +227,17 @@ func draw_target_lines(orbital_set: Node, cam: Camera3D) -> void:
 func _draw() -> void:
 	if _system == null or _camera == null:
 		return
+	_prune_hits()
+	_draw_selected_los_lines()
+	# Hit lines are drawn last so they overwrite any selection line that
+	# happens to share the same endpoints.
+	_draw_hit_lines()
+
+
+# From the selected satellite, draw a line to every opposing-team unit:
+# yellow when LOS is clear, light red when blocked. Same-team pairs get
+# no line — that was clutter and conflicted with the new combat focus.
+func _draw_selected_los_lines() -> void:
 	var satellites: Array = _system.satellites
 	var selected_idx: int = (
 		_system.planning_selected if _system.planning_mode
@@ -187,11 +257,30 @@ func _draw() -> void:
 		var other: Satellite = satellites[i]
 		if not other.orbit_alive or not other.alive:
 			continue
+		if other.team == selected.team:
+			continue
 		var other_scene := other.orbit.r * Satellite.SCENE_SCALE
 		if _camera.is_position_behind(main_scene) and _camera.is_position_behind(other_scene):
 			continue
 		var screen_a := _camera.unproject_position(main_scene)
 		var screen_b := _camera.unproject_position(other_scene)
 		var blocked := LosCheck.is_blocked(main_eci, other.orbit.r)
-		var line_color := Color.YELLOW if blocked else Color.RED
+		var line_color := LOS_BLOCKED if blocked else LOS_CLEAR
 		draw_line(screen_a, screen_b, line_color, 1.0)
+
+
+func _draw_hit_lines() -> void:
+	for h in _hits:
+		var attacker: Satellite = h["attacker"]
+		var target: Satellite = h["target"]
+		if not attacker.alive or not target.alive:
+			continue
+		if not attacker.orbit_alive or not target.orbit_alive:
+			continue
+		var a_scene := attacker.orbit.r * Satellite.SCENE_SCALE
+		var b_scene := target.orbit.r * Satellite.SCENE_SCALE
+		if _camera.is_position_behind(a_scene) and _camera.is_position_behind(b_scene):
+			continue
+		var screen_a := _camera.unproject_position(a_scene)
+		var screen_b := _camera.unproject_position(b_scene)
+		draw_line(screen_a, screen_b, HIT_LINE, HIT_LINE_WIDTH)

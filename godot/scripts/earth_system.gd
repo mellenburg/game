@@ -98,8 +98,8 @@ func _process_combat(sim_delta: float) -> void:
 		if not sat.weapon.can_fire():
 			continue
 		var target := _pick_target(sat)
-		if target != null:
-			sat.weapon.fire(sat, target)
+		if target != null and sat.weapon.fire(sat, target):
+			hud.register_hit(sat, target)
 
 
 func _pick_target(attacker: Satellite) -> Satellite:
