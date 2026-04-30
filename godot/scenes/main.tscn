@@ -66,12 +66,34 @@ script = ExtResource("4_hud")
 layout_mode = 1
 anchors_preset = 0
 offset_left = 10.0
-offset_top = 10.0
-offset_right = 350.0
-offset_bottom = 600.0
+offset_top = 90.0
+offset_right = 280.0
+offset_bottom = 150.0
 mouse_filter = 2
 bbcode_enabled = true
 scroll_active = false
+
+[node name="PlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD"]
+layout_mode = 1
+anchors_preset = 0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 1190.0
+offset_bottom = 80.0
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="EnemyRoster" type="HBoxContainer" parent="CanvasLayer/HUD"]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = -80.0
+offset_right = 1190.0
+offset_bottom = -10.0
+mouse_filter = 2
+theme_override_constants/separation = 6
 
 [node name="TargetContainer" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1
