@@ -1,147 +1,113 @@
 class_name OrbitCamera
 extends Camera3D
-## Camera that slowly orbits Earth at a fixed altitude, always facing it.
-## WASD and mouse let the player break away for free-look; after
-## RETURN_DELAY seconds of inactivity the view smoothly drifts back into
-## the auto orbit. The orbit's angular rate is tied to wall-clock time —
-## *not* the simulation's time_factor — so speeding up the sim must not
-## spin the camera.
+## Camera driven by WASD along a default orbital path around Earth.
+##
+##   A / D            rotate clockwise / counterclockwise along the path
+##                    (clockwise as viewed from world +Z).
+##   W / S            decrease / increase the path's radius.
+##   Shift+W / Shift+D
+##                    temporarily increase / decrease the orbit's
+##                    inclination, pivoting the camera out of plane about
+##                    its current position (the line of nodes). After
+##                    INCLINATION_RETURN_DELAY seconds without
+##                    inclination input, the offset eases back to zero.
+##
+## All rates are tied to wall-clock delta — sim time_factor must not
+## influence camera motion. The camera always looks at the origin.
 
 const EARTH_RADIUS_KM: float = 6371.0
 const SCENE_SCALE: float = 1.0 / 1000.0
-const ORBIT_RADIUS: float = 6.0 * EARTH_RADIUS_KM * SCENE_SCALE  # ~38.2 units
-const ORBIT_PERIOD_SEC: float = 90.0
+const DEFAULT_ORBIT_RADIUS: float = 6.0 * EARTH_RADIUS_KM * SCENE_SCALE
+const MIN_ORBIT_RADIUS: float = 1.5 * EARTH_RADIUS_KM * SCENE_SCALE
+const MAX_ORBIT_RADIUS: float = 18.0 * EARTH_RADIUS_KM * SCENE_SCALE
 const ORBIT_TILT_DEG: float = 20.0
-const RETURN_DELAY: float = 2.0
-const RETURN_BLEND_RATE: float = 3.0  # exponential approach rate (1/sec)
 
-const MOVE_SPEED: float = 15.0  # scene units / second
-const SENSITIVITY: float = 0.15
+const ANGULAR_RATE: float = TAU / 30.0  # rad/s of phase travel under hold
+const RADIUS_RATE: float = 0.3 * DEFAULT_ORBIT_RADIUS  # scene units / s
+const INCLINATION_RATE_DEG: float = 45.0  # deg/s while shift+W/D held
+const MAX_INCLINATION_DEG: float = 60.0
+const INCLINATION_RETURN_DELAY: float = 2.0
+const INCLINATION_BLEND_RATE: float = 3.0  # exponential approach (1/s)
 
-var yaw: float = 0.0
-var pitch: float = 0.0
-var cam_front := Vector3(-1.0, 0.0, 0.0)
-var cam_right := Vector3.ZERO
-var cam_up := Vector3.ZERO
 var world_up := Vector3(0.0, 0.0, 1.0)
 
-var mouse_captured: bool = true
-
 var _orbit_phase: float = 0.0
-var _idle_time: float = RETURN_DELAY
+var _orbit_radius: float = DEFAULT_ORBIT_RADIUS
+var _inclination_offset: float = 0.0
+var _inclination_idle_time: float = INCLINATION_RETURN_DELAY
 
 
 func _ready() -> void:
 	near = 0.3
 	far = 700.0
-	_snap_to_orbit()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and mouse_captured:
-		var motion := event as InputEventMouseMotion
-		if motion.relative != Vector2.ZERO:
-			_idle_time = 0.0
-			yaw += motion.relative.x * SENSITIVITY
-			pitch -= motion.relative.y * SENSITIVITY
-			pitch = clampf(pitch, -89.0, 89.0)
-			_update_vectors_from_yaw_pitch()
-		return
-
-	if event is InputEventKey:
-		var key := event as InputEventKey
-		if key.pressed and key.keycode == KEY_ESCAPE:
-			mouse_captured = not mouse_captured
-			Input.mouse_mode = (
-				Input.MOUSE_MODE_CAPTURED if mouse_captured
-				else Input.MOUSE_MODE_VISIBLE
-			)
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_update_pose()
 
 
 func process_movement(delta: float) -> void:
-	# The auto-orbit phase advances with wall-clock delta only — sim
-	# time_factor must not influence camera motion.
-	_orbit_phase = fposmod(_orbit_phase + TAU * delta / ORBIT_PERIOD_SEC, TAU)
+	var shift := Input.is_key_pressed(KEY_SHIFT)
+	var incl_step := deg_to_rad(INCLINATION_RATE_DEG) * delta
+	var inclination_input := false
 
-	var step := MOVE_SPEED * delta
-	var moved := false
-	if Input.is_action_pressed("move_forward"):
-		position += cam_front * step; moved = true
-	if Input.is_action_pressed("move_backward"):
-		position -= cam_front * step; moved = true
 	if Input.is_action_pressed("move_left"):
-		position -= cam_right * step; moved = true
+		_orbit_phase -= ANGULAR_RATE * delta
 	if Input.is_action_pressed("move_right"):
-		position += cam_right * step; moved = true
+		if shift:
+			_inclination_offset -= incl_step
+			inclination_input = true
+		else:
+			_orbit_phase += ANGULAR_RATE * delta
+	if Input.is_action_pressed("move_forward"):
+		if shift:
+			_inclination_offset += incl_step
+			inclination_input = true
+		else:
+			_orbit_radius -= RADIUS_RATE * delta
+	if Input.is_action_pressed("move_backward"):
+		_orbit_radius += RADIUS_RATE * delta
 
-	if moved:
-		_idle_time = 0.0
-	else:
-		_idle_time += delta
+	_orbit_phase = fposmod(_orbit_phase, TAU)
+	_orbit_radius = clampf(_orbit_radius, MIN_ORBIT_RADIUS, MAX_ORBIT_RADIUS)
+	var incl_max := deg_to_rad(MAX_INCLINATION_DEG)
+	_inclination_offset = clampf(_inclination_offset, -incl_max, incl_max)
 
-	if _idle_time >= RETURN_DELAY:
-		_blend_to_orbit(delta)
+	if inclination_input:
+		_inclination_idle_time = 0.0
 	else:
-		_update_vectors_from_yaw_pitch()
+		_inclination_idle_time += delta
+		if _inclination_idle_time >= INCLINATION_RETURN_DELAY:
+			var t := clampf(INCLINATION_BLEND_RATE * delta, 0.0, 1.0)
+			_inclination_offset = lerpf(_inclination_offset, 0.0, t)
+
+	_update_pose()
 
 
 func _orbit_position() -> Vector3:
-	# Tilted circular path: rotate the unit circle (X,Y,0) by ORBIT_TILT_DEG
-	# about the X axis so the orbit plane is offset from the equator.
 	var tilt := deg_to_rad(ORBIT_TILT_DEG)
 	var c := cos(_orbit_phase)
 	var s := sin(_orbit_phase)
-	return Vector3(
-		c * ORBIT_RADIUS,
-		s * ORBIT_RADIUS * cos(tilt),
-		s * ORBIT_RADIUS * sin(tilt),
+	var p_base := Vector3(
+		c * _orbit_radius,
+		s * _orbit_radius * cos(tilt),
+		s * _orbit_radius * sin(tilt),
 	)
+	if absf(_inclination_offset) < 1.0e-6:
+		return p_base
+	# Rotate the camera about the orbital tangent through the origin —
+	# treating its current location as the line of nodes, this tilts the
+	# orbit plane while preserving the camera-to-Earth distance. Negate
+	# the angle so a positive offset lifts the camera toward world +Z.
+	var tangent := Vector3(-s, c * cos(tilt), c * sin(tilt)).normalized()
+	return p_base.rotated(tangent, -_inclination_offset)
 
 
-func _yaw_pitch_facing_origin(pos: Vector3) -> Vector2:
-	# Yaw/pitch (in degrees) such that cam_front per _update_vectors_from_yaw_pitch
-	# points from `pos` toward the origin.
-	if pos.length_squared() < 1.0e-12:
-		return Vector2(yaw, pitch)
-	var f := -pos.normalized()
-	var p_deg := rad_to_deg(asin(clampf(f.z, -1.0, 1.0)))
-	var y_deg := rad_to_deg(atan2(-f.y, f.x))
-	return Vector2(y_deg, p_deg)
-
-
-func _snap_to_orbit() -> void:
+func _update_pose() -> void:
 	position = _orbit_position()
-	var yp := _yaw_pitch_facing_origin(position)
-	yaw = yp.x
-	pitch = yp.y
-	_update_vectors_from_yaw_pitch()
-
-
-func _blend_to_orbit(delta: float) -> void:
-	var target_pos := _orbit_position()
-	var t := clampf(RETURN_BLEND_RATE * delta, 0.0, 1.0)
-	position = position.lerp(target_pos, t)
-	# Re-derive the look-at-origin yaw/pitch from the *current* position
-	# each frame so the camera tracks Earth smoothly throughout the blend
-	# rather than aiming at where it'll be when fully snapped.
-	var yp := _yaw_pitch_facing_origin(position)
-	var yaw_rad := lerp_angle(deg_to_rad(yaw), deg_to_rad(yp.x), t)
-	yaw = rad_to_deg(yaw_rad)
-	pitch = lerpf(pitch, yp.y, t)
-	_update_vectors_from_yaw_pitch()
-
-
-func _update_vectors_from_yaw_pitch() -> void:
-	var yr := deg_to_rad(yaw)
-	var pr := deg_to_rad(pitch)
-	cam_front = Vector3(
-		cos(yr) * cos(pr),
-		sin(-yr) * cos(pr),
-		sin(pr),
-	).normalized()
-	cam_right = cam_front.cross(world_up).normalized()
-	cam_up = cam_right.cross(cam_front).normalized()
-	var target := position + cam_front
-	if position.distance_to(target) > 1.0e-4:
-		look_at(target, world_up)
+	if position.length_squared() < 1.0e-6:
+		return
+	var up := world_up
+	# look_at degenerates if the up vector is parallel to the view
+	# direction. Pick a fallback when the camera is near the world pole.
+	if absf(position.normalized().dot(up)) > 0.999:
+		up = Vector3(1.0, 0.0, 0.0)
+	look_at(Vector3.ZERO, up)
