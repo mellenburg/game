@@ -27,7 +27,7 @@ const BOX_HIT_FLASH := Color(0.95, 0.15, 0.15, 0.95)
 # Width is fixed so player and enemy boxes line up in the strips;
 # height auto-sizes from the content (an unarmed enemy box collapses
 # down to just HP, an armed player box is taller than an enemy).
-const BOX_MIN_SIZE := Vector2(210, 0)
+const BOX_MIN_SIZE := Vector2(105, 0)
 
 # Bar row colors. The energy reservoir is blue; weapon recovery starts
 # orange ("recharging") and snaps to green when ready, so a glance
