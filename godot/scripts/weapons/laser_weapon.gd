@@ -26,11 +26,14 @@ const HEAT_PER_SEC: float = 0.025
 # 160 sim-sec to fully cool from overheated.
 const COOL_PER_SEC: float = HEAT_PER_SEC / 4.0
 # Distance at which damage drops to zero. Linear falloff between 0 km
-# (full damage) and MAX_RANGE_KM (no damage). Sized roughly to the
-# diameter of LEO engagements so the falloff is felt at typical combat
-# spreads without making point-blank shots feel stronger than they
-# already are.
-const MAX_RANGE_KM: float = 20000.0
+# (full damage) and MAX_RANGE_KM (no damage). 40 000 km ≈ 6.3 Earth
+# radii — wide enough that two LEO satellites on opposite sides of
+# Earth (~14 000 km, ~0.65× damage) still hit usefully, while keeping
+# a clear penalty against the high meteorite spawn shell (40–70 000
+# km altitude). Doubles as the hard cap on the operator's
+# engagement_range_km, so the on-plane fire-control circle can never
+# render larger than the physics-level kill envelope.
+const MAX_RANGE_KM: float = 40000.0
 # Floor on a satellite's user-set engagement range. Pulling it below
 # this would let an operator effectively disable fire control.
 const MIN_ENGAGEMENT_RANGE_KM: float = 500.0

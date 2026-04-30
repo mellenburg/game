@@ -25,7 +25,7 @@ const PLANNING_DT_MAX: int = 86400 * 7  # one week of plan window
 # so an operator can sweep the full settable band (MIN_ENGAGEMENT_RANGE
 # to MAX_RANGE) in roughly four seconds — fast enough to feel
 # responsive, slow enough to land on a chosen ring.
-const RANGE_RATE_KM_PER_SEC: float = 5000.0
+const RANGE_RATE_KM_PER_SEC: float = 10000.0
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
