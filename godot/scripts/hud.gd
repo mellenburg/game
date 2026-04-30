@@ -21,8 +21,8 @@ const PLAYER_BG_SEL := Color(0.20, 0.65, 0.25, 0.90)
 const ENEMY_BG := Color(0.30, 0.06, 0.06, 0.65)
 const ENEMY_BG_SEL := Color(0.85, 0.20, 0.20, 0.90)
 # Roster box flash on hit. Red — a damage indicator, distinct from the
-# orange used on the 3D marker / line so the two surfaces don't blur
-# into the same visual signal.
+# orange used on the 3D marker and BeamRenderer beam so the two
+# surfaces don't blur into the same visual signal.
 const BOX_HIT_FLASH := Color(0.95, 0.15, 0.15, 0.95)
 # Width is fixed so player and enemy boxes line up in the strips;
 # height auto-sizes from the content (an unarmed enemy box collapses
@@ -41,13 +41,12 @@ const BAR_FONT_SIZE: int = 9
 
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
-const HIT_LINE := Color(1.0, 0.25, 0.05)        # red-orange
-const HIT_LINE_WIDTH: float = 2.5
 
-# Wall-clock duration of the hit pulse. Wall-clock (not sim-seconds) so
-# the visual feedback survives compression at high time_factor — at
-# time_factor=5000 a sim-second is 0.2 ms, which would be invisible.
-# 0.25 s is long enough to register, short enough to feel like a hit.
+# Wall-clock duration of the hit pulse on the marker / roster box.
+# Wall-clock so the visual feedback survives compression at high
+# time_factor — at time_factor=5000 a sim-second is 0.2 ms, which
+# would be invisible. The actual beam is drawn by BeamRenderer in 3D;
+# this constant only governs how long the box / marker stays tinted.
 const HIT_DURATION: float = 0.25
 
 @onready var info_label: RichTextLabel = $InfoLabel as RichTextLabel
@@ -60,12 +59,10 @@ var _camera: Camera3D
 var _system: Node = null
 var _last_text_update: float = 0.0
 
-# Active weapon-hit pulses. Each entry stores the world-space ECI
-# positions of attacker and target captured AT FIRE TIME along with
-# the wall-clock expiry. Caching positions decouples the visual from
-# the satellite lifecycle: a fatal shot kills the target this tick
-# (alive=false), but we still want the orange line to render for the
-# pulse window — without dereferencing a freed instance.
+# Active hit pulses. Drives the roster box red flash and (via
+# Satellite.flash_hit) the 3D marker tint. The actual beam visual
+# lives in BeamRenderer; this list is just timed metadata for the
+# box / marker feedback so it outlives the firing tick.
 var _hits: Array[Dictionary] = []
 # Toggled by EarthSystem on the "toggle_los" input action. When false,
 # the yellow / pink LOS lines from the selected satellite to opposing
@@ -78,21 +75,14 @@ func _ready() -> void:
 
 
 ## Called by the combat loop when a weapon successfully fires. The HUD
-## records the (attacker, target) pair for HIT_DURATION wall-clock
-## seconds so it can paint a hit pulse in the next frame's _draw, and
-## tells the target to flash its 3D marker orange.
-func register_hit(attacker: Satellite, target: Satellite) -> void:
-	if attacker == null or target == null:
+## records the target ref for HIT_DURATION wall-clock seconds so it
+## can flash the roster box red, and tells the target to tint its 3D
+## marker orange. The 3D beam itself is drawn by BeamRenderer.
+func register_hit(_attacker: Satellite, target: Satellite) -> void:
+	if target == null:
 		return
-	# Snapshot the ECI positions now so the line can render even if the
-	# target dies on this very shot — we used to gate _draw_hit_lines on
-	# `target.alive` and lost the visual feedback for any kill-shot.
-	# Refs are still kept so the roster-box pulse can find its target.
 	_hits.append({
-		"attacker": attacker,
 		"target": target,
-		"attacker_pos": attacker.orbit.r,
-		"target_pos": target.orbit.r,
 		"expires_at": _now() + HIT_DURATION,
 	})
 	target.flash_hit(HIT_DURATION)
@@ -102,10 +92,8 @@ func _now() -> float:
 	return Time.get_ticks_msec() / 1000.0
 
 
-# Drop hits whose pulse window has expired. We deliberately keep
-# entries whose attacker/target have been freed — the snapshotted
-# positions still draw a valid line, and that's the kill-shot case
-# we most want to display.
+# Drop hits whose pulse window has expired. Freed targets stay until
+# their window elapses — _is_hit_target guards the dereference.
 func _prune_hits() -> void:
 	var now := _now()
 	var live: Array[Dictionary] = []
@@ -376,10 +364,6 @@ func _draw() -> void:
 	_prune_hits()
 	if los_visible:
 		_draw_selected_los_lines()
-	# Hit lines are drawn last so they overwrite any selection line that
-	# happens to share the same endpoints. Always shown — they're a
-	# transient combat signal, not a continuous overlay.
-	_draw_hit_lines()
 
 
 # From the selected satellite, draw a line to every opposing-team unit:
@@ -415,20 +399,3 @@ func _draw_selected_los_lines() -> void:
 		var blocked := LosCheck.is_blocked(main_eci, other.orbit.r)
 		var line_color := LOS_BLOCKED if blocked else LOS_CLEAR
 		draw_line(screen_a, screen_b, line_color, 1.0)
-
-
-func _draw_hit_lines() -> void:
-	for h in _hits:
-		# Use the snapshotted positions from register_hit. The attacker
-		# and target may already be alive=false (or even queue_free'd)
-		# by the time we draw — that's exactly the case where the line
-		# matters most (kill-shot feedback).
-		var a_eci: Vector3 = h["attacker_pos"]
-		var b_eci: Vector3 = h["target_pos"]
-		var a_scene := a_eci * Satellite.SCENE_SCALE
-		var b_scene := b_eci * Satellite.SCENE_SCALE
-		if _camera.is_position_behind(a_scene) and _camera.is_position_behind(b_scene):
-			continue
-		var screen_a := _camera.unproject_position(a_scene)
-		var screen_b := _camera.unproject_position(b_scene)
-		draw_line(screen_a, screen_b, HIT_LINE, HIT_LINE_WIDTH)

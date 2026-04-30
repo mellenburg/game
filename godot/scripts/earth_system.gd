@@ -10,6 +10,7 @@ const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
+const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -78,6 +79,7 @@ var _rng := RandomNumberGenerator.new()
 @onready var hud: HUD = $CanvasLayer/HUD as HUD
 @onready var satellite_container: Node3D = $Satellites as Node3D
 @onready var planning_container: Node3D = $PlanningSatellites as Node3D
+@onready var beam_renderer: BeamRenderer = $BeamRenderer as BeamRenderer
 
 var satellites: Array[Satellite]:
 	get: return planning_satellites if planning_mode else real_satellites
@@ -138,13 +140,15 @@ func _process_combat(sim_delta: float) -> void:
 		if not sat.alive:
 			continue
 		sat.tick_combat(sim_delta)
-		for w in sat.weapons:
+		for w_idx in range(sat.weapons.size()):
+			var w: Weapon = sat.weapons[w_idx]
 			var fired := false
 			if w.can_fire(sat):
 				var target := _pick_target_for_weapon(sat, w)
 				if target != null and w.fire(sat, target, sim_delta):
 					fired = true
 					hud.register_hit(sat, target)
+					beam_renderer.register_fire(sat, w_idx, target)
 			if not fired:
 				w.tick(sim_delta)
 

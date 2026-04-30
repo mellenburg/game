@@ -1,10 +1,11 @@
-[gd_scene load_steps=11 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=12 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
 [ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="3_camera"]
 [ext_resource type="Script" path="res://scripts/hud.gd" id="4_hud"]
 [ext_resource type="Script" path="res://scripts/sun.gd" id="5_sun"]
+[ext_resource type="Script" path="res://scripts/beam_renderer.gd" id="6_beams"]
 [ext_resource type="Shader" path="res://shaders/sky.gdshader" id="7_sky"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
@@ -49,6 +50,9 @@ script = ExtResource("5_sun")
 [node name="Satellites" type="Node3D" parent="."]
 
 [node name="PlanningSatellites" type="Node3D" parent="."]
+
+[node name="BeamRenderer" type="Node3D" parent="."]
+script = ExtResource("6_beams")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
