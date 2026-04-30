@@ -21,7 +21,7 @@ const COLOR_SELECTED := Color(0.2, 1.0, 0.2)
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_METEORITE := Color(1.0, 0.85, 0.4)
-const COLOR_HIT := Color(1.0, 0.55, 0.0)
+const COLOR_HIT := Color(1.0, 0.25, 0.05)
 
 const MAX_HP: float = 100.0
 const ENERGY_MAX: float = 1.0

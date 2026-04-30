@@ -41,7 +41,7 @@ const BAR_FONT_SIZE: int = 9
 
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
-const HIT_LINE := Color(1.0, 0.55, 0.0)         # orange
+const HIT_LINE := Color(1.0, 0.25, 0.05)        # red-orange
 const HIT_LINE_WIDTH: float = 2.5
 
 # Wall-clock duration of the hit pulse. Wall-clock (not sim-seconds) so
