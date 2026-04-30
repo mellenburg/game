@@ -89,10 +89,18 @@ func propagate(tof: float) -> bool:
 
 
 ## Apply a delta-v in the ECI frame after propagating by t seconds.
-func maneuver(dv: Vector3, t: float) -> bool:
+## When `min_periapsis_km > 0`, the dv is shrunk along its own direction
+## just enough to keep the post-thrust orbit's periapsis at or above the
+## threshold — used to guarantee player thrust can't drive a satellite
+## into the surface. Defaults to 0 (no clamping) so other callers retain
+## the original semantics.
+func maneuver(dv: Vector3, t: float, min_periapsis_km: float = 0.0) -> bool:
 	if not propagate(t):
 		return false
-	v += dv
+	var applied_dv := dv
+	if min_periapsis_km > 0.0 and dv.length_squared() > 0.0:
+		applied_dv = clamp_dv_for_min_periapsis(r, v, dv, min_periapsis_km)
+	v += applied_dv
 	_recompute_elements()
 	return is_state_valid()
 
@@ -133,14 +141,66 @@ static func clamp_velocity_for_periapsis(
 	return pos_hat * v_radial_mag + v_perp * (v_t_max / v_t_now)
 
 
-## Apply a delta-v in the local prograde/radial/normal frame.
-func relative_maneuver(dv_local: Vector3, t: float) -> bool:
+## Apply a delta-v in the local prograde/radial/normal frame. See
+## `maneuver` for the meaning of `min_periapsis_km`.
+func relative_maneuver(
+	dv_local: Vector3, t: float, min_periapsis_km: float = 0.0
+) -> bool:
 	var i_hat := v.normalized()
 	var k_hat := r.cross(v).normalized()
 	# Right-handed; j_hat completes the basis (radial-out positive).
 	var j_hat := k_hat.cross(i_hat).normalized()
 	var dv_eci := i_hat * dv_local.x + j_hat * dv_local.y + k_hat * dv_local.z
-	return maneuver(dv_eci, t)
+	return maneuver(dv_eci, t, min_periapsis_km)
+
+
+## Periapsis radius for the orbit defined by (r, v). Uses the
+## conic-section identity r_p = p / (1+e), which is well-defined for all
+## eccentricities (elliptic, parabolic, hyperbolic). Returns 0 for a
+## degenerate (rectilinear) state — a body with no angular momentum
+## falls straight through the origin, so any min-periapsis test should
+## treat it as an impact.
+static func compute_periapsis(pos: Vector3, vel: Vector3) -> float:
+	var r_len := pos.length()
+	if r_len == 0.0:
+		return 0.0
+	var h := pos.cross(vel)
+	var norm_h := h.length()
+	if norm_h == 0.0:
+		return 0.0
+	var v_sq := vel.dot(vel)
+	var e_vec := pos * ((v_sq - MU / r_len) / MU) + vel * (-pos.dot(vel) / MU)
+	var ecc := e_vec.length()
+	var p_slr := h.dot(h) / MU
+	return p_slr / (1.0 + ecc)
+
+
+## Shrink `dv` along its own direction to the largest fraction α ∈ [0,1]
+## such that (vel + α·dv) defines an orbit with periapsis ≥ min_r_p.
+## Bisection — the safety predicate is monotone in α along the dv ray
+## near the unsafe boundary in every realistic player-thrust case, and
+## even when it isn't, returning a fraction that is *safe* is enough for
+## the gameplay rule. Returns Vector3.ZERO if the pre-thrust orbit is
+## already unsafe (refusing to amplify a doomed trajectory rather than
+## silently letting the player make it worse).
+static func clamp_dv_for_min_periapsis(
+	pos: Vector3, vel: Vector3, dv: Vector3, min_r_p: float
+) -> Vector3:
+	if min_r_p <= 0.0 or dv.length_squared() == 0.0:
+		return dv
+	if compute_periapsis(pos, vel + dv) >= min_r_p:
+		return dv
+	if compute_periapsis(pos, vel) < min_r_p:
+		return Vector3.ZERO
+	var lo := 0.0
+	var hi := 1.0
+	for _i in range(24):
+		var mid := 0.5 * (lo + hi)
+		if compute_periapsis(pos, vel + dv * mid) >= min_r_p:
+			lo = mid
+		else:
+			hi = mid
+	return dv * lo
 
 
 # --- internals -------------------------------------------------------------

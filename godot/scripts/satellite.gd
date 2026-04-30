@@ -24,6 +24,11 @@ const COLOR_METEORITE := Color(1.0, 0.85, 0.4)
 const COLOR_HIT := Color(1.0, 0.25, 0.05)
 
 const MAX_HP: float = 100.0
+# Player thrust is clamped each tick so the resulting orbit's periapsis
+# stays at or above this radius. Sits a hair above EARTH_RADIUS_KM so
+# floating-point slop in the propagator can't tip the body across the
+# surface termination check.
+const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 1.0
 const ENERGY_MAX: float = 1.0
 # Fraction of the energy pool gained per simulated second. Doubled
 # from the prior 0.00007 to compensate for the halved per-shot cost
@@ -195,13 +200,18 @@ func advance_time(delta_time: float) -> void:
 	if not orbit_alive or not alive:
 		return
 	# Sample r·v before propagating so we can detect periapsis crossings
-	# the end-of-step radius sample alone would miss — a meteorite on a
-	# near-radial trajectory can dive through periapsis and back out
-	# above the surface inside one step at high time_factor.
-	var r_dot_v_before: float = orbit.r.dot(orbit.v) if is_meteorite else 0.0
+	# the end-of-step radius sample alone would miss — a body on a near-
+	# radial trajectory can dive through periapsis and back out above
+	# the surface inside one step at high time_factor.
+	var r_dot_v_before: float = orbit.r.dot(orbit.v)
 	var ok: bool
 	if did_maneuver:
-		ok = orbit.relative_maneuver(get_current_maneuver(), delta_time)
+		# Player thrust is the only caller of relative_maneuver; clamp
+		# it so it can't drive periapsis below the surface. Meteorites
+		# never enter this branch (no operator).
+		ok = orbit.relative_maneuver(
+			get_current_maneuver(), delta_time, SAFE_PERIAPSIS_KM
+		)
 	else:
 		ok = orbit.propagate(delta_time)
 	did_maneuver = false
@@ -210,18 +220,23 @@ func advance_time(delta_time: float) -> void:
 		orbit_alive = false
 		_hide_visuals()
 		return
-	# Meteorites exit play on ground impact. The Keplerian propagator is
-	# happy to push them straight through the planet and out the other
-	# side, so we kill on either (a) the post-step radius being inside
-	# the surface, or (b) inbound→outbound transition during the step
-	# (periapsis lies below the surface by construction, so passing it
-	# means the body crossed ground).
-	if is_meteorite:
-		var crossed_periapsis := r_dot_v_before < 0.0 and orbit.r.dot(orbit.v) > 0.0
-		if orbit.norm_r <= EarthOrbit.EARTH_RADIUS_KM or crossed_periapsis:
-			alive = false
-			_hide_visuals()
-			return
+	# Any satellite whose trajectory crosses the surface exits play. The
+	# Keplerian propagator is happy to push a body straight through the
+	# planet and out the other side, so we kill on either (a) the post-
+	# step radius being inside the surface, or (b) an inbound→outbound
+	# transition during the step combined with a sub-surface periapsis
+	# (the body just tunneled through ground inside one tick).
+	var crossed_periapsis := r_dot_v_before < 0.0 and orbit.r.dot(orbit.v) > 0.0
+	var sub_surface_periapsis := (
+		is_finite(orbit.r_p) and orbit.r_p <= EarthOrbit.EARTH_RADIUS_KM
+	)
+	if (
+		orbit.norm_r <= EarthOrbit.EARTH_RADIUS_KM
+		or (crossed_periapsis and sub_surface_periapsis)
+	):
+		alive = false
+		_hide_visuals()
+		return
 	_sync_marker_position()
 
 
