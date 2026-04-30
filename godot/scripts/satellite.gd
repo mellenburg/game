@@ -23,6 +23,11 @@ const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_HIT := Color(1.0, 0.55, 0.0)
 
 const MAX_HP: float = 100.0
+const ENERGY_MAX: float = 1.0
+# Fraction of the energy pool gained per simulated second. Doubled
+# from the prior 0.00007 to compensate for the halved per-shot cost
+# and the fact that two lasers share one reservoir.
+const ENERGY_RATE_PER_SIM_SEC: float = 0.00014
 
 var orbit: EarthOrbit
 var selected: bool = false
@@ -33,7 +38,13 @@ var orbit_alive: bool = true
 var team: int = TEAM_PLAYER
 var hp: float = MAX_HP
 var alive: bool = true
-var weapon: Weapon = null  # Null for unarmed units (e.g. enemies).
+# Shared energy reservoir, drained by every weapon's fire(). Charges
+# at ENERGY_RATE_PER_SIM_SEC per simulated second so time_factor
+# scales it the same as everything else.
+var energy: float = 0.0
+# Empty for unarmed units (e.g. enemies in the MVP). Player satellites
+# spawn with two lasers; weapons fire independently but share energy.
+var weapons: Array[Weapon] = []
 
 # Wall-clock timestamp at which the orange "I got hit" tint reverts to
 # the team color. Wall-clock so the pulse is visible regardless of how
@@ -47,7 +58,18 @@ var path_visual: OrbitalPath
 
 func _init() -> void:
 	orbit = EarthOrbit.new(DEFAULT_R, DEFAULT_V)
-	weapon = LaserWeapon.new()
+	weapons = [LaserWeapon.new(), LaserWeapon.new()]
+
+
+## Charge the shared energy pool and tick every weapon's cooldown.
+## Called from EarthSystem._process_combat once per physics tick with
+## the time-factor-scaled sim_delta.
+func tick_combat(sim_delta: float) -> void:
+	if sim_delta <= 0.0:
+		return
+	energy = clampf(energy + ENERGY_RATE_PER_SIM_SEC * sim_delta, 0.0, ENERGY_MAX)
+	for w in weapons:
+		w.tick(sim_delta)
 
 
 func _ready() -> void:
@@ -180,10 +202,11 @@ func clone_orbit_from(other: Satellite) -> void:
 	hp = other.hp
 	alive = other.alive
 	# Mirror armed-vs-unarmed so the planning HUD doesn't show an
-	# energy bar for an enemy preview (clones get a fresh weapon in
+	# energy bar for an enemy preview (clones get fresh weapons in
 	# _init that we'd otherwise leave dangling).
-	if other.weapon == null:
-		weapon = null
+	energy = other.energy
+	if other.weapons.is_empty():
+		weapons.clear()
 	if is_inside_tree():
 		_apply_color()
 		_sync_marker_position()

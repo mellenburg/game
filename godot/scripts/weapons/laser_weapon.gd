@@ -1,40 +1,33 @@
 class_name LaserWeapon
 extends "res://scripts/weapons/weapon.gd"
-## Energy weapon. Charges at a fixed rate of simulated time so that
-## holding speed-up genuinely speeds the weapon up (per the original
-## design intent — "1% per game tick"). LOS-only: any unblocked enemy
-## is in envelope, no max range.
+## Energy weapon. Cooldown is per-weapon; energy is drawn from the
+## attacker's shared reservoir so two lasers on the same hull starve
+## each other rather than firing in lockstep. LOS-only: any unblocked
+## enemy is in envelope, no max range.
 
 const LosCheck = preload("res://scripts/los_check.gd")
 
 const DAMAGE: float = 25.0
-# Fraction of full charge gained per simulated second. 0.00007 → full
-# charge takes ~14_286 sim-seconds (~28 real seconds at the default
-# time_factor=500). Time-factor scales sim_delta upstream, so holding
-# speed-up shortens the charge the same way it shortens orbital motion.
-const ENERGY_RATE_PER_SIM_SEC: float = 0.00007
-# Fraction of full charge consumed per shot. The weapon fires as soon
-# as it can afford the next shot (energy >= ENERGY_PER_SHOT), not when
-# the reservoir is full — sitting on a fully-charged laser while a
-# valid target is in sights would waste DPS. With ENERGY_PER_SHOT at
-# half the cap, a freshly off-cooldown weapon at full charge can fire
-# twice in close succession before energy gates further shots.
-const ENERGY_PER_SHOT: float = 0.5
-# Seconds of simulated time the weapon is locked out after firing. Like
-# the charge rate, this is in sim-seconds — at time_factor=500 a 1800 s
-# cooldown corresponds to 3.6 real seconds.
+# Fraction of the attacker's full reservoir consumed per shot. Halved
+# from 0.5 — the laser is now affordable enough that a satellite can
+# fire several shots in succession before energy gates further fire.
+const ENERGY_PER_SHOT: float = 0.25
+# Sim-seconds the weapon is locked out for after firing.
 const COOLDOWN_SIM_SEC: float = 1800.0
 
 
-func can_fire() -> bool:
-	return energy >= ENERGY_PER_SHOT and cooldown_remaining <= 0.0
+func cost_per_shot() -> float:
+	return ENERGY_PER_SHOT
 
 
-func charge(sim_delta: float) -> void:
-	if sim_delta <= 0.0:
-		return
-	energy = clampf(energy + ENERGY_RATE_PER_SIM_SEC * sim_delta, 0.0, FULL_ENERGY)
-	cooldown_remaining = maxf(cooldown_remaining - sim_delta, 0.0)
+func cooldown_max() -> float:
+	return COOLDOWN_SIM_SEC
+
+
+func can_fire(attacker) -> bool:
+	if attacker == null:
+		return false
+	return cooldown_remaining <= 0.0 and attacker.energy >= ENERGY_PER_SHOT
 
 
 func is_target_in_engagement_envelope(attacker, target) -> bool:
@@ -50,11 +43,11 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 
 
 func fire(attacker, target) -> bool:
-	if not can_fire():
+	if not can_fire(attacker):
 		return false
 	if not is_target_in_engagement_envelope(attacker, target):
 		return false
 	target.take_damage(DAMAGE)
-	energy = maxf(energy - ENERGY_PER_SHOT, 0.0)
+	attacker.energy = maxf(attacker.energy - ENERGY_PER_SHOT, 0.0)
 	cooldown_remaining = COOLDOWN_SIM_SEC
 	return true

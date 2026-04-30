@@ -12,6 +12,7 @@ extends Control
 
 const Satellite = preload("res://scripts/satellite.gd")
 const LosCheck = preload("res://scripts/los_check.gd")
+const Weapon = preload("res://scripts/weapons/weapon.gd")
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
@@ -23,7 +24,20 @@ const ENEMY_BG_SEL := Color(0.85, 0.20, 0.20, 0.90)
 # orange used on the 3D marker / line so the two surfaces don't blur
 # into the same visual signal.
 const BOX_HIT_FLASH := Color(0.95, 0.15, 0.15, 0.95)
-const BOX_MIN_SIZE := Vector2(96, 60)
+# Width is fixed so player and enemy boxes line up in the strips;
+# height auto-sizes from the content (an unarmed enemy box collapses
+# down to just HP, an armed player box is taller than an enemy).
+const BOX_MIN_SIZE := Vector2(210, 0)
+
+# Bar row colors. The energy reservoir is blue; weapon recovery starts
+# orange ("recharging") and snaps to green when ready, so a glance
+# tells the player which lasers can fire.
+const BAR_BG := Color(0.04, 0.04, 0.06, 0.85)
+const BAR_ENERGY := Color(0.20, 0.50, 0.95, 0.90)
+const BAR_COOLDOWN := Color(0.95, 0.55, 0.10, 0.90)
+const BAR_READY := Color(0.25, 0.80, 0.30, 0.90)
+const BAR_ROW_HEIGHT: float = 13.0
+const BAR_FONT_SIZE: int = 9
 
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
@@ -192,13 +206,68 @@ func _make_box() -> PanelContainer:
 	sb.content_margin_top = 4
 	sb.content_margin_bottom = 4
 	box.add_theme_stylebox_override("panel", sb)
-	var label := RichTextLabel.new()
-	label.bbcode_enabled = true
-	label.scroll_active = false
-	label.fit_content = true
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_child(label)
+
+	var rows := VBoxContainer.new()
+	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rows.add_theme_constant_override("separation", 2)
+	box.add_child(rows)
+
+	# Index 0 is the plain HP label. Bar rows for energy + each weapon
+	# are added on demand by _update_box so the per-team child count
+	# matches the actual satellite (an unarmed enemy gets just HP).
+	var hp := Label.new()
+	hp.add_theme_font_size_override("font_size", 11)
+	hp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rows.add_child(hp)
+
 	return box
+
+
+# A bar row: dark background, color-tinted fill that grows left→right
+# with `fraction`, and a centered text overlay that shows the readout
+# (e.g. "Energy 25%" or "Laser 1 50%" or "Laser 2 READY").
+func _make_bar_row() -> Control:
+	var row := Control.new()
+	row.custom_minimum_size = Vector2(0, BAR_ROW_HEIGHT)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.clip_contents = true
+
+	var bg := ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = BAR_BG
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(bg)
+
+	# Anchor-driven fill: anchor_right is the fraction we want filled,
+	# so we never need to know the row's pixel width to scale it.
+	var fill := ColorRect.new()
+	fill.anchor_left = 0.0
+	fill.anchor_top = 0.0
+	fill.anchor_right = 0.0
+	fill.anchor_bottom = 1.0
+	fill.color = BAR_ENERGY
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(fill)
+
+	var overlay := Label.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	overlay.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	overlay.add_theme_font_size_override("font_size", BAR_FONT_SIZE)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(overlay)
+
+	return row
+
+
+func _update_bar_row(row: Control, fill_color: Color, text: String, fraction: float) -> void:
+	var fill := row.get_child(1) as ColorRect
+	if fill != null:
+		fill.color = fill_color
+		fill.anchor_right = clampf(fraction, 0.0, 1.0)
+	var overlay := row.get_child(2) as Label
+	if overlay != null:
+		overlay.text = text
 
 
 func _update_box(
@@ -215,21 +284,55 @@ func _update_box(
 			sb.bg_color = ENEMY_BG_SEL if is_selected else ENEMY_BG
 		else:
 			sb.bg_color = PLAYER_BG_SEL if is_selected else PLAYER_BG
-	var label := box.get_child(0) as RichTextLabel
-	if label == null:
+
+	var rows := box.get_child(0) as VBoxContainer
+	if rows == null:
 		return
-	var lines := PackedStringArray()
-	lines.append("[font_size=11]")
-	lines.append("HP %d/%d" % [int(sat.hp), int(Satellite.MAX_HP)])
-	if sat.weapon != null:
-		lines.append("E %d%%" % int(sat.weapon.energy * 100.0))
-		if sat.weapon.cooldown_remaining > 0.0:
-			lines.append(
-				"[color=orange]CD %ds[/color]"
-				% int(ceil(sat.weapon.cooldown_remaining))
-			)
-	lines.append("[/font_size]")
-	label.text = "\n".join(lines)
+
+	# Index 0 is the HP label; everything after is a bar row. Resize the
+	# bar tail to (1 energy row + N weapon rows), or 0 rows if the unit
+	# has no weapons (unarmed enemy → HP only).
+	var hp_label := rows.get_child(0) as Label
+	if hp_label != null:
+		hp_label.text = "HP %d/%d" % [int(sat.hp), int(Satellite.MAX_HP)]
+
+	var desired_bars := 0
+	if not sat.weapons.is_empty():
+		desired_bars = 1 + sat.weapons.size()
+	var current_bars := rows.get_child_count() - 1
+	while current_bars < desired_bars:
+		rows.add_child(_make_bar_row())
+		current_bars += 1
+	while current_bars > desired_bars:
+		var stale := rows.get_child(rows.get_child_count() - 1)
+		rows.remove_child(stale)
+		stale.queue_free()
+		current_bars -= 1
+
+	if desired_bars == 0:
+		return
+
+	var energy_row := rows.get_child(1) as Control
+	if energy_row != null:
+		var pct := int(round(sat.energy * 100.0))
+		_update_bar_row(
+			energy_row, BAR_ENERGY, "Energy  %d%%" % pct, sat.energy
+		)
+
+	for i in range(sat.weapons.size()):
+		var w: Weapon = sat.weapons[i]
+		var row := rows.get_child(2 + i) as Control
+		if row == null:
+			continue
+		var prog := w.cooldown_progress()
+		var is_ready := w.cooldown_remaining <= 0.0
+		var fill_color := BAR_READY if is_ready else BAR_COOLDOWN
+		var text := "Laser %d  READY" % (i + 1) if is_ready \
+			else "Laser %d  %d%%" % [i + 1, int(round(prog * 100.0))]
+		# Always paint the bar at full when ready; otherwise grow with
+		# cooldown progress so the orange fill matches the readout.
+		var fraction := 1.0 if is_ready else prog
+		_update_bar_row(row, fill_color, text, fraction)
 
 
 func draw_target_lines(orbital_set: Node, cam: Camera3D) -> void:

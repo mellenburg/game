@@ -9,6 +9,7 @@ const Earth = preload("res://scripts/earth.gd")
 const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const Weapon = preload("res://scripts/weapons/weapon.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -87,28 +88,30 @@ func _physics_process(delta: float) -> void:
 			sat.visible = false
 
 
-# Charge weapons and let any armed satellite auto-fire on the closest
-# valid enemy (LOS clear, opposing team, both alive). Tower-defense:
-# no player input needed.
+# Charge each satellite's energy pool, tick every weapon's cooldown,
+# then let any armed satellite auto-fire on the closest valid enemy
+# (LOS clear, opposing team, both alive). Tower-defense: no player
+# input needed.
 func _process_combat(sim_delta: float) -> void:
 	for sat in real_satellites:
-		if not sat.alive or sat.weapon == null:
+		if not sat.alive:
 			continue
-		sat.weapon.charge(sim_delta)
-		if not sat.weapon.can_fire():
-			continue
-		var target := _pick_target(sat)
-		if target != null and sat.weapon.fire(sat, target):
-			hud.register_hit(sat, target)
+		sat.tick_combat(sim_delta)
+		for w in sat.weapons:
+			if not w.can_fire(sat):
+				continue
+			var target := _pick_target_for_weapon(sat, w)
+			if target != null and w.fire(sat, target):
+				hud.register_hit(sat, target)
 
 
-func _pick_target(attacker: Satellite) -> Satellite:
+func _pick_target_for_weapon(attacker: Satellite, w: Weapon) -> Satellite:
 	var best: Satellite = null
 	var best_d2 := INF
 	for other in real_satellites:
 		if other == attacker:
 			continue
-		if not attacker.weapon.is_target_in_engagement_envelope(attacker, other):
+		if not w.is_target_in_engagement_envelope(attacker, other):
 			continue
 		var d2: float = (other.orbit.r - attacker.orbit.r).length_squared()
 		if d2 < best_d2:
@@ -229,7 +232,7 @@ func add_enemies(count: int = ENEMIES_PER_SPAWN) -> void:
 func _make_enemy_in_random_orbit() -> Satellite:
 	var sat := Satellite.new()
 	sat.team = Satellite.TEAM_ENEMY
-	sat.weapon = null  # Enemies are unarmed in the MVP.
+	sat.weapons.clear()  # Enemies are unarmed in the MVP.
 
 	var altitude := _rng.randf_range(ENEMY_ALT_MIN_KM, ENEMY_ALT_MAX_KM)
 	var radius := EarthOrbit.EARTH_RADIUS_KM + altitude
