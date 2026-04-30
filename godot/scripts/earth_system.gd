@@ -11,6 +11,8 @@ const OrbitCamera = preload("res://scripts/orbit_camera.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
+const ImpactTracker = preload("res://scripts/impact_tracker.gd")
+const ImpactMap = preload("res://scripts/impact_map.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -73,6 +75,12 @@ var meteorites_impacted: int = 0
 var _time_factor_accum: float = 0.0
 var _planning_dt_accum: float = 0.0
 var _rng := RandomNumberGenerator.new()
+var impact_tracker := ImpactTracker.new()
+# Day-side albedo loaded once as an Image so we can sample it at an
+# impact's UV without an editor-only Texture readback. Lazily filled
+# in _ready; null-safe — if the texture's missing, ocean classification
+# falls back to the bounding-box table alone.
+var _albedo_image: Image = null
 
 @onready var earth: Earth = $Earth as Earth
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
@@ -80,6 +88,7 @@ var _rng := RandomNumberGenerator.new()
 @onready var satellite_container: Node3D = $Satellites as Node3D
 @onready var planning_container: Node3D = $PlanningSatellites as Node3D
 @onready var beam_renderer: BeamRenderer = $BeamRenderer as BeamRenderer
+@onready var impact_map: ImpactMap = $CanvasLayer/HUD/ImpactMap as ImpactMap
 
 var satellites: Array[Satellite]:
 	get: return planning_satellites if planning_mode else real_satellites
@@ -87,9 +96,24 @@ var satellites: Array[Satellite]:
 
 func _ready() -> void:
 	_rng.randomize()
+	_albedo_image = _load_albedo_image()
+	if impact_map != null:
+		impact_map.tracker = impact_tracker
 	add_satellite()
 	if not real_satellites.is_empty():
 		real_satellites[0].select()
+
+
+# Pull the day-side albedo into an Image once. Sampling at impact time
+# is then a single pixel read — no GPU readback, no per-impact load.
+func _load_albedo_image() -> Image:
+	const path := "res://resources/3D/earth/4096_earth.jpg"
+	if not ResourceLoader.exists(path):
+		return null
+	var tex := load(path) as Texture2D
+	if tex == null:
+		return null
+	return tex.get_image()
 
 
 func _process(delta: float) -> void:
@@ -104,6 +128,7 @@ func _physics_process(delta: float) -> void:
 	# Convert wall-clock seconds to simulated seconds.
 	var sim_delta := float(time_factor) * delta
 	earth.advance_phase(sim_delta)
+	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
 		sat.advance_time(sim_delta)
 	_process_combat(sim_delta)
@@ -183,6 +208,7 @@ func _remove_dead_satellites() -> void:
 				enemies_shot_down += 1
 			elif sat.is_meteorite:
 				meteorites_impacted += 1
+				_record_meteorite_impact(sat)
 		# Mirror removal in planning so indices stay aligned.
 		if i < planning_satellites.size():
 			var plan_sat: Satellite = planning_satellites[i]
@@ -266,6 +292,9 @@ func _process_one_shot_input() -> void:
 		add_meteorite_storm()
 	if Input.is_action_just_pressed("toggle_los"):
 		hud.los_visible = not hud.los_visible
+	if Input.is_action_just_pressed("toggle_impact_map"):
+		if impact_map != null:
+			impact_map.visible = not impact_map.visible
 
 
 func add_satellite() -> void:
@@ -311,6 +340,30 @@ func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
 		var sat := _make_meteorite(r_hat, tangent, base_altitude, base_velocity)
 		satellite_container.add_child(sat)
 		real_satellites.append(sat)
+
+
+# Capture the impact coordinates of a meteorite that just terminated
+# on ground contact. Pulls the body's last ECI position, samples the
+# day-side albedo at the resulting UV to flag ocean vs land, and hands
+# the record to the tracker. Robust to a missing albedo image — we
+# just skip the ocean hint in that case and let the bounding-box
+# fallback in classify_region pick a label.
+func _record_meteorite_impact(sat: Satellite) -> void:
+	if sat == null or sat.orbit == null:
+		return
+	var phase: float = earth.earth_phase if earth != null else 0.0
+	var surface_pos: Vector3 = sat.orbit.r.normalized() * EarthOrbit.EARTH_RADIUS_KM
+	var local := ImpactTracker.eci_to_mesh_local(surface_pos, phase)
+	var uv := ImpactTracker.mesh_local_to_uv(local)
+	var ocean_hint := false
+	if _albedo_image != null:
+		var w := _albedo_image.get_width()
+		var h := _albedo_image.get_height()
+		if w > 0 and h > 0:
+			var px := clampi(int(uv.x * float(w)), 0, w - 1)
+			var py := clampi(int(uv.y * float(h)), 0, h - 1)
+			ocean_hint = ImpactTracker.is_ocean_pixel(_albedo_image.get_pixel(px, py))
+	impact_tracker.record_impact(sat.orbit.r, phase, ocean_hint)
 
 
 func _make_meteorite(

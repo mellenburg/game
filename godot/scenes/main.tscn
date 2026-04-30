@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://scripts/sun.gd" id="5_sun"]
 [ext_resource type="Script" path="res://scripts/beam_renderer.gd" id="6_beams"]
 [ext_resource type="Shader" path="res://shaders/sky.gdshader" id="7_sky"]
+[ext_resource type="Script" path="res://scripts/impact_map.gd" id="8_impact_map"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -132,6 +133,7 @@ R - Remove satellite
 B - Spawn 3 enemy satellites
 M - Spawn meteorite cluster
 V - Toggle LOS lines
+K - Toggle impact map
 P - Toggle planning mode
 T/G - Advance/retard plan time
 Esc - Release mouse[/color][/font_size]"
@@ -148,3 +150,17 @@ offset_bottom = 410.0
 mouse_filter = 2
 bbcode_enabled = true
 scroll_active = false
+
+[node name="ImpactMap" type="Control" parent="CanvasLayer/HUD"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -446.0
+offset_top = -388.0
+offset_right = -10.0
+offset_bottom = -10.0
+mouse_filter = 2
+script = ExtResource("8_impact_map")
