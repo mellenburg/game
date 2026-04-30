@@ -17,8 +17,8 @@ class FakeOrbit extends RefCounted:
 
 
 # Minimal stand-in for Satellite — exposes only the fields the weapon
-# reads (orbit.r, team, alive, orbit_alive, energy, hp). RefCounted so
-# we don't leak across tests.
+# reads (orbit.r, team, alive, orbit_alive, energy, hp,
+# engagement_range_km). RefCounted so we don't leak across tests.
 class FakeSat extends RefCounted:
 	var orbit: FakeOrbit
 	var team: int = 0
@@ -26,6 +26,10 @@ class FakeSat extends RefCounted:
 	var orbit_alive: bool = true
 	var hp: float = 100.0
 	var energy: float = 0.0
+	# Default to MAX_RANGE_KM so unconfigured fakes behave like a fresh
+	# Satellite: the engagement cap doesn't narrow the envelope unless
+	# a test explicitly tightens it.
+	var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
 
 	func _init() -> void:
 		orbit = FakeOrbit.new()
@@ -79,9 +83,17 @@ func test_fire_applies_damage_and_drains_energy_per_second() -> void:
 	var attacker := _make_player()
 	attacker.energy = 1.0
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
-	# Fire for 2 sim-sec → 2 * DPS damage, 2 * cost drain, 2 * heat consumed.
+	# Fire for 2 sim-sec → 2 * DPS * range_factor(d) damage, 2 * cost
+	# drain, 2 * heat consumed. Distance is 1000 km so the falloff
+	# factor is non-trivial (~0.95) and shows up in the assertion.
+	var dist: float = (target.orbit.r - attacker.orbit.r).length()
+	var rf: float = LaserWeapon.range_factor(dist)
 	assert_true(w.fire(attacker, target, 2.0))
-	assert_close(target.hp, 100.0 - 2.0 * LaserWeapon.DAMAGE_PER_SEC)
+	assert_close(target.hp, 100.0 - 2.0 * LaserWeapon.DAMAGE_PER_SEC * rf)
+	# Energy and heat costs are flat in time — distance only modulates
+	# damage, not the per-second burn. That's a deliberate design call
+	# (see laser_weapon.gd) so long-range potshots cost as much as they
+	# would point-blank.
 	assert_close(attacker.energy, 1.0 - 2.0 * LaserWeapon.ENERGY_PER_SEC)
 	assert_close(w.ready_fraction, 1.0 - 2.0 * LaserWeapon.HEAT_PER_SEC)
 	assert_false(w.overheated)
@@ -153,9 +165,11 @@ func test_fire_does_not_overshoot_remaining_energy() -> void:
 	var attacker := _make_player()
 	attacker.energy = 0.5 * LaserWeapon.ENERGY_PER_SEC  # 0.5 sim-sec budget
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var dist: float = (target.orbit.r - attacker.orbit.r).length()
+	var rf: float = LaserWeapon.range_factor(dist)
 	assert_true(w.fire(attacker, target, 10.0))
 	assert_close(attacker.energy, 0.0)
-	assert_close(target.hp, 100.0 - 0.5 * LaserWeapon.DAMAGE_PER_SEC)
+	assert_close(target.hp, 100.0 - 0.5 * LaserWeapon.DAMAGE_PER_SEC * rf)
 
 
 func test_does_not_engage_same_team() -> void:
@@ -214,3 +228,81 @@ func test_fire_ignores_zero_or_negative_delta() -> void:
 	assert_close(target.hp, 100.0)
 	assert_close(attacker.energy, 1.0)
 	assert_close(w.ready_fraction, 1.0)
+
+
+func test_range_factor_is_linear_with_distance() -> void:
+	# Endpoints clamp; middle is the linear interpolation.
+	assert_close(LaserWeapon.range_factor(0.0), 1.0)
+	assert_close(LaserWeapon.range_factor(LaserWeapon.MAX_RANGE_KM), 0.0)
+	assert_close(
+		LaserWeapon.range_factor(LaserWeapon.MAX_RANGE_KM * 0.5), 0.5
+	)
+	# Negative or beyond-max inputs both clamp; this guards against a
+	# regression where a degenerate distance leaks negative damage.
+	assert_close(LaserWeapon.range_factor(-100.0), 1.0)
+	assert_close(LaserWeapon.range_factor(LaserWeapon.MAX_RANGE_KM * 2.0), 0.0)
+
+
+func test_damage_scales_with_distance() -> void:
+	# Two attackers at different distances from their (separate) target
+	# should deal damage in the ratio of their range_factors. A short
+	# stationary target setup keeps LOS clear in both cases.
+	var w_near := LaserWeapon.new()
+	var w_far := LaserWeapon.new()
+	var atk_near := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	var atk_far := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	atk_near.energy = 1.0
+	atk_far.energy = 1.0
+	# 2000 km vs 8000 km lateral offset — both well clear of LOS
+	# blockage at this altitude, both well inside MAX_RANGE_KM.
+	var tgt_near := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 2000.0, 0.0))
+	var tgt_far := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 8000.0, 0.0))
+	assert_true(w_near.fire(atk_near, tgt_near, 1.0))
+	assert_true(w_far.fire(atk_far, tgt_far, 1.0))
+	var dmg_near: float = 100.0 - tgt_near.hp
+	var dmg_far: float = 100.0 - tgt_far.hp
+	assert_true(dmg_near > dmg_far, "near hit should damage more than far hit")
+	# Ratio should match the analytic falloff curve.
+	var d_near: float = (tgt_near.orbit.r - atk_near.orbit.r).length()
+	var d_far: float = (tgt_far.orbit.r - atk_far.orbit.r).length()
+	var rf_near: float = LaserWeapon.range_factor(d_near)
+	var rf_far: float = LaserWeapon.range_factor(d_far)
+	assert_close(dmg_near, LaserWeapon.DAMAGE_PER_SEC * rf_near)
+	assert_close(dmg_far, LaserWeapon.DAMAGE_PER_SEC * rf_far)
+
+
+func test_does_not_engage_beyond_max_range() -> void:
+	# A target past MAX_RANGE_KM is out of envelope regardless of
+	# engagement_range_km — physics ceiling caps the operator setting.
+	var w := LaserWeapon.new()
+	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	attacker.energy = 1.0
+	var far := LaserWeapon.MAX_RANGE_KM + 1000.0
+	var enemy := _make_enemy(
+		Vector3(EARTH_RADIUS_KM + 500.0, far, 10000.0)
+	)
+	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
+	assert_false(w.fire(attacker, enemy, 1.0))
+	assert_close(enemy.hp, 100.0)
+	assert_close(attacker.energy, 1.0)
+
+
+func test_engagement_range_gates_fire() -> void:
+	# A target inside MAX_RANGE_KM but outside the operator's
+	# engagement_range_km is rejected — that's the energy-saving
+	# behaviour fire control exists for.
+	var w := LaserWeapon.new()
+	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	attacker.energy = 1.0
+	# Place enemy 6000 km away laterally.
+	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 6000.0, 0.0))
+	# Tighten engagement to 3000 km — enemy is now outside.
+	attacker.engagement_range_km = 3000.0
+	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
+	assert_false(w.fire(attacker, enemy, 1.0))
+	assert_close(enemy.hp, 100.0)
+	# Open it up past the actual distance and the fire goes through.
+	attacker.engagement_range_km = 10000.0
+	assert_true(w.is_target_in_engagement_envelope(attacker, enemy))
+	assert_true(w.fire(attacker, enemy, 1.0))
+	assert_true(enemy.hp < 100.0)

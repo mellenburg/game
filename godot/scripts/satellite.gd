@@ -51,6 +51,19 @@ var energy: float = 0.0
 # Empty for unarmed units (e.g. enemies in the MVP). Player satellites
 # spawn with two lasers; weapons fire independently but share energy.
 var weapons: Array[Weapon] = []
+# Operator-set cap on weapon engagement distance (km). Every laser on
+# this satellite refuses to fire at targets beyond this range, even if
+# the physics-level falloff would still deliver some damage. Defaults
+# to LaserWeapon.MAX_RANGE_KM so unarmed and unconfigured units behave
+# exactly as they did before — the cap only narrows the envelope.
+var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
+# Fire-control mode toggle. Pure UI state today: it gates the
+# shift+up/down range adjustment and the on-plane range circle. Range
+# is enforced unconditionally (so an operator who edited the value
+# while in fire control then toggled out still sees their setting
+# respected); the toggle only governs whether the operator is
+# actively tweaking it.
+var fire_control_active: bool = false
 
 # Wall-clock timestamp at which the orange "I got hit" tint reverts to
 # the team color. Wall-clock so the pulse is visible regardless of how
@@ -133,6 +146,26 @@ func unselect() -> void:
 func set_maneuver(input: Vector3) -> void:
 	raw_maneuver = input
 	did_maneuver = input.length_squared() > 0.0
+
+
+## Flip the fire-control mode. Only meaningful on armed units; unarmed
+## satellites (enemies, meteorites) keep the flag at false but caller
+## still gets the no-op behavior right because their weapons array is
+## empty.
+func toggle_fire_control() -> void:
+	fire_control_active = not fire_control_active
+
+
+## Clamp + assign the operator-set engagement range. The lower bound
+## is the weapon's minimum so the operator can't disable fire control
+## by accident; the upper bound is the physics-level max so anything
+## past it is dead-on-arrival anyway.
+func set_engagement_range(km: float) -> void:
+	engagement_range_km = clampf(
+		km,
+		LaserWeapon.MIN_ENGAGEMENT_RANGE_KM,
+		LaserWeapon.MAX_RANGE_KM,
+	)
 
 
 func get_current_maneuver() -> Vector3:
@@ -234,6 +267,8 @@ func clone_orbit_from(other: Satellite) -> void:
 	# energy bar for an enemy preview (clones get fresh weapons in
 	# _init that we'd otherwise leave dangling).
 	energy = other.energy
+	engagement_range_km = other.engagement_range_km
+	fire_control_active = other.fire_control_active
 	if other.weapons.is_empty():
 		weapons.clear()
 	if is_inside_tree():

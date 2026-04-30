@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=13 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/beam_renderer.gd" id="6_beams"]
 [ext_resource type="Shader" path="res://shaders/sky.gdshader" id="7_sky"]
 [ext_resource type="Script" path="res://scripts/impact_map.gd" id="8_impact_map"]
+[ext_resource type="Script" path="res://scripts/range_circle.gd" id="9_range_circle"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -54,6 +55,9 @@ script = ExtResource("5_sun")
 
 [node name="BeamRenderer" type="Node3D" parent="."]
 script = ExtResource("6_beams")
+
+[node name="RangeCircle" type="MeshInstance3D" parent="."]
+script = ExtResource("9_range_circle")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
@@ -136,6 +140,9 @@ V - Toggle LOS lines
 K - Toggle impact map
 P - Toggle planning mode
 T/G - Advance/retard plan time
+C - Toggle fire control
+Shift - Show range circle
+Shift+Up/Dn - Adjust engage range
 Esc - Release mouse[/color][/font_size]"
 
 [node name="KillStats" type="RichTextLabel" parent="CanvasLayer/HUD"]
