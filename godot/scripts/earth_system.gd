@@ -52,6 +52,12 @@ var planning_satellites: Array[Satellite] = []
 var selected_ship: int = 0
 var planning_selected: int = 0
 
+# Running tallies of how each enemy left play. Driven from the dead-
+# satellite sweep so it counts every termination once, regardless of
+# whether the cause was a weapon hit or a sub-orbital impact.
+var enemies_shot_down: int = 0
+var meteorites_impacted: int = 0
+
 var _time_factor_accum: float = 0.0
 var _planning_dt_accum: float = 0.0
 var _rng := RandomNumberGenerator.new()
@@ -150,6 +156,14 @@ func _remove_dead_satellites() -> void:
 		if sat.alive and sat.orbit_alive:
 			i += 1
 			continue
+		# Tally enemy terminations by cause: HP gone -> shot down by a
+		# weapon; meteorite still has HP -> ground impact (advance_time
+		# kills it on surface crossing without touching hp).
+		if sat.team == Satellite.TEAM_ENEMY:
+			if sat.hp <= 0.0:
+				enemies_shot_down += 1
+			elif sat.is_meteorite:
+				meteorites_impacted += 1
 		# Mirror removal in planning so indices stay aligned.
 		if i < planning_satellites.size():
 			var plan_sat: Satellite = planning_satellites[i]

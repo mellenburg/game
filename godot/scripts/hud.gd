@@ -54,6 +54,7 @@ const HIT_DURATION: float = 0.25
 @onready var player_roster: HBoxContainer = $PlayerRoster as HBoxContainer
 @onready var enemy_roster: HBoxContainer = $EnemyRoster as HBoxContainer
 @onready var target_container: Control = $TargetContainer as Control
+@onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
 
 var _camera: Camera3D
 var _system: Node = null
@@ -128,6 +129,7 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 
 	_update_info_label(planning_mode, time_factor, dt)
 	_update_rosters(orbital_set, planning_mode)
+	_update_kill_stats(orbital_set)
 
 
 func _update_info_label(planning_mode: bool, time_factor: int, dt: int) -> void:
@@ -142,6 +144,20 @@ func _update_info_label(planning_mode: bool, time_factor: int, dt: int) -> void:
 		lines.append("Planning dt: %d" % dt)
 	lines.append("[/font_size]")
 	info_label.text = "\n".join(lines)
+
+
+func _update_kill_stats(orbital_set: Node) -> void:
+	if kill_stats == null:
+		return
+	# Read tallies straight off the controller — no signal plumbing
+	# needed; the HUD already polls orbital_set every tick anyway.
+	var shot: int = orbital_set.enemies_shot_down
+	var hit: int = orbital_set.meteorites_impacted
+	kill_stats.text = (
+		"[font_size=13][color=gray]Enemies eliminated[/color]\n"
+		+ "[color=#7fcf7f]Shot down:[/color] %d\n" % shot
+		+ "[color=#ff8c5a]Impacted:[/color] %d[/font_size]" % hit
+	)
 
 
 func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:

@@ -126,6 +126,20 @@ Tab - Select next satellite
 N - Add satellite
 R - Remove satellite
 B - Spawn 3 enemy satellites
+M - Spawn meteorite cluster
 P - Toggle planning mode
 T/G - Advance/retard plan time
 Esc - Release mouse[/color][/font_size]"
+
+[node name="KillStats" type="RichTextLabel" parent="CanvasLayer/HUD"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -320.0
+offset_top = 340.0
+offset_right = -10.0
+offset_bottom = 410.0
+mouse_filter = 2
+bbcode_enabled = true
+scroll_active = false
