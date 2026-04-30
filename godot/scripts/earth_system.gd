@@ -247,6 +247,8 @@ func _process_one_shot_input() -> void:
 		add_enemies()
 	if Input.is_action_just_pressed("add_meteorites"):
 		add_meteorite_storm()
+	if Input.is_action_just_pressed("toggle_los"):
+		hud.los_visible = not hud.los_visible
 
 
 func add_satellite() -> void:

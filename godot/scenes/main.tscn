@@ -127,6 +127,7 @@ N - Add satellite
 R - Remove satellite
 B - Spawn 3 enemy satellites
 M - Spawn meteorite cluster
+V - Toggle LOS lines
 P - Toggle planning mode
 T/G - Advance/retard plan time
 Esc - Release mouse[/color][/font_size]"

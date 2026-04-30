@@ -60,9 +60,17 @@ var _camera: Camera3D
 var _system: Node = null
 var _last_text_update: float = 0.0
 
-# Active weapon-hit pulses. Each entry: {attacker, target, expires_at}
-# where expires_at is wall-clock seconds. Pruned lazily during render.
+# Active weapon-hit pulses. Each entry stores the world-space ECI
+# positions of attacker and target captured AT FIRE TIME along with
+# the wall-clock expiry. Caching positions decouples the visual from
+# the satellite lifecycle: a fatal shot kills the target this tick
+# (alive=false), but we still want the orange line to render for the
+# pulse window — without dereferencing a freed instance.
 var _hits: Array[Dictionary] = []
+# Toggled by EarthSystem on the "toggle_los" input action. When false,
+# the yellow / pink LOS lines from the selected satellite to opposing
+# units are suppressed; hit pulses remain visible regardless.
+var los_visible: bool = true
 
 
 func _ready() -> void:
@@ -76,9 +84,15 @@ func _ready() -> void:
 func register_hit(attacker: Satellite, target: Satellite) -> void:
 	if attacker == null or target == null:
 		return
+	# Snapshot the ECI positions now so the line can render even if the
+	# target dies on this very shot — we used to gate _draw_hit_lines on
+	# `target.alive` and lost the visual feedback for any kill-shot.
+	# Refs are still kept so the roster-box pulse can find its target.
 	_hits.append({
 		"attacker": attacker,
 		"target": target,
+		"attacker_pos": attacker.orbit.r,
+		"target_pos": target.orbit.r,
 		"expires_at": _now() + HIT_DURATION,
 	})
 	target.flash_hit(HIT_DURATION)
@@ -88,25 +102,16 @@ func _now() -> float:
 	return Time.get_ticks_msec() / 1000.0
 
 
-# Drop expired hits and any whose attacker/target has been freed (a
-# satellite can die between a fire() and the next render tick).
-#
-# Important: we DON'T pull h["attacker"] / h["target"] into a typed
-# `Satellite` local until after is_instance_valid passes. Godot 4
-# rejects the assignment of a freed Object to a typed variable with
-# "Trying to assign invalid previously freed instance" — the check
-# fires before any user-level guard could run. Passing the dict
-# expression straight into is_instance_valid sidesteps that.
+# Drop hits whose pulse window has expired. We deliberately keep
+# entries whose attacker/target have been freed — the snapshotted
+# positions still draw a valid line, and that's the kill-shot case
+# we most want to display.
 func _prune_hits() -> void:
 	var now := _now()
 	var live: Array[Dictionary] = []
 	for h in _hits:
 		var expires: float = h["expires_at"]
 		if expires <= now:
-			continue
-		if not is_instance_valid(h["attacker"]):
-			continue
-		if not is_instance_valid(h["target"]):
 			continue
 		live.append(h)
 	_hits = live
@@ -361,9 +366,11 @@ func _draw() -> void:
 	if _system == null or _camera == null:
 		return
 	_prune_hits()
-	_draw_selected_los_lines()
+	if los_visible:
+		_draw_selected_los_lines()
 	# Hit lines are drawn last so they overwrite any selection line that
-	# happens to share the same endpoints.
+	# happens to share the same endpoints. Always shown — they're a
+	# transient combat signal, not a continuous overlay.
 	_draw_hit_lines()
 
 
@@ -404,20 +411,14 @@ func _draw_selected_los_lines() -> void:
 
 func _draw_hit_lines() -> void:
 	for h in _hits:
-		# Same freed-instance trap as _prune_hits — validate before
-		# pulling the dict values into typed locals.
-		if not is_instance_valid(h["attacker"]):
-			continue
-		if not is_instance_valid(h["target"]):
-			continue
-		var attacker: Satellite = h["attacker"]
-		var target: Satellite = h["target"]
-		if not attacker.alive or not target.alive:
-			continue
-		if not attacker.orbit_alive or not target.orbit_alive:
-			continue
-		var a_scene := attacker.orbit.r * Satellite.SCENE_SCALE
-		var b_scene := target.orbit.r * Satellite.SCENE_SCALE
+		# Use the snapshotted positions from register_hit. The attacker
+		# and target may already be alive=false (or even queue_free'd)
+		# by the time we draw — that's exactly the case where the line
+		# matters most (kill-shot feedback).
+		var a_eci: Vector3 = h["attacker_pos"]
+		var b_eci: Vector3 = h["target_pos"]
+		var a_scene := a_eci * Satellite.SCENE_SCALE
+		var b_scene := b_eci * Satellite.SCENE_SCALE
 		if _camera.is_position_behind(a_scene) and _camera.is_position_behind(b_scene):
 			continue
 		var screen_a := _camera.unproject_position(a_scene)
