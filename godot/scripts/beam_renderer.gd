@@ -187,14 +187,26 @@ func _orient_beam(beam: _Beam, alpha: float) -> void:
 	var x_axis := ref_axis.cross(y_axis).normalized()
 	var z_axis := x_axis.cross(y_axis).normalized()
 	var origin := (a + b) * 0.5
-	var core_basis := Basis(x_axis, y_axis, z_axis).scaled(
-		Vector3(BEAM_CORE_RADIUS, length, BEAM_CORE_RADIUS)
+	# Construct columns directly. Note: Basis.scaled() applies the
+	# scale along WORLD axes (it's from_scale * basis), so it mangles a
+	# rotated basis — multiplying each column by its own scalar is the
+	# right way to stretch along the basis's local axes.
+	beam.core_inst.transform = Transform3D(
+		Basis(
+			x_axis * BEAM_CORE_RADIUS,
+			y_axis * length,
+			z_axis * BEAM_CORE_RADIUS,
+		),
+		origin,
 	)
-	beam.core_inst.transform = Transform3D(core_basis, origin)
-	var halo_basis := Basis(x_axis, y_axis, z_axis).scaled(
-		Vector3(BEAM_HALO_RADIUS, length, BEAM_HALO_RADIUS)
+	beam.halo_inst.transform = Transform3D(
+		Basis(
+			x_axis * BEAM_HALO_RADIUS,
+			y_axis * length,
+			z_axis * BEAM_HALO_RADIUS,
+		),
+		origin,
 	)
-	beam.halo_inst.transform = Transform3D(halo_basis, origin)
 	# Fade by mutating each cached material's alpha in place. Halo
 	# alpha is the constant base * fade so it never overpowers the core.
 	var core_color := BEAM_CORE_COLOR
