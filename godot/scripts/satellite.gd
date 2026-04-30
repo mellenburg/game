@@ -20,6 +20,7 @@ const DELTA_V_MAGNITUDE: float = 0.050
 const COLOR_SELECTED := Color(0.2, 1.0, 0.2)
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
+const COLOR_HIT := Color(1.0, 0.55, 0.0)
 
 const MAX_HP: float = 100.0
 
@@ -33,6 +34,11 @@ var team: int = TEAM_PLAYER
 var hp: float = MAX_HP
 var alive: bool = true
 var weapon: Weapon = null  # Null for unarmed units (e.g. enemies).
+
+# Wall-clock timestamp at which the orange "I got hit" tint reverts to
+# the team color. Wall-clock so the pulse is visible regardless of how
+# compressed time_factor makes sim seconds.
+var _flash_until: float = 0.0
 
 var _marker: MeshInstance3D
 var _marker_mat: StandardMaterial3D
@@ -61,6 +67,30 @@ func _ready() -> void:
 
 	_apply_color()
 	_sync_marker_position()
+
+
+func _process(_delta: float) -> void:
+	# Revert the hit-flash tint once its wall-clock window passes. Cheap
+	# enough to do every frame; the alternative (HUD driving it) couples
+	# the visual back into the controller.
+	if _flash_until > 0.0 and _wall_now() >= _flash_until:
+		_flash_until = 0.0
+		_apply_color()
+
+
+## Tint the 3D orbit marker orange for `duration` wall-clock seconds.
+## HUD calls this when a weapon successfully fires at this satellite,
+## so the marker pulses regardless of game time-factor compression.
+func flash_hit(duration: float) -> void:
+	if duration <= 0.0:
+		return
+	_flash_until = _wall_now() + duration
+	if _marker_mat != null:
+		_marker_mat.albedo_color = COLOR_HIT
+
+
+func _wall_now() -> float:
+	return Time.get_ticks_msec() / 1000.0
 
 
 func select() -> void:
@@ -171,6 +201,12 @@ func _base_color() -> Color:
 
 func _apply_color() -> void:
 	if _marker_mat == null:
+		return
+	# Hit-flash overrides selection / team while it's active so the
+	# pulse reads as a damage indicator even on the currently selected
+	# unit. _process reverts via _apply_color when the window expires.
+	if _flash_until > 0.0 and _wall_now() < _flash_until:
+		_marker_mat.albedo_color = COLOR_HIT
 		return
 	_marker_mat.albedo_color = COLOR_SELECTED if selected else _base_color()
 

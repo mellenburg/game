@@ -19,7 +19,10 @@ const PLAYER_BG := Color(0.06, 0.25, 0.10, 0.65)
 const PLAYER_BG_SEL := Color(0.20, 0.65, 0.25, 0.90)
 const ENEMY_BG := Color(0.30, 0.06, 0.06, 0.65)
 const ENEMY_BG_SEL := Color(0.85, 0.20, 0.20, 0.90)
-const HIT_BG := Color(1.0, 0.55, 0.0, 0.95)
+# Roster box flash on hit. Red — a damage indicator, distinct from the
+# orange used on the 3D marker / line so the two surfaces don't blur
+# into the same visual signal.
+const BOX_HIT_FLASH := Color(0.95, 0.15, 0.15, 0.95)
 const BOX_MIN_SIZE := Vector2(96, 60)
 
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
@@ -53,7 +56,8 @@ func _ready() -> void:
 
 ## Called by the combat loop when a weapon successfully fires. The HUD
 ## records the (attacker, target) pair for HIT_DURATION wall-clock
-## seconds so it can paint a hit pulse in the next frame's _draw.
+## seconds so it can paint a hit pulse in the next frame's _draw, and
+## tells the target to flash its 3D marker orange.
 func register_hit(attacker: Satellite, target: Satellite) -> void:
 	if attacker == null or target == null:
 		return
@@ -62,6 +66,7 @@ func register_hit(attacker: Satellite, target: Satellite) -> void:
 		"target": target,
 		"expires_at": _now() + HIT_DURATION,
 	})
+	target.flash_hit(HIT_DURATION)
 
 
 func _now() -> float:
@@ -70,16 +75,23 @@ func _now() -> float:
 
 # Drop expired hits and any whose attacker/target has been freed (a
 # satellite can die between a fire() and the next render tick).
+#
+# Important: we DON'T pull h["attacker"] / h["target"] into a typed
+# `Satellite` local until after is_instance_valid passes. Godot 4
+# rejects the assignment of a freed Object to a typed variable with
+# "Trying to assign invalid previously freed instance" — the check
+# fires before any user-level guard could run. Passing the dict
+# expression straight into is_instance_valid sidesteps that.
 func _prune_hits() -> void:
 	var now := _now()
 	var live: Array[Dictionary] = []
 	for h in _hits:
-		var attacker: Satellite = h["attacker"]
-		var target: Satellite = h["target"]
 		var expires: float = h["expires_at"]
 		if expires <= now:
 			continue
-		if not is_instance_valid(attacker) or not is_instance_valid(target):
+		if not is_instance_valid(h["attacker"]):
+			continue
+		if not is_instance_valid(h["target"]):
 			continue
 		live.append(h)
 	_hits = live
@@ -87,6 +99,8 @@ func _prune_hits() -> void:
 
 func _is_hit_target(sat: Satellite) -> bool:
 	for h in _hits:
+		if not is_instance_valid(h["target"]):
+			continue
 		if h["target"] == sat:
 			return true
 	return false
@@ -196,7 +210,7 @@ func _update_box(
 	var sb := box.get_theme_stylebox("panel") as StyleBoxFlat
 	if sb != null:
 		if _is_hit_target(sat):
-			sb.bg_color = HIT_BG
+			sb.bg_color = BOX_HIT_FLASH
 		elif is_enemy:
 			sb.bg_color = ENEMY_BG_SEL if is_selected else ENEMY_BG
 		else:
@@ -271,6 +285,12 @@ func _draw_selected_los_lines() -> void:
 
 func _draw_hit_lines() -> void:
 	for h in _hits:
+		# Same freed-instance trap as _prune_hits — validate before
+		# pulling the dict values into typed locals.
+		if not is_instance_valid(h["attacker"]):
+			continue
+		if not is_instance_valid(h["target"]):
+			continue
 		var attacker: Satellite = h["attacker"]
 		var target: Satellite = h["target"]
 		if not attacker.alive or not target.alive:
