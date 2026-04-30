@@ -51,18 +51,19 @@ var energy: float = 0.0
 # Empty for unarmed units (e.g. enemies in the MVP). Player satellites
 # spawn with two lasers; weapons fire independently but share energy.
 var weapons: Array[Weapon] = []
-# Operator-set cap on weapon engagement distance (km). Every laser on
-# this satellite refuses to fire at targets beyond this range, even if
-# the physics-level falloff would still deliver some damage. Defaults
-# to LaserWeapon.MAX_RANGE_KM so unarmed and unconfigured units behave
-# exactly as they did before — the cap only narrows the envelope.
+# Operator-set cap on weapon engagement distance (km). Honored by the
+# laser only while fire_control_active is true — turning fire control
+# off restores default "fire at any LOS enemy out to MAX_RANGE_KM"
+# behaviour without forcing the operator to widen the slider back up
+# first. Defaults to LaserWeapon.MAX_RANGE_KM so a freshly-toggled-on
+# fire control mode doesn't immediately silence the weapon.
 var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
-# Fire-control mode toggle. Pure UI state today: it gates the
-# shift+up/down range adjustment and the on-plane range circle. Range
-# is enforced unconditionally (so an operator who edited the value
-# while in fire control then toggled out still sees their setting
-# respected); the toggle only governs whether the operator is
-# actively tweaking it.
+# Fire-control mode toggle. While active, the operator can adjust
+# engagement_range_km (Shift+Up/Down), see the range circle (Shift),
+# and the laser obeys the cap. Toggled off, the cap is dropped and
+# the weapon reverts to default LOS-only firing — but the saved
+# engagement_range_km value is preserved so re-toggling fire control
+# brings the same setting back.
 var fire_control_active: bool = false
 
 # Wall-clock timestamp at which the orange "I got hit" tint reverts to

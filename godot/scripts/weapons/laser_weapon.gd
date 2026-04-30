@@ -80,11 +80,16 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 		return false
 	if not attacker.orbit_alive or not target.orbit_alive:
 		return false
-	# Effective range cap is whichever is smaller: the physics ceiling
-	# (where damage already would be zero) or the operator's chosen
-	# engagement range. The latter only narrows the envelope.
+	# Physics ceiling always applies — past MAX_RANGE_KM the falloff
+	# already drives damage to zero. The operator's engagement_range_km
+	# only narrows that envelope while fire control is active; turning
+	# fire control off restores default behaviour (fire at any LOS
+	# enemy out to MAX_RANGE_KM) without forcing the operator to widen
+	# the slider back up first.
 	var distance: float = (target.orbit.r - attacker.orbit.r).length()
-	var cap: float = minf(MAX_RANGE_KM, attacker.engagement_range_km)
+	var cap: float = MAX_RANGE_KM
+	if attacker.fire_control_active:
+		cap = minf(cap, attacker.engagement_range_km)
 	if distance >= cap:
 		return false
 	return not LosCheck.is_blocked(attacker.orbit.r, target.orbit.r)

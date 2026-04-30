@@ -30,6 +30,10 @@ class FakeSat extends RefCounted:
 	# Satellite: the engagement cap doesn't narrow the envelope unless
 	# a test explicitly tightens it.
 	var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
+	# Fire control off by default. The cap is only enforced while the
+	# operator has fire control on — tests that exercise the cap must
+	# flip this to true.
+	var fire_control_active: bool = false
 
 	func _init() -> void:
 		orbit = FakeOrbit.new()
@@ -287,22 +291,55 @@ func test_does_not_engage_beyond_max_range() -> void:
 	assert_close(attacker.energy, 1.0)
 
 
-func test_engagement_range_gates_fire() -> void:
+func test_engagement_range_gates_fire_only_with_fire_control_on() -> void:
 	# A target inside MAX_RANGE_KM but outside the operator's
-	# engagement_range_km is rejected — that's the energy-saving
-	# behaviour fire control exists for.
+	# engagement_range_km is rejected ONLY while fire control is on —
+	# otherwise the saved cap is ignored and the weapon fires at any
+	# LOS enemy. This is the "toggle off restores defaults" contract
+	# (a player who tightens the cap, then disables fire control,
+	# expects their lasers to fire freely again without first having
+	# to widen the slider).
 	var w := LaserWeapon.new()
 	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
 	attacker.energy = 1.0
 	# Place enemy 6000 km away laterally.
 	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 6000.0, 0.0))
-	# Tighten engagement to 3000 km — enemy is now outside.
+	# Tighten engagement to 3000 km. With fire control off the cap is
+	# silently ignored — the laser still fires at the 6000 km enemy.
 	attacker.engagement_range_km = 3000.0
+	attacker.fire_control_active = false
+	assert_true(w.is_target_in_engagement_envelope(attacker, enemy))
+	# Now turn fire control on — same engagement_range_km, but the cap
+	# is now honored and the enemy falls outside.
+	attacker.fire_control_active = true
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
 	assert_close(enemy.hp, 100.0)
-	# Open it up past the actual distance and the fire goes through.
+	# Open the cap past the actual distance and the fire goes through.
 	attacker.engagement_range_km = 10000.0
 	assert_true(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_true(w.fire(attacker, enemy, 1.0))
 	assert_true(enemy.hp < 100.0)
+
+
+func test_toggling_fire_control_off_restores_default_engagement() -> void:
+	# Regression: previously the engagement_range_km cap was enforced
+	# unconditionally, so toggling fire control off after tightening
+	# the slider left the laser silently refusing to engage targets
+	# beyond the saved cap. The fix gates the cap behind
+	# fire_control_active; the saved value persists so toggling back
+	# on restores the operator's chosen ring.
+	var w := LaserWeapon.new()
+	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	attacker.energy = 1.0
+	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 6000.0, 0.0))
+	# Operator opens fire control, dials the cap below the enemy.
+	attacker.fire_control_active = true
+	attacker.engagement_range_km = 1000.0
+	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
+	# Operator toggles fire control off — the saved cap remains
+	# (preserved across toggles) but is no longer enforced.
+	attacker.fire_control_active = false
+	assert_close(attacker.engagement_range_km, 1000.0)
+	assert_true(w.is_target_in_engagement_envelope(attacker, enemy))
+	assert_true(w.fire(attacker, enemy, 1.0))
