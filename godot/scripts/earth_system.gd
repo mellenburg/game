@@ -26,15 +26,16 @@ const ENEMY_ALT_MAX_KM: float = 2000.0
 # that periapsis lands well below Earth's surface — guaranteeing impact
 # (and exit-from-play) within a few minutes of sim time.
 const METEORITES_PER_STORM: int = 3
-const METEORITE_ALT_MIN_KM: float = 20000.0
-const METEORITE_ALT_MAX_KM: float = 35000.0
-# Speeds picked so v < escape velocity at the spawn altitude (≈ 4.4 km/s
-# at 35000 km altitude) — bound elliptical trajectory guaranteed even
-# under jitter at the worst-case alignment.
-const METEORITE_RADIAL_SPEED_MIN: float = 2.0
-const METEORITE_RADIAL_SPEED_MAX: float = 3.5
-const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.2
-const METEORITE_TANGENTIAL_SPEED_MAX: float = 0.8
+const METEORITE_ALT_MIN_KM: float = 40000.0
+const METEORITE_ALT_MAX_KM: float = 70000.0
+# Velocity is dominated by the inward radial component with only a
+# small tangential share, so the trajectory hits Earth regardless of
+# whether the speed is sub- or super-escape — periapsis stays well
+# below the surface even under jitter at the worst-case alignment.
+const METEORITE_RADIAL_SPEED_MIN: float = 4.0
+const METEORITE_RADIAL_SPEED_MAX: float = 7.0
+const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.4
+const METEORITE_TANGENTIAL_SPEED_MAX: float = 1.6
 # Cluster scatter relative to the storm's nominal entry point. Thousands
 # of km of lateral offset + altitude jitter so the three trajectory
 # lines fan out clearly on screen rather than overlapping; per-axis
@@ -42,8 +43,7 @@ const METEORITE_TANGENTIAL_SPEED_MAX: float = 0.8
 const METEORITE_LATERAL_SPREAD_KM: float = 3000.0
 const METEORITE_ALT_JITTER_KM: float = 1500.0
 const METEORITE_VELOCITY_JITTER: float = 0.4
-# Meteorites are softer than orbital enemies — one laser hit removes them.
-const METEORITE_HP: float = 25.0
+const METEORITE_HP: float = 1000.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
