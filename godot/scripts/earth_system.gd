@@ -22,20 +22,29 @@ const ENEMY_ALT_MAX_KM: float = 2000.0
 
 # Meteorite storms: a small cluster of fragile, sub-orbital bodies all
 # incoming from one random direction. Spawned high enough to give the
-# player a window to engage, with the tangential component small enough
-# that periapsis lands well below Earth's surface — guaranteeing impact
-# (and exit-from-play) within a few minutes of sim time.
+# player a window to engage, with the per-body velocity post-clamped
+# (see _make_meteorite) to guarantee a sub-surface periapsis — so every
+# storm body genuinely impacts within a few minutes of sim time.
 const METEORITES_PER_STORM: int = 3
 const METEORITE_ALT_MIN_KM: float = 40000.0
 const METEORITE_ALT_MAX_KM: float = 70000.0
-# Velocity is dominated by the inward radial component with only a
-# small tangential share, so the trajectory hits Earth regardless of
-# whether the speed is sub- or super-escape — periapsis stays well
-# below the surface even under jitter at the worst-case alignment.
+# Inward radial dominates; the tangential share is small but non-zero so
+# the trajectories fan out over time. After spawn, each body's velocity
+# is clamped (EarthOrbit.clamp_velocity_for_periapsis) to guarantee
+# periapsis below the surface — without that clamp, lateral spread and
+# per-axis jitter can pump enough angular momentum into the orbit to
+# lift periapsis above ground, which both removes the trajectory arc
+# from the renderer and breaks the impact-on-ground gameplay rule.
 const METEORITE_RADIAL_SPEED_MIN: float = 4.0
 const METEORITE_RADIAL_SPEED_MAX: float = 7.0
 const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.4
 const METEORITE_TANGENTIAL_SPEED_MAX: float = 1.6
+# Margin: target r_p strictly less than EARTH_RADIUS so impact is
+# unambiguous under propagator step-size (the surface-cross termination
+# samples r at step boundaries and via the perihelion-cross detector).
+const METEORITE_PERIAPSIS_TARGET_KM: float = (
+	EarthOrbit.EARTH_RADIUS_KM * 0.9
+)
 # Cluster scatter relative to the storm's nominal entry point. Thousands
 # of km of lateral offset + altitude jitter so the three trajectory
 # lines fan out clearly on screen rather than overlapping; per-axis
@@ -331,6 +340,9 @@ func _make_meteorite(
 		_rng.randf_range(-jitter, jitter),
 		_rng.randf_range(-jitter, jitter),
 		_rng.randf_range(-jitter, jitter),
+	)
+	vel = EarthOrbit.clamp_velocity_for_periapsis(
+		pos, vel, METEORITE_PERIAPSIS_TARGET_KM
 	)
 	sat.orbit = EarthOrbit.new(pos, vel)
 	return sat

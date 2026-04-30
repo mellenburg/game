@@ -83,3 +83,37 @@ func test_tangential_only_does_not_impact() -> void:
 	for _i in range(60):
 		assert_true(o.propagate(60.0))
 		assert_true(o.norm_r > EarthOrbit.EARTH_RADIUS_KM)
+
+
+func test_clamp_velocity_for_periapsis_pulls_flyby_into_impact() -> void:
+	# Construction that mimics the meteorite spawner's worst case:
+	# 50,000 km altitude, mostly inward, but with a tangential share
+	# big enough to lift periapsis above the surface (a hyperbolic
+	# flyby — the bug the clamp is here to fix).
+	var pos := Vector3(EarthOrbit.EARTH_RADIUS_KM + 50000.0, 0.0, 0.0)
+	var vel := Vector3(-5.0, 1.5, 0.3)
+	var bad := EarthOrbit.new(pos, vel)
+	assert_true(bad.r_p > EarthOrbit.EARTH_RADIUS_KM,
+		"setup expected periapsis above surface, got r_p=%f" % bad.r_p)
+
+	var target := EarthOrbit.EARTH_RADIUS_KM * 0.9
+	var fixed_vel := EarthOrbit.clamp_velocity_for_periapsis(pos, vel, target)
+	var fixed := EarthOrbit.new(pos, fixed_vel)
+	assert_true(fixed.r_p <= target + 1.0e-3,
+		"clamp left r_p=%f above target %f" % [fixed.r_p, target])
+	# Radial component is preserved; only tangential is shrunk.
+	var pos_hat := pos.normalized()
+	assert_close(fixed_vel.dot(pos_hat), vel.dot(pos_hat), 1.0e-6)
+
+
+func test_clamp_velocity_is_a_noop_when_already_below_target() -> void:
+	# Already a meteorite (r_p well below surface) — clamp must not
+	# perturb the orbit.
+	var pos := Vector3(EarthOrbit.EARTH_RADIUS_KM + 50000.0, 0.0, 0.0)
+	var vel := Vector3(-6.0, 0.4, 0.0)
+	var before := EarthOrbit.new(pos, vel)
+	assert_true(before.r_p < EarthOrbit.EARTH_RADIUS_KM)
+	var clamped := EarthOrbit.clamp_velocity_for_periapsis(
+		pos, vel, EarthOrbit.EARTH_RADIUS_KM * 0.9
+	)
+	assert_vec_close(clamped, vel, 1.0e-9)

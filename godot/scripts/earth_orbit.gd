@@ -97,6 +97,42 @@ func maneuver(dv: Vector3, t: float) -> bool:
 	return is_state_valid()
 
 
+## Clamp the perpendicular (tangential) component of `vel` so an orbit
+## starting at `pos, vel` is guaranteed to have periapsis at or below
+## `max_r_p`. Solves r_p ≤ max_r_p analytically by holding the radial
+## component of velocity fixed and shrinking the tangential component
+## the minimum amount needed. Caller passes a value strictly less than
+## the surface radius for some impact margin.
+##
+## Used by the meteorite spawner: lateral position spread plus per-axis
+## velocity jitter pump enough angular momentum into the orbit that
+## periapsis can lift above Earth's surface, turning the trajectory
+## into a hyperbolic flyby that never impacts and that the trajectory
+## renderer correctly refuses to draw — so without this clamp, "some
+## meteorites have no arc" and "some meteorites never hit the ground".
+static func clamp_velocity_for_periapsis(
+	pos: Vector3, vel: Vector3, max_r_p: float
+) -> Vector3:
+	var r := pos.length()
+	if r <= max_r_p or max_r_p <= 0.0:
+		return vel
+	var pos_hat := pos / r
+	var v_radial_mag := vel.dot(pos_hat)
+	var v_perp := vel - pos_hat * v_radial_mag
+	# Plug p = (r·v_t)²/μ and e² = 1 + 2(½v² − μ/r)·p/μ² into r_p ≤ R':
+	#   v_t² ≤ 2 R' μ / (r (r + R'))  +  R'² v_r² / (r² − R'²)
+	var v_t_max_sq := (
+		2.0 * max_r_p * MU / (r * (r + max_r_p))
+		+ max_r_p * max_r_p * v_radial_mag * v_radial_mag
+		/ (r * r - max_r_p * max_r_p)
+	)
+	var v_t_max := sqrt(maxf(v_t_max_sq, 0.0))
+	var v_t_now := v_perp.length()
+	if v_t_now <= v_t_max:
+		return vel
+	return pos_hat * v_radial_mag + v_perp * (v_t_max / v_t_now)
+
+
 ## Apply a delta-v in the local prograde/radial/normal frame.
 func relative_maneuver(dv_local: Vector3, t: float) -> bool:
 	var i_hat := v.normalized()
