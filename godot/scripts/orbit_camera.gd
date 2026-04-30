@@ -9,7 +9,7 @@ extends Camera3D
 
 const EARTH_RADIUS_KM: float = 6371.0
 const SCENE_SCALE: float = 1.0 / 1000.0
-const ORBIT_RADIUS: float = 3.0 * EARTH_RADIUS_KM * SCENE_SCALE  # ~19.1 units
+const ORBIT_RADIUS: float = 6.0 * EARTH_RADIUS_KM * SCENE_SCALE  # ~38.2 units
 const ORBIT_PERIOD_SEC: float = 90.0
 const ORBIT_TILT_DEG: float = 20.0
 const RETURN_DELAY: float = 2.0
