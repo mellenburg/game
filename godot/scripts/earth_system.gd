@@ -14,11 +14,18 @@ const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const ImpactMap = preload("res://scripts/impact_map.gd")
 const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
+const RangeCircle = preload("res://scripts/range_circle.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
 const TIME_FACTOR_RATE: int = 60       # changes per second while held
 const PLANNING_DT_MAX: int = 86400 * 7  # one week of plan window
+
+# Engagement-range adjustment rate while shift+up/down is held. Sized
+# so an operator can sweep the full settable band (MIN_ENGAGEMENT_RANGE
+# to MAX_RANGE) in roughly four seconds — fast enough to feel
+# responsive, slow enough to land on a chosen ring.
+const RANGE_RATE_KM_PER_SEC: float = 10000.0
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -56,7 +63,7 @@ const METEORITE_PERIAPSIS_TARGET_KM: float = (
 const METEORITE_LATERAL_SPREAD_KM: float = 3000.0
 const METEORITE_ALT_JITTER_KM: float = 1500.0
 const METEORITE_VELOCITY_JITTER: float = 0.4
-const METEORITE_HP: float = 1000.0
+const METEORITE_HP: float = 100.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
@@ -89,6 +96,7 @@ var _albedo_image: Image = null
 @onready var satellite_container: Node3D = $Satellites as Node3D
 @onready var planning_container: Node3D = $PlanningSatellites as Node3D
 @onready var beam_renderer: BeamRenderer = $BeamRenderer as BeamRenderer
+@onready var range_circle: RangeCircle = $RangeCircle as RangeCircle
 @onready var impact_map: ImpactMap = $CanvasLayer/HUD/ImpactMap as ImpactMap
 
 var satellites: Array[Satellite]:
@@ -121,6 +129,7 @@ func _process(delta: float) -> void:
 	camera.process_movement(delta)
 	_process_continuous_input(delta)
 	_process_one_shot_input()
+	_update_range_circle()
 	hud.update_hud(self, planning_mode, time_factor, planning_dt)
 	hud.draw_target_lines(self, camera)
 
@@ -233,13 +242,23 @@ func _remove_dead_satellites() -> void:
 
 
 func _process_continuous_input(delta: float) -> void:
+	# Shift gates the arrow keys onto the engagement-range adjustment
+	# axis so we only have to bind one set of keys. With shift held the
+	# thrust block is suppressed entirely — otherwise releasing shift
+	# mid-press would briefly inject thrust on the same arrow tap.
+	var shift_held := Input.is_key_pressed(KEY_SHIFT)
 	var thrust := Vector3.ZERO
-	if Input.is_action_pressed("thrust_prograde"):  thrust.x += 1.0
-	if Input.is_action_pressed("thrust_retrograde"): thrust.x -= 1.0
-	if Input.is_action_pressed("thrust_left"):       thrust.y += 1.0
-	if Input.is_action_pressed("thrust_right"):      thrust.y -= 1.0
-	if Input.is_action_pressed("thrust_up"):         thrust.z += 1.0
-	if Input.is_action_pressed("thrust_down"):       thrust.z -= 1.0
+	var range_input := 0.0
+	if shift_held:
+		if Input.is_action_pressed("thrust_prograde"):  range_input += 1.0
+		if Input.is_action_pressed("thrust_retrograde"): range_input -= 1.0
+	else:
+		if Input.is_action_pressed("thrust_prograde"):  thrust.x += 1.0
+		if Input.is_action_pressed("thrust_retrograde"): thrust.x -= 1.0
+		if Input.is_action_pressed("thrust_left"):       thrust.y += 1.0
+		if Input.is_action_pressed("thrust_right"):      thrust.y -= 1.0
+		if Input.is_action_pressed("thrust_up"):         thrust.z += 1.0
+		if Input.is_action_pressed("thrust_down"):       thrust.z -= 1.0
 
 	# Time factor: rate-scaled by frame delta, clamped. The previous port
 	# incremented per frame which made the rate framerate-dependent and
@@ -277,6 +296,24 @@ func _process_continuous_input(delta: float) -> void:
 		if sat.team == Satellite.TEAM_PLAYER:
 			sat.set_maneuver(thrust)
 
+	# Engagement-range nudge. Always written to the *real* satellite —
+	# the planning clone is overwritten from reality every physics tick
+	# (clone_orbit_from copies engagement_range_km), so mutating the
+	# planning sat would be visually invisible the next frame.
+	if range_input != 0.0 and not real_satellites.is_empty():
+		var real_idx := planning_selected if planning_mode else selected_ship
+		if real_idx >= 0 and real_idx < real_satellites.size():
+			var rsat := real_satellites[real_idx]
+			if (
+				rsat.team == Satellite.TEAM_PLAYER
+				and rsat.fire_control_active
+				and not rsat.weapons.is_empty()
+			):
+				rsat.set_engagement_range(
+					rsat.engagement_range_km
+					+ range_input * RANGE_RATE_KM_PER_SEC * delta
+				)
+
 
 func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("select_next"):
@@ -296,6 +333,55 @@ func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("toggle_impact_map"):
 		if impact_map != null:
 			impact_map.visible = not impact_map.visible
+	if Input.is_action_just_pressed("toggle_fire_control"):
+		_toggle_fire_control_on_selected()
+
+
+# Toggle fire-control mode on the active player satellite. Mutates
+# the *real* sat (planning clone gets resync'd next physics tick).
+# Unarmed units silently no-op so the user gets no feedback for a
+# meaningless toggle on an enemy or meteorite.
+func _toggle_fire_control_on_selected() -> void:
+	if real_satellites.is_empty():
+		return
+	var idx := planning_selected if planning_mode else selected_ship
+	if idx < 0 or idx >= real_satellites.size():
+		return
+	var sat := real_satellites[idx]
+	if sat.team != Satellite.TEAM_PLAYER or sat.weapons.is_empty():
+		return
+	sat.toggle_fire_control()
+
+
+# Engagement-range visual. Renders a circle in the ecliptic plane
+# centered on the active satellite while the operator holds shift, so
+# they can eyeball the configured engagement distance against
+# neighbouring units. Hidden whenever the operator isn't holding
+# shift, fire control is off, or there's no valid selection.
+func _update_range_circle() -> void:
+	if range_circle == null:
+		return
+	var sats: Array[Satellite] = (
+		planning_satellites if planning_mode else real_satellites
+	)
+	var idx := planning_selected if planning_mode else selected_ship
+	var visible_now := false
+	if (
+		Input.is_key_pressed(KEY_SHIFT)
+		and idx >= 0
+		and idx < sats.size()
+	):
+		var sat: Satellite = sats[idx]
+		if (
+			sat.team == Satellite.TEAM_PLAYER
+			and sat.fire_control_active
+			and sat.alive
+			and sat.orbit_alive
+			and not sat.weapons.is_empty()
+		):
+			range_circle.update_circle(sat.orbit.r, sat.engagement_range_km)
+			visible_now = true
+	range_circle.visible = visible_now
 
 
 func add_satellite() -> void:
