@@ -20,6 +20,21 @@ const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
 const ENEMY_ALT_MAX_KM: float = 2000.0
 
+# Meteorite storms: many fragile, sub-orbital incoming bodies. They're
+# spawned high enough to give the player a window to engage, with the
+# tangential component small enough that periapsis lands well below
+# Earth's surface — guaranteeing impact (and exit-from-play) within a
+# few minutes of sim time.
+const METEORITES_PER_STORM: int = 8
+const METEORITE_ALT_MIN_KM: float = 4000.0
+const METEORITE_ALT_MAX_KM: float = 10000.0
+const METEORITE_RADIAL_SPEED_MIN: float = 2.0
+const METEORITE_RADIAL_SPEED_MAX: float = 5.0
+const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.1
+const METEORITE_TANGENTIAL_SPEED_MAX: float = 0.8
+# Meteorites are softer than orbital enemies — one laser hit removes them.
+const METEORITE_HP: float = 25.0
+
 @export var time_factor: int = 500
 var planning_dt: int = 0
 var planning_mode: bool = false
@@ -206,6 +221,8 @@ func _process_one_shot_input() -> void:
 		toggle_planning()
 	if Input.is_action_just_pressed("add_enemies"):
 		add_enemies()
+	if Input.is_action_just_pressed("add_meteorites"):
+		add_meteorite_storm()
 
 
 func add_satellite() -> void:
@@ -227,6 +244,41 @@ func add_enemies(count: int = ENEMIES_PER_SPAWN) -> void:
 		var sat := _make_enemy_in_random_orbit()
 		satellite_container.add_child(sat)
 		real_satellites.append(sat)
+
+
+# Spawn a batch of meteorites — sub-orbital, unarmed, fragile. Each is
+# on a highly eccentric trajectory whose periapsis is below Earth's
+# surface, so they impact and exit play on their own. Lasers can pick
+# them off in transit.
+func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
+	for _i in range(count):
+		var sat := _make_meteorite()
+		satellite_container.add_child(sat)
+		real_satellites.append(sat)
+
+
+func _make_meteorite() -> Satellite:
+	var sat := Satellite.new()
+	sat.team = Satellite.TEAM_ENEMY
+	sat.weapons.clear()
+	sat.is_meteorite = true
+	sat.hp = METEORITE_HP
+
+	var altitude := _rng.randf_range(METEORITE_ALT_MIN_KM, METEORITE_ALT_MAX_KM)
+	var radius := EarthOrbit.EARTH_RADIUS_KM + altitude
+	var r_hat := _random_unit_vector()
+	var tangent := _random_perpendicular_unit(r_hat)
+	var radial_speed := _rng.randf_range(
+		METEORITE_RADIAL_SPEED_MIN, METEORITE_RADIAL_SPEED_MAX
+	)
+	var tangential_speed := _rng.randf_range(
+		METEORITE_TANGENTIAL_SPEED_MIN, METEORITE_TANGENTIAL_SPEED_MAX
+	)
+	sat.orbit = EarthOrbit.new(
+		r_hat * radius,
+		-r_hat * radial_speed + tangent * tangential_speed,
+	)
+	return sat
 
 
 func _make_enemy_in_random_orbit() -> Satellite:

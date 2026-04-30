@@ -20,6 +20,7 @@ const DELTA_V_MAGNITUDE: float = 0.050
 const COLOR_SELECTED := Color(0.2, 1.0, 0.2)
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
+const COLOR_METEORITE := Color(1.0, 0.85, 0.4)
 const COLOR_HIT := Color(1.0, 0.55, 0.0)
 
 const MAX_HP: float = 100.0
@@ -38,6 +39,11 @@ var orbit_alive: bool = true
 var team: int = TEAM_PLAYER
 var hp: float = MAX_HP
 var alive: bool = true
+# Sub-orbital trajectory (a meteorite) — its periapsis is below Earth's
+# surface by construction, so it impacts ground in finite time. Used to
+# suppress the orbit-path visual (a meaningless ellipse clipping through
+# Earth) and to terminate the entity on ground contact.
+var is_meteorite: bool = false
 # Shared energy reservoir, drained by every weapon's fire(). Charges
 # at ENERGY_RATE_PER_SIM_SEC per simulated second so time_factor
 # scales it the same as everything else.
@@ -155,6 +161,11 @@ func take_damage(amount: float) -> bool:
 func advance_time(delta_time: float) -> void:
 	if not orbit_alive or not alive:
 		return
+	# Sample r·v before propagating so we can detect periapsis crossings
+	# the end-of-step radius sample alone would miss — a meteorite on a
+	# near-radial trajectory can dive through periapsis and back out
+	# above the surface inside one step at high time_factor.
+	var r_dot_v_before: float = orbit.r.dot(orbit.v) if is_meteorite else 0.0
 	var ok: bool
 	if did_maneuver:
 		ok = orbit.relative_maneuver(get_current_maneuver(), delta_time)
@@ -166,6 +177,18 @@ func advance_time(delta_time: float) -> void:
 		orbit_alive = false
 		_hide_visuals()
 		return
+	# Meteorites exit play on ground impact. The Keplerian propagator is
+	# happy to push them straight through the planet and out the other
+	# side, so we kill on either (a) the post-step radius being inside
+	# the surface, or (b) inbound→outbound transition during the step
+	# (periapsis lies below the surface by construction, so passing it
+	# means the body crossed ground).
+	if is_meteorite:
+		var crossed_periapsis := r_dot_v_before < 0.0 and orbit.r.dot(orbit.v) > 0.0
+		if orbit.norm_r <= EarthOrbit.EARTH_RADIUS_KM or crossed_periapsis:
+			alive = false
+			_hide_visuals()
+			return
 	_sync_marker_position()
 
 
@@ -173,6 +196,11 @@ func render_orbit(show_path: bool) -> void:
 	if not is_inside_tree() or path_visual == null:
 		return
 	if not orbit_alive or not alive:
+		path_visual.visible = false
+		return
+	# A meteorite's "orbit" is a half-ellipse that tunnels through Earth
+	# — drawing it adds noise without information.
+	if is_meteorite:
 		path_visual.visible = false
 		return
 	path_visual.visible = show_path
@@ -201,6 +229,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	team = other.team
 	hp = other.hp
 	alive = other.alive
+	is_meteorite = other.is_meteorite
 	# Mirror armed-vs-unarmed so the planning HUD doesn't show an
 	# energy bar for an enemy preview (clones get fresh weapons in
 	# _init that we'd otherwise leave dangling).
@@ -219,6 +248,8 @@ func _sync_marker_position() -> void:
 
 
 func _base_color() -> Color:
+	if is_meteorite:
+		return COLOR_METEORITE
 	return COLOR_ENEMY if team == TEAM_ENEMY else COLOR_PLAYER
 
 
