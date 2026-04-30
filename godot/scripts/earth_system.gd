@@ -13,6 +13,7 @@ const Weapon = preload("res://scripts/weapons/weapon.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const ImpactMap = preload("res://scripts/impact_map.gd")
+const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -364,6 +365,13 @@ func _record_meteorite_impact(sat: Satellite) -> void:
 			var py := clampi(int(uv.y * float(h)), 0, h - 1)
 			ocean_hint = ImpactTracker.is_ocean_pixel(_albedo_image.get_pixel(px, py))
 	impact_tracker.record_impact(sat.orbit.r, phase, ocean_hint)
+	_spawn_impact_explosion(surface_pos)
+
+
+func _spawn_impact_explosion(surface_pos: Vector3) -> void:
+	var explosion := ImpactExplosion.new()
+	add_child(explosion)
+	explosion.set_impact_position(surface_pos)
 
 
 func _make_meteorite(
