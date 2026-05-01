@@ -105,6 +105,135 @@ func test_nan_input_rejected() -> void:
 	assert_eq(o.r, r_before)
 
 
+func test_compute_periapsis_matches_recompute() -> void:
+	# compute_periapsis is a stateless mirror of _recompute_elements'
+	# r_p calculation; the two must agree on a normal elliptical orbit.
+	var o := _make_iss_like()
+	var r_p := EarthOrbit.compute_periapsis(o.r, o.v)
+	# Same float64 path on both sides of the comparison, but the inputs
+	# come through 32-bit Vector3 components so a meter of slack covers
+	# the ULP noise in the cross / dot products.
+	assert_close(r_p, o.r_p, 1.0e-3)
+
+
+func test_compute_periapsis_circular_equals_radius() -> void:
+	var radius := EarthOrbit.EARTH_RADIUS_KM + 800.0
+	var v_circ := sqrt(EarthOrbit.MU / radius)
+	var r_p := EarthOrbit.compute_periapsis(
+		Vector3(radius, 0.0, 0.0), Vector3(0.0, v_circ, 0.0)
+	)
+	# A "circular" orbit constructed in 32-bit Vector3 components has a
+	# residual eccentricity ~1e-7, so r_p drifts from the radius by a
+	# fraction of a kilometer — comfortably below 1 km of tolerance.
+	assert_close(r_p, radius, 1.0e-2)
+
+
+func test_compute_periapsis_rectilinear_is_zero() -> void:
+	# r along v: zero angular momentum, body falls to origin. Treated
+	# as r_p = 0 so it always trips a min-periapsis safety check.
+	var r_p := EarthOrbit.compute_periapsis(
+		Vector3(7000.0, 0.0, 0.0), Vector3(2.0, 0.0, 0.0)
+	)
+	assert_eq(r_p, 0.0)
+
+
+func test_clamp_dv_noop_when_already_safe() -> void:
+	# A tiny prograde nudge to a healthy LEO orbit doesn't reach the
+	# surface; the clamp must hand the dv back unchanged.
+	var o := _make_iss_like()
+	var dv := o.v.normalized() * 0.05
+	var safe := EarthOrbit.clamp_dv_for_min_periapsis(
+		o.r, o.v, dv, EarthOrbit.EARTH_RADIUS_KM + 1.0
+	)
+	assert_vec_close(safe, dv, 1.0e-9)
+
+
+func test_clamp_dv_blocks_deorbit_burn() -> void:
+	# A big retrograde burn at LEO would drop periapsis underground.
+	# After clamping, the resulting orbit must clear the threshold.
+	var o := _make_iss_like()
+	var dv_retro := -o.v.normalized() * 3.0
+	var threshold := EarthOrbit.EARTH_RADIUS_KM + 1.0
+	var safe_dv := EarthOrbit.clamp_dv_for_min_periapsis(
+		o.r, o.v, dv_retro, threshold
+	)
+	# Bisection only guarantees safety, not maximality, but the
+	# clamped dv must point along the original direction.
+	var ratio := safe_dv.length() / dv_retro.length()
+	assert_true(ratio < 1.0, "expected clamp to shrink retrograde burn")
+	var r_p_after := EarthOrbit.compute_periapsis(o.r, o.v + safe_dv)
+	# Bisection's lower bound sits ε under the threshold; allow a hair
+	# of slack so a converged-but-not-exact result still passes.
+	assert_true(
+		r_p_after >= threshold - 1.0,
+		"r_p_after=%f below threshold=%f" % [r_p_after, threshold]
+	)
+
+
+func test_clamp_dv_zero_when_already_unsafe() -> void:
+	# If the orbit is already doomed, the clamp refuses to apply any of
+	# the requested dv (so the player can't make a bad situation worse).
+	var pos := Vector3(EarthOrbit.EARTH_RADIUS_KM + 200.0, 0.0, 0.0)
+	var vel := Vector3(0.0, 6.0, 0.0)  # too slow for 200 km circular
+	assert_true(EarthOrbit.compute_periapsis(pos, vel) < EarthOrbit.EARTH_RADIUS_KM)
+	var dv := Vector3(0.0, -0.5, 0.0)
+	var safe := EarthOrbit.clamp_dv_for_min_periapsis(
+		pos, vel, dv, EarthOrbit.EARTH_RADIUS_KM + 1.0
+	)
+	assert_vec_close(safe, Vector3.ZERO, 1.0e-12)
+
+
+func test_safe_relative_maneuver_keeps_periapsis_above_surface() -> void:
+	# End-to-end: a deorbit-magnitude retrograde burn through the
+	# clamped relative_maneuver path leaves the orbit safe to fly.
+	var o := _make_iss_like()
+	var threshold := EarthOrbit.EARTH_RADIUS_KM + 1.0
+	assert_true(o.relative_maneuver(Vector3(-3.0, 0.0, 0.0), 60.0, threshold))
+	assert_true(
+		o.r_p >= threshold - 1.0,
+		"r_p=%f below threshold=%f" % [o.r_p, threshold]
+	)
+
+
+func test_make_circular_altitude_and_eccentricity() -> void:
+	# A circle at 500 km should report eccentricity essentially zero
+	# and a radius matching the requested altitude on both r and r_p.
+	var alt := 500.0
+	var o := EarthOrbit.make_circular(alt, 0.0, 0.0, 0.0)
+	assert_close(o.norm_r, EarthOrbit.EARTH_RADIUS_KM + alt, 1.0e-3)
+	assert_close(o.r_p, EarthOrbit.EARTH_RADIUS_KM + alt, 1.0e-2)
+	assert_true(o.ecc < 1.0e-6, "ecc=%f not circular" % o.ecc)
+
+
+func test_make_circular_inclination_matches() -> void:
+	# Inclination read back from the propagator must match what we
+	# asked for (within Vector3 noise).
+	var inc := deg_to_rad(35.0)
+	var o := EarthOrbit.make_circular(500.0, inc, 0.0, 0.0)
+	assert_close(o.inc, inc, 1.0e-5)
+
+
+func test_make_circular_altitude_invariant_under_propagation() -> void:
+	# The defining property of a circular orbit: altitude is constant.
+	# Step through a full period and watch norm_r stay pinned.
+	var alt := 500.0
+	var radius := EarthOrbit.EARTH_RADIUS_KM + alt
+	var o := EarthOrbit.make_circular(alt, deg_to_rad(45.0), 0.0, 0.0)
+	for _i in range(40):
+		assert_true(o.propagate(120.0))
+		assert_close(o.norm_r, radius, 1.0e-2)
+
+
+func test_make_circular_distinct_true_anomalies_distinct_positions() -> void:
+	# Same plane, different nu → different positions on the same circle.
+	var a := EarthOrbit.make_circular(500.0, 0.0, 0.0, 0.0)
+	var b := EarthOrbit.make_circular(500.0, 0.0, 0.0, deg_to_rad(120.0))
+	assert_true(
+		(a.r - b.r).length() > 1000.0,
+		"expected sats 120° apart to be > 1000 km apart"
+	)
+
+
 func test_stumpff_c2_small_psi() -> void:
 	# c2(0) = 1/2.
 	assert_close(EarthOrbit.c2(0.0), 0.5, 1.0e-12)
