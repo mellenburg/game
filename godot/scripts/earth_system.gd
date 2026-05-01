@@ -13,6 +13,8 @@ const Weapon = preload("res://scripts/weapons/weapon.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const ImpactMap = preload("res://scripts/impact_map.gd")
+const RadarMap = preload("res://scripts/radar_map.gd")
+const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
 const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
@@ -82,8 +84,12 @@ const METEORITE_HP: float = 100.0
 # Wave mode: 20 meteorites from a single shared nexus, arrival times
 # distributed uniformly across a 10-second wall-clock window so the
 # player has continuous incoming traffic rather than a single burst.
+# A preroll alert window precedes the spawn window so the operator
+# gets time to react — bodies "scroll into" the radar from the top
+# during the preroll, then begin entering play once it elapses.
 const METEORITE_WAVE_COUNT: int = 20
 const METEORITE_WAVE_DURATION_SEC: float = 10.0
+const METEORITE_WAVE_PREROLL_SEC: float = 10.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
@@ -108,6 +114,11 @@ var _rng := RandomNumberGenerator.new()
 # time and independent of time_factor (so pausing the sim doesn't
 # pause an in-flight wave).
 var _meteorite_waves: Array[MeteoriteWave] = []
+# Tracks whether any wave was inbound on the previous tick. Edge-
+# triggered map-mode switching uses this — radar auto-selects on
+# rising edge, surface map auto-selects on falling edge — so manual K
+# presses during a live wave aren't yanked back every frame.
+var _wave_inbound_prev: bool = false
 var impact_tracker := ImpactTracker.new()
 # Day-side albedo loaded once as an Image so we can sample it at an
 # impact's UV without an editor-only Texture readback. Lazily filled
@@ -123,6 +134,18 @@ var _albedo_image: Image = null
 @onready var beam_renderer: BeamRenderer = $BeamRenderer as BeamRenderer
 @onready var range_circle: RangeCircle = $RangeCircle as RangeCircle
 @onready var impact_map: ImpactMap = $CanvasLayer/HUD/ImpactMap as ImpactMap
+@onready var radar_map: RadarMap = $CanvasLayer/HUD/RadarMap as RadarMap
+@onready var threat_alert: ThreatAlert = (
+	$CanvasLayer/HUD/ThreatAlert as ThreatAlert
+)
+
+# Lower-right overlay cycle: surface impact map → wave radar → off → ...
+# Driven by the "toggle_impact_map" input (K). Indices into MAP_MODES.
+const MAP_MODE_SURFACE: int = 0
+const MAP_MODE_RADAR: int = 1
+const MAP_MODE_OFF: int = 2
+const MAP_MODE_COUNT: int = 3
+var map_mode: int = MAP_MODE_SURFACE
 
 var satellites: Array[Satellite]:
 	get: return planning_satellites if planning_mode else real_satellites
@@ -133,6 +156,9 @@ func _ready() -> void:
 	_albedo_image = _load_albedo_image()
 	if impact_map != null:
 		impact_map.tracker = impact_tracker
+	if radar_map != null:
+		radar_map.waves = _meteorite_waves
+	_apply_map_mode()
 	_spawn_starting_fleet()
 	if not real_satellites.is_empty():
 		selected_ship = 0
@@ -156,6 +182,7 @@ func _process(delta: float) -> void:
 	_process_continuous_input(delta)
 	_process_one_shot_input()
 	_tick_meteorite_waves(delta)
+	_auto_switch_map_mode()
 	_update_range_circle()
 	hud.update_hud(self, planning_mode, time_factor, planning_dt)
 	hud.draw_target_lines(self, camera)
@@ -360,8 +387,7 @@ func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("toggle_los"):
 		hud.los_visible = not hud.los_visible
 	if Input.is_action_just_pressed("toggle_impact_map"):
-		if impact_map != null:
-			impact_map.visible = not impact_map.visible
+		_cycle_map_mode()
 	if Input.is_action_just_pressed("toggle_fire_control"):
 		_toggle_fire_control_on_selected()
 
@@ -380,6 +406,37 @@ func _toggle_fire_control_on_selected() -> void:
 	if sat.team != Satellite.TEAM_PLAYER or sat.weapons.is_empty():
 		return
 	sat.toggle_fire_control()
+
+
+# Cycle the lower-right overlay between surface map / wave radar / off.
+# Both Control nodes share the same anchor slot, so flipping visibility
+# is enough to swap them — there's no transition state to manage.
+func _cycle_map_mode() -> void:
+	map_mode = (map_mode + 1) % MAP_MODE_COUNT
+	_apply_map_mode()
+
+
+func _apply_map_mode() -> void:
+	if impact_map != null:
+		impact_map.visible = (map_mode == MAP_MODE_SURFACE)
+	if radar_map != null:
+		radar_map.visible = (map_mode == MAP_MODE_RADAR)
+
+
+# Auto-switch the lower-right overlay around incoming-wave transitions.
+# Radar selects on rising edge (a wave just appeared in the queue),
+# surface map selects on falling edge (the last wave just drained).
+# Edge-triggered so a manual K press during a live wave doesn't keep
+# snapping the panel back to radar every frame.
+func _auto_switch_map_mode() -> void:
+	var inbound := not _meteorite_waves.is_empty()
+	if inbound and not _wave_inbound_prev:
+		map_mode = MAP_MODE_RADAR
+		_apply_map_mode()
+	elif not inbound and _wave_inbound_prev:
+		map_mode = MAP_MODE_SURFACE
+		_apply_map_mode()
+	_wave_inbound_prev = inbound
 
 
 # Engagement-range visual. Renders a circle in the ecliptic plane
@@ -465,8 +522,13 @@ func add_enemies(count: int = ENEMIES_PER_SPAWN) -> void:
 func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
 	var wave := _build_meteorite_wave_at_random_nexus()
 	for _i in range(count):
+		var spec := _sample_meteorite_spec(
+			METEORITE_LATERAL_SPREAD_KM,
+			METEORITE_ALT_JITTER_KM,
+			METEORITE_VELOCITY_JITTER,
+		)
 		var sat := _make_meteorite(
-			wave.r_hat, wave.tangent, wave.base_altitude, wave.base_velocity
+			wave.r_hat, wave.tangent, wave.base_altitude, wave.base_velocity, spec
 		)
 		satellite_container.add_child(sat)
 		real_satellites.append(sat)
@@ -480,10 +542,21 @@ func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
 func start_meteorite_wave(
 	count: int = METEORITE_WAVE_COUNT,
 	duration_sec: float = METEORITE_WAVE_DURATION_SEC,
+	preroll_sec: float = METEORITE_WAVE_PREROLL_SEC,
 ) -> void:
 	var wave := _build_meteorite_wave_at_random_nexus()
-	wave.populate_random_times(_rng, count, duration_sec)
+	wave.populate(
+		_rng,
+		count,
+		duration_sec,
+		METEORITE_LATERAL_SPREAD_KM,
+		METEORITE_ALT_JITTER_KM,
+		METEORITE_VELOCITY_JITTER,
+		preroll_sec,
+	)
 	_meteorite_waves.append(wave)
+	if threat_alert != null:
+		threat_alert.trigger()
 
 
 # Sample a fresh nexus (entry direction, in-plane tangent, altitude,
@@ -517,13 +590,14 @@ func _tick_meteorite_waves(delta: float) -> void:
 	var i := 0
 	while i < _meteorite_waves.size():
 		var wave := _meteorite_waves[i]
-		var to_spawn := wave.tick(delta)
-		for _j in range(to_spawn):
+		var ready_specs: Array[Dictionary] = wave.tick(delta)
+		for spec: Dictionary in ready_specs:
 			var sat := _make_meteorite(
 				wave.r_hat,
 				wave.tangent,
 				wave.base_altitude,
 				wave.base_velocity,
+				spec,
 			)
 			satellite_container.add_child(sat)
 			real_satellites.append(sat)
@@ -569,6 +643,7 @@ func _make_meteorite(
 	tangent: Vector3,
 	base_altitude: float,
 	base_velocity: Vector3,
+	spec: Dictionary,
 ) -> Satellite:
 	var sat := Satellite.new()
 	sat.team = Satellite.TEAM_ENEMY
@@ -578,29 +653,47 @@ func _make_meteorite(
 
 	# Lateral offset uses the in-plane basis (tangent + bitangent); the
 	# bitangent is just r_hat × tangent so the offset stays in the plane
-	# perpendicular to the entry vector.
+	# perpendicular to the entry vector. The lateral / altitude / vel-
+	# jitter values come pre-sampled in `spec` so the radar overlay can
+	# preview the same numbers before the body actually spawns.
 	var bitangent := r_hat.cross(tangent).normalized()
-	var lateral_angle := _rng.randf_range(0.0, TAU)
-	var lateral_dist := _rng.randf_range(0.0, METEORITE_LATERAL_SPREAD_KM)
-	var altitude := base_altitude + _rng.randf_range(
-		-METEORITE_ALT_JITTER_KM, METEORITE_ALT_JITTER_KM
-	)
+	var lateral: Vector2 = spec["lateral"]
+	var alt_offset: float = spec["alt_offset"]
+	var vel_jitter: Vector3 = spec["vel_jitter"]
+	var altitude := base_altitude + alt_offset
 	var pos := r_hat * (EarthOrbit.EARTH_RADIUS_KM + altitude) + (
-		tangent * cos(lateral_angle) + bitangent * sin(lateral_angle)
-	) * lateral_dist
-	# Velocity jitter as a small fraction of the base; same direction
-	# basis so all bodies remain inbound rather than scattering randomly.
-	var jitter := METEORITE_VELOCITY_JITTER
-	var vel := base_velocity + Vector3(
-		_rng.randf_range(-jitter, jitter),
-		_rng.randf_range(-jitter, jitter),
-		_rng.randf_range(-jitter, jitter),
+		tangent * lateral.x + bitangent * lateral.y
 	)
+	var vel := base_velocity + vel_jitter
 	vel = EarthOrbit.clamp_velocity_for_periapsis(
 		pos, vel, METEORITE_PERIAPSIS_TARGET_KM
 	)
 	sat.orbit = EarthOrbit.new(pos, vel)
 	return sat
+
+
+# Roll a single meteorite spec. Used by the instantaneous storm path,
+# which (unlike the time-distributed wave) has no pre-populated queue
+# to draw from. Mirrors the per-body sampling done in
+# MeteoriteWave.populate so both spawn paths produce the same kind of
+# spread for the same lateral / altitude / velocity bands.
+func _sample_meteorite_spec(
+	lateral_spread: float,
+	altitude_jitter: float,
+	vel_jitter: float,
+) -> Dictionary:
+	var ang := _rng.randf_range(0.0, TAU)
+	var dist := _rng.randf_range(0.0, lateral_spread)
+	return {
+		"t": 0.0,
+		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
+		"alt_offset": _rng.randf_range(-altitude_jitter, altitude_jitter),
+		"vel_jitter": Vector3(
+			_rng.randf_range(-vel_jitter, vel_jitter),
+			_rng.randf_range(-vel_jitter, vel_jitter),
+			_rng.randf_range(-vel_jitter, vel_jitter),
+		),
+	}
 
 
 func _make_enemy_in_random_orbit() -> Satellite:
