@@ -229,10 +229,10 @@ func advance_time(delta_time: float) -> void:
 		return
 	# Decaying-orbit apogee burn. Ascending → descending transition (r·v
 	# flips positive to negative) marks the apogee crossing; halve r_p
-	# by scaling the velocity along its current direction. The next
-	# perigee will be below the surface by construction (r_p_new < r_a/2
-	# < EARTH_RADIUS for any apogee inside ~12.7 R_e), so the standard
-	# surface-cross check terminates the body on its descending leg.
+	# by scaling the velocity along its current direction. With the
+	# spawner picking r_p just above the surface, halving drops the new
+	# perigee well below ground, so the surface-cross check in the rest
+	# of this function terminates the body on its descending leg.
 	if (
 		is_decaying
 		and r_dot_v_before > 0.0

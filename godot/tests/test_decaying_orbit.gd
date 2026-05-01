@@ -6,8 +6,8 @@ extends "res://tests/framework.gd"
 
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
-const APOGEE_ALT_KM: float = 500.0
-const PERIGEE_ALT_KM: float = 100.0
+const APOGEE_ALT_KM: float = 50000.0
+const PERIGEE_ALT_KM: float = 500.0
 const INITIAL_NU_DEG: float = 15.0
 
 

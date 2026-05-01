@@ -91,15 +91,15 @@ const METEORITE_WAVE_COUNT: int = 20
 const METEORITE_WAVE_DURATION_SEC: float = 10.0
 const METEORITE_WAVE_PREROLL_SEC: float = 10.0
 
-# Decaying-orbit enemy: spawned just past perigee on a low elliptical
-# orbit, ascends to apogee, then burns at apogee to halve r_p. The new
-# perigee is well below Earth's surface (r_p_new = r_p/2 < EARTH_RADIUS
-# for any r_a < 12.7 R_e), so the body impacts ground on the descending
-# leg. Apogee 500 km altitude per design spec; perigee 100 km is the
-# lowest workable initial altitude that still leaves the spawn point
-# (15° past perigee) clear of the surface.
-const DECAYING_APOGEE_ALT_KM: float = 500.0
-const DECAYING_PERIGEE_ALT_KM: float = 100.0
+# Decaying-orbit enemy: spawned just past perigee on a highly
+# eccentric ellipse — perigee at the configured altitude (500 km),
+# apogee far enough out that the body lingers near max-r for a
+# while before the burn fires. After the apogee kick, r_p is
+# halved (r_p_new = r_p/2 ≈ 3436 km < EARTH_RADIUS), so the body
+# impacts on its very next perigee pass. Apogee chosen as high
+# as the engine practically supports without numerical drama.
+const DECAYING_APOGEE_ALT_KM: float = 50000.0
+const DECAYING_PERIGEE_ALT_KM: float = 500.0
 const DECAYING_INITIAL_NU_DEG: float = 15.0
 const DECAYING_HP: float = 100.0
 
