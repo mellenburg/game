@@ -21,6 +21,7 @@ const COLOR_SELECTED := Color(0.2, 1.0, 0.2)
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_METEORITE := Color(1.0, 0.85, 0.4)
+const COLOR_DECAYING := Color(0.95, 0.45, 0.95)
 const COLOR_HIT := Color(1.0, 0.25, 0.05)
 
 const MAX_HP: float = 100.0
@@ -49,6 +50,12 @@ var alive: bool = true
 # suppress the orbit-path visual (a meaningless ellipse clipping through
 # Earth) and to terminate the entity on ground contact.
 var is_meteorite: bool = false
+# Decaying-orbit enemy: spawned ascending toward a low apogee. Each
+# apogee crossing triggers a retrograde burn that halves r_p, pulling
+# the body's perigee progressively below the surface until it impacts.
+# Drives both the apogee-burn step in advance_time and the truncated
+# "ascent only" path renderer so the orbit is never drawn past apogee.
+var is_decaying: bool = false
 # Shared energy reservoir, drained by every weapon's fire(). Charges
 # at ENERGY_RATE_PER_SIM_SEC per simulated second so time_factor
 # scales it the same as everything else.
@@ -220,6 +227,18 @@ func advance_time(delta_time: float) -> void:
 		orbit_alive = false
 		_hide_visuals()
 		return
+	# Decaying-orbit apogee burn. Ascending → descending transition (r·v
+	# flips positive to negative) marks the apogee crossing; halve r_p
+	# by scaling the velocity along its current direction. The next
+	# perigee will be below the surface by construction (r_p_new < r_a/2
+	# < EARTH_RADIUS for any apogee inside ~12.7 R_e), so the standard
+	# surface-cross check terminates the body on its descending leg.
+	if (
+		is_decaying
+		and r_dot_v_before > 0.0
+		and orbit.r.dot(orbit.v) < 0.0
+	):
+		_apogee_decay_burn()
 	# Any satellite whose trajectory crosses the surface exits play. The
 	# Keplerian propagator is happy to push a body straight through the
 	# planet and out the other side, so we kill on either (a) the post-
@@ -253,10 +272,37 @@ func render_orbit(show_path: bool) -> void:
 	# Meteorites get the truncated-trajectory renderer: the same line
 	# style as a regular orbit, but cut off at the surface so the part
 	# that would tunnel through Earth isn't drawn.
-	if is_meteorite:
+	if is_decaying:
+		# Ascending: render only up to apogee. Descending (post-burn,
+		# r_p below surface): render the truncated ground-impact arc —
+		# same renderer the meteorites use.
+		if orbit.r.dot(orbit.v) >= 0.0:
+			path_visual.update_ascent_arc(orbit)
+		else:
+			path_visual.update_trajectory(orbit)
+	elif is_meteorite:
 		path_visual.update_trajectory(orbit)
 	else:
 		path_visual.update_orbit(orbit)
+
+
+# Halve r_p by scaling the velocity vector along its own direction. At
+# (or near) apogee the velocity is tangential so this preserves r_a and
+# only shrinks perigee; analytical scale factor falls out of the vis-viva
+# identity v_a² = 2μ r_p / (r·(r + r_p)).
+func _apogee_decay_burn() -> void:
+	var r := orbit.norm_r
+	var r_p := orbit.r_p
+	if not is_finite(r) or not is_finite(r_p) or r <= 0.0 or r_p <= 0.0:
+		return
+	var k := sqrt((r + r_p) / (2.0 * r + r_p))
+	# maneuver(dv, t=0) skips propagation and applies the velocity delta,
+	# then recomputes derived elements — equivalent to "set v" without
+	# touching the propagator's private API.
+	var dv := orbit.v * (k - 1.0)
+	if not orbit.maneuver(dv, 0.0):
+		orbit_alive = false
+		_hide_visuals()
 
 
 ## Full clone — orbital state and operator-queued maneuver intent.
@@ -279,6 +325,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	hp = other.hp
 	alive = other.alive
 	is_meteorite = other.is_meteorite
+	is_decaying = other.is_decaying
 	# Mirror armed-vs-unarmed so the planning HUD doesn't show an
 	# energy bar for an enemy preview (clones get fresh weapons in
 	# _init that we'd otherwise leave dangling).
@@ -301,6 +348,8 @@ func _sync_marker_position() -> void:
 func _base_color() -> Color:
 	if is_meteorite:
 		return COLOR_METEORITE
+	if is_decaying:
+		return COLOR_DECAYING
 	return COLOR_ENEMY if team == TEAM_ENEMY else COLOR_PLAYER
 
 
