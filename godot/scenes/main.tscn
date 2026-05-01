@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=14 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
@@ -9,6 +9,7 @@
 [ext_resource type="Shader" path="res://shaders/sky.gdshader" id="7_sky"]
 [ext_resource type="Script" path="res://scripts/impact_map.gd" id="8_impact_map"]
 [ext_resource type="Script" path="res://scripts/range_circle.gd" id="9_range_circle"]
+[ext_resource type="Script" path="res://scripts/radar_map.gd" id="10_radar_map"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -137,7 +138,7 @@ R - Remove satellite
 B - Spawn 3 enemy satellites
 M - Spawn meteorite cluster
 V - Toggle LOS lines
-K - Toggle impact map
+K - Cycle map / wave radar / off
 P - Toggle planning mode
 T/G - Advance/retard plan time
 C - Toggle fire control
@@ -171,3 +172,18 @@ offset_right = -10.0
 offset_bottom = -10.0
 mouse_filter = 2
 script = ExtResource("8_impact_map")
+
+[node name="RadarMap" type="Control" parent="CanvasLayer/HUD"]
+visible = false
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -446.0
+offset_top = -388.0
+offset_right = -10.0
+offset_bottom = -10.0
+mouse_filter = 2
+script = ExtResource("10_radar_map")
