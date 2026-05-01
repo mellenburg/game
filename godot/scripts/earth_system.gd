@@ -31,6 +31,17 @@ const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
 const ENEMY_ALT_MAX_KM: float = 2000.0
 
+# Starting fleet: three player satellites in 500 km circular orbits.
+# Inclinations are drawn independently below the cap so the planes
+# differ; RAAN is uniformly random per ship; consecutive true anomalies
+# are separated by a random gap inside [NU_GAP_MIN_DEG, NU_GAP_MAX_DEG]
+# so the ships fan out along their orbits instead of bunching at launch.
+const STARTING_SAT_COUNT: int = 3
+const STARTING_SAT_ALT_KM: float = 500.0
+const STARTING_SAT_INC_MAX_DEG: float = 60.0
+const STARTING_SAT_NU_GAP_MIN_DEG: float = 80.0
+const STARTING_SAT_NU_GAP_MAX_DEG: float = 160.0
+
 # Meteorite storms: a small cluster of fragile, sub-orbital bodies all
 # incoming from one random direction. Spawned high enough to give the
 # player a window to engage, with the per-body velocity post-clamped
@@ -108,8 +119,9 @@ func _ready() -> void:
 	_albedo_image = _load_albedo_image()
 	if impact_map != null:
 		impact_map.tracker = impact_tracker
-	add_satellite()
+	_spawn_starting_fleet()
 	if not real_satellites.is_empty():
+		selected_ship = 0
 		real_satellites[0].select()
 
 
@@ -392,6 +404,29 @@ func add_satellite() -> void:
 	real_satellites.append(sat)
 	selected_ship = real_satellites.size() - 1
 	sat.select()
+
+
+# Spawn the starting fleet — three player satellites in 500 km circular
+# orbits with independent inclinations under the cap, random RAANs, and
+# true anomalies separated by a random gap so the formation fans out.
+# Selection is left to the caller so the standard "select index 0"
+# pattern in _ready stays in one place.
+func _spawn_starting_fleet() -> void:
+	var inc_max := deg_to_rad(STARTING_SAT_INC_MAX_DEG)
+	var gap_min := deg_to_rad(STARTING_SAT_NU_GAP_MIN_DEG)
+	var gap_max := deg_to_rad(STARTING_SAT_NU_GAP_MAX_DEG)
+	var nu := _rng.randf_range(0.0, TAU)
+	for i in range(STARTING_SAT_COUNT):
+		var sat := Satellite.new()
+		sat.orbit = EarthOrbit.make_circular(
+			STARTING_SAT_ALT_KM,
+			_rng.randf_range(0.0, inc_max),
+			_rng.randf_range(0.0, TAU),
+			nu,
+		)
+		satellite_container.add_child(sat)
+		real_satellites.append(sat)
+		nu = fposmod(nu + _rng.randf_range(gap_min, gap_max), TAU)
 
 
 # Spawn a fixed batch of unarmed enemies in random circular orbits.

@@ -154,6 +154,40 @@ func relative_maneuver(
 	return maneuver(dv_eci, t, min_periapsis_km)
 
 
+## Build a circular orbit at altitude `alt_km` above the surface with
+## the given inclination, RAAN, and true anomaly (all in radians).
+## Argument of periapsis is degenerate for a circle, so true anomaly is
+## measured from the ascending node. Used by the starting fleet spawner
+## (and any future "drop a ship in this orbital slot" gameplay code) so
+## the conversion from elements to ECI state lives in one tested place.
+static func make_circular(
+	alt_km: float, inc: float, raan: float, nu: float
+) -> EarthOrbit:
+	var radius := EARTH_RADIUS_KM + alt_km
+	var v_mag := sqrt(MU / radius)
+	var cn := cos(nu)
+	var sn := sin(nu)
+	var ci := cos(inc)
+	var si := sin(inc)
+	var co := cos(raan)
+	var so := sin(raan)
+	# Perifocal-frame state (with the ascending node along +x), tilted
+	# about the line of nodes by `inc`, then rotated about Z by `raan`.
+	# Carried through algebraically so we never construct an intermediate
+	# Vector3 that would discard precision through 32-bit components.
+	var pos := Vector3(
+		radius * (cn * co - sn * ci * so),
+		radius * (cn * so + sn * ci * co),
+		radius * sn * si,
+	)
+	var vel := Vector3(
+		v_mag * (-sn * co - cn * ci * so),
+		v_mag * (-sn * so + cn * ci * co),
+		v_mag * cn * si,
+	)
+	return EarthOrbit.new(pos, vel)
+
+
 ## Periapsis radius for the orbit defined by (r, v). Uses the
 ## conic-section identity r_p = p / (1+e), which is well-defined for all
 ## eccentricities (elliptic, parabolic, hyperbolic). Returns 0 for a

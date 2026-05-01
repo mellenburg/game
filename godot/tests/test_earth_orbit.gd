@@ -195,6 +195,45 @@ func test_safe_relative_maneuver_keeps_periapsis_above_surface() -> void:
 	)
 
 
+func test_make_circular_altitude_and_eccentricity() -> void:
+	# A circle at 500 km should report eccentricity essentially zero
+	# and a radius matching the requested altitude on both r and r_p.
+	var alt := 500.0
+	var o := EarthOrbit.make_circular(alt, 0.0, 0.0, 0.0)
+	assert_close(o.norm_r, EarthOrbit.EARTH_RADIUS_KM + alt, 1.0e-3)
+	assert_close(o.r_p, EarthOrbit.EARTH_RADIUS_KM + alt, 1.0e-2)
+	assert_true(o.ecc < 1.0e-6, "ecc=%f not circular" % o.ecc)
+
+
+func test_make_circular_inclination_matches() -> void:
+	# Inclination read back from the propagator must match what we
+	# asked for (within Vector3 noise).
+	var inc := deg_to_rad(35.0)
+	var o := EarthOrbit.make_circular(500.0, inc, 0.0, 0.0)
+	assert_close(o.inc, inc, 1.0e-5)
+
+
+func test_make_circular_altitude_invariant_under_propagation() -> void:
+	# The defining property of a circular orbit: altitude is constant.
+	# Step through a full period and watch norm_r stay pinned.
+	var alt := 500.0
+	var radius := EarthOrbit.EARTH_RADIUS_KM + alt
+	var o := EarthOrbit.make_circular(alt, deg_to_rad(45.0), 0.0, 0.0)
+	for _i in range(40):
+		assert_true(o.propagate(120.0))
+		assert_close(o.norm_r, radius, 1.0e-2)
+
+
+func test_make_circular_distinct_true_anomalies_distinct_positions() -> void:
+	# Same plane, different nu → different positions on the same circle.
+	var a := EarthOrbit.make_circular(500.0, 0.0, 0.0, 0.0)
+	var b := EarthOrbit.make_circular(500.0, 0.0, 0.0, deg_to_rad(120.0))
+	assert_true(
+		(a.r - b.r).length() > 1000.0,
+		"expected sats 120° apart to be > 1000 km apart"
+	)
+
+
 func test_stumpff_c2_small_psi() -> void:
 	# c2(0) = 1/2.
 	assert_close(EarthOrbit.c2(0.0), 0.5, 1.0e-12)
