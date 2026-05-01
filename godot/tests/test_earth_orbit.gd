@@ -245,3 +245,82 @@ func test_stumpff_c3_small_psi() -> void:
 	# c3(0) = 1/6.
 	assert_close(EarthOrbit.c3(0.0), 1.0 / 6.0, 1.0e-12)
 	assert_close(EarthOrbit.c3(0.99), (sqrt(0.99) - sin(sqrt(0.99))) / pow(0.99, 1.5), 1.0e-9)
+
+
+# ---- time_to_impact ------------------------------------------------------
+
+
+func test_time_to_impact_circular_orbit_never_hits() -> void:
+	# A circular 500 km orbit has r_p == r > EARTH_RADIUS. The short-
+	# circuit on r_p > EARTH_RADIUS_KM should return INF without
+	# spinning the propagator.
+	var o := EarthOrbit.make_circular(500.0, 0.0, 0.0, 0.0)
+	assert_eq(o.time_to_impact(1800.0, 30.0), INF)
+
+
+func test_time_to_impact_underground_returns_zero() -> void:
+	# Already inside Earth — the function returns 0 immediately so
+	# callers ranking by impact urgency see the most urgent possible
+	# value.
+	var o := EarthOrbit.new(
+		Vector3(EarthOrbit.EARTH_RADIUS_KM * 0.5, 0.0, 0.0),
+		Vector3(0.0, 5.0, 0.0),
+	)
+	assert_close(o.time_to_impact(1800.0, 30.0), 0.0)
+
+
+func test_time_to_impact_inbound_drop() -> void:
+	# Highly eccentric inbound trajectory from 8000 km radius. Velocity
+	# is dominantly inward but with a small tangential component so the
+	# orbit isn't rectilinear (a pure-radial state has h = 0 which the
+	# propagator's element pipeline rejects). The sub-surface periapsis
+	# guarantees the body crosses the surface inside the horizon.
+	var o := EarthOrbit.new(
+		Vector3(8000.0, 0.0, 0.0),
+		Vector3(-1.0, 1.0, 0.0),
+	)
+	var t := o.time_to_impact(1800.0, 10.0)
+	assert_true(is_finite(t), "expected finite time-to-impact for inbound drop")
+	assert_true(t > 0.0)
+	assert_true(t < 1800.0)
+	# Verify the receiver is unchanged — time_to_impact must not
+	# mutate `self`. Compare the radius only; floating-point mod work
+	# inside _recompute_elements would shift derived elements but r
+	# itself shouldn't drift.
+	assert_close(o.r.x, 8000.0)
+	assert_close(o.r.y, 0.0)
+
+
+func test_time_to_impact_capped_by_horizon() -> void:
+	# A barely-inbound body whose impact lies past the requested
+	# horizon should report INF (caller's "no current threat" answer)
+	# rather than running propagation forever. We use an inbound
+	# trajectory whose r_p sits just below the surface but with so
+	# little radial velocity that the surface crossing won't happen
+	# inside the short horizon we pass in.
+	var o := EarthOrbit.new(
+		Vector3(40000.0, 0.0, 0.0),
+		Vector3(-0.05, 0.5, 0.0),
+	)
+	# 60 seconds is far too short for a body 33000 km up at 50 m/s
+	# inward to reach the surface — confirm we get INF.
+	assert_eq(o.time_to_impact(60.0, 30.0), INF)
+
+
+func test_time_to_impact_orders_two_meteorites_by_urgency() -> void:
+	# Two inbound bodies at the same radius but different speeds: the
+	# faster-falling one should report a smaller time-to-impact. This
+	# is the property the laser "max danger" targeting depends on.
+	# Tangential component is identical so h ≠ 0 in both — only the
+	# radial inflow rate differs.
+	var slow := EarthOrbit.new(
+		Vector3(10000.0, 0.0, 0.0), Vector3(-1.0, 1.0, 0.0)
+	)
+	var fast := EarthOrbit.new(
+		Vector3(10000.0, 0.0, 0.0), Vector3(-3.0, 1.0, 0.0)
+	)
+	var t_slow := slow.time_to_impact(1800.0, 10.0)
+	var t_fast := fast.time_to_impact(1800.0, 10.0)
+	assert_true(is_finite(t_slow))
+	assert_true(is_finite(t_fast))
+	assert_true(t_fast < t_slow, "faster inbound should impact sooner")

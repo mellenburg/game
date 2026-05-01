@@ -13,6 +13,16 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const TEAM_PLAYER: int = 0
 const TEAM_ENEMY: int = 1
 
+# Laser targeting modes. MAX_DAMAGE picks the closest in-envelope target
+# (current-distance scoring, so range-falloff damage is highest);
+# MAX_DANGER picks the in-envelope target with the smallest predicted
+# time-to-impact-on-Earth, falling back to closest distance when no
+# candidate is on a current-trajectory impact path. Stored on the
+# satellite so each ship can carry its own setting; toggled per-unit
+# (L) or fleet-wide (Shift+L).
+const TARGETING_MAX_DAMAGE: int = 0
+const TARGETING_MAX_DANGER: int = 1
+
 const SCENE_SCALE: float = 1.0 / 1000.0
 const DEFAULT_R := Vector3(-6045.0, -3490.0, 2500.0)
 const DEFAULT_V := Vector3(-3.56, 6.618, 2.533)
@@ -83,6 +93,31 @@ var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
 # engagement_range_km value is preserved so re-toggling fire control
 # brings the same setting back.
 var fire_control_active: bool = false
+# Per-ship laser targeting mode. Honored by EarthSystem._pick_target_for_weapon
+# when selecting which in-envelope enemy each weapon will fire at this tick.
+# Cloned across planning satellites so the planning view shows the same
+# auto-targeting choice the live simulation will make.
+var targeting_mode: int = TARGETING_MAX_DAMAGE
+
+# Cached absolute simulated time at which this body's current
+# trajectory crosses Earth's surface. NAN means "unknown — compute on
+# next access"; INF means "no impact within the propagator's horizon"
+# (which collapses to "never" for an orbit that won't be perturbed);
+# any finite value is in the same sim-clock frame EarthSystem.sim_time
+# advances. Storing the *absolute* impact time means free propagation
+# never has to update it — the body moves through time but the
+# impact instant doesn't. Maneuvers / perigee burns invalidate it
+# because they actually change the orbit.
+#
+# Horizon at cache fill is generous (one day) so meteorites spawned at
+# the high end of the storm shell — where naive ttf can run > 7000 sec
+# — still resolve to a real number rather than INF. The propagation is
+# paid once per spawn (or per maneuver); in normal play each body
+# computes its impact time exactly once before being shot down or
+# impacting.
+const IMPACT_CACHE_HORIZON_SEC: float = 86400.0
+const IMPACT_CACHE_STEP_SEC: float = 60.0
+var impact_sim_time: float = NAN
 
 # Wall-clock timestamp at which the orange "I got hit" tint reverts to
 # the team color. Wall-clock so the pulse is visible regardless of how
@@ -175,6 +210,43 @@ func toggle_fire_control() -> void:
 	fire_control_active = not fire_control_active
 
 
+## Absolute simulated time at which this body's current trajectory
+## crosses Earth, computed lazily on first access against the current
+## sim-clock. Subsequent accesses return the stored value as-is — the
+## impact *instant* is invariant under free propagation, so neither the
+## caller nor advance_time has to nudge it each tick. INF is returned
+## (and stored) for orbits whose periapsis stays above the surface or
+## whose impact is past the propagator's horizon.
+func predict_impact_sim_time(current_sim_time: float) -> float:
+	if is_nan(impact_sim_time):
+		var eta := orbit.time_to_impact(
+			IMPACT_CACHE_HORIZON_SEC, IMPACT_CACHE_STEP_SEC
+		)
+		# eta == INF flows through as INF (current_sim_time + INF == INF),
+		# so non-impacting orbits don't need a separate branch.
+		impact_sim_time = current_sim_time + eta
+	return impact_sim_time
+
+
+## Mark the cached impact time stale so the next access recomputes it.
+## Called by every code path that mutates `orbit.v` outside of free
+## propagation — player thrust, the decaying-orbit perigee burn, and
+## state cloning between real and planning satellites.
+func invalidate_impact_cache() -> void:
+	impact_sim_time = NAN
+
+
+## Flip the laser targeting mode between MAX_DAMAGE (closest target) and
+## MAX_DANGER (target whose trajectory impacts Earth soonest). Only
+## meaningful on armed units; on unarmed bodies the flag is harmless but
+## ignored by the combat loop.
+func toggle_targeting_mode() -> void:
+	if targeting_mode == TARGETING_MAX_DAMAGE:
+		targeting_mode = TARGETING_MAX_DANGER
+	else:
+		targeting_mode = TARGETING_MAX_DAMAGE
+
+
 ## Clamp + assign the operator-set engagement range. The lower bound
 ## is the weapon's minimum so the operator can't disable fire control
 ## by accident; the upper bound is the physics-level max so anything
@@ -221,11 +293,17 @@ func advance_time(delta_time: float) -> void:
 	if did_maneuver:
 		# Player thrust is the only caller of relative_maneuver; clamp
 		# it so it can't drive periapsis below the surface. Meteorites
-		# never enter this branch (no operator).
+		# never enter this branch (no operator). Invalidate the impact
+		# cache before stepping — the new velocity makes the prior
+		# prediction stale.
+		invalidate_impact_cache()
 		ok = orbit.relative_maneuver(
 			get_current_maneuver(), delta_time, SAFE_PERIAPSIS_KM
 		)
 	else:
+		# Free propagation leaves the orbit shape (and therefore the
+		# absolute impact time) unchanged, so the cache stays valid
+		# without any per-tick bookkeeping.
 		ok = orbit.propagate(delta_time)
 	did_maneuver = false
 	raw_maneuver = Vector3.ZERO
@@ -315,6 +393,9 @@ func _perigee_decay_burn() -> void:
 	# then recomputes derived elements — equivalent to "set v" without
 	# touching the propagator's private API.
 	var dv := orbit.v * (k - 1.0)
+	# Burn changes the orbit shape; the cached impact ETA was computed
+	# against the pre-burn trajectory, so it's stale now.
+	invalidate_impact_cache()
 	if not orbit.maneuver(dv, 0.0):
 		orbit_alive = false
 		_hide_visuals()
@@ -348,6 +429,12 @@ func clone_orbit_from(other: Satellite) -> void:
 	energy = other.energy
 	engagement_range_km = other.engagement_range_km
 	fire_control_active = other.fire_control_active
+	targeting_mode = other.targeting_mode
+	# Mirror the cache so the planning preview's HUD ranking matches
+	# the real fleet's. The stored value is an absolute sim-time, so
+	# the planning sat — which lives on the same sim clock as reality
+	# — can reuse it as-is until a maneuver invalidates it.
+	impact_sim_time = other.impact_sim_time
 	if other.weapons.is_empty():
 		weapons.clear()
 	if is_inside_tree():
