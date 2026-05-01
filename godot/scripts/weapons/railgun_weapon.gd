@@ -92,22 +92,27 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 static func is_shot_safe_for_attacker(attacker, target) -> bool:
 	if attacker == null or target == null or attacker.mass <= 0.0:
 		return false
-	var to_target := target.orbit.r - attacker.orbit.r
-	var dist_sq := to_target.length_squared()
+	# Explicit Vector3 / float annotations: attacker / target flow in as
+	# untyped Variants (the weapon base class can't preload Satellite),
+	# so ':=' inference would land on Variant and trip the strict
+	# inference_on_variant warning. The arithmetic still runs through
+	# Variant at compile time; the typed locals just pin the result.
+	var to_target: Vector3 = target.orbit.r - attacker.orbit.r
+	var dist_sq: float = to_target.length_squared()
 	if dist_sq <= 0.0:
 		return false
-	var dir := to_target / sqrt(dist_sq)
+	var dir: Vector3 = to_target / sqrt(dist_sq)
 	# Shooter recoils opposite the slug's flight direction. Mass
 	# divides momentum into Δv directly — that's the whole point of
 	# tracking unit mass separately from HP.
-	var recoil_dv := -dir * (SLUG_MOMENTUM_KG_KM_S / attacker.mass)
-	var new_v := attacker.orbit.v + recoil_dv
-	var r_a := EarthOrbit.compute_apoapsis(attacker.orbit.r, new_v)
+	var recoil_dv: Vector3 = -dir * (SLUG_MOMENTUM_KG_KM_S / attacker.mass)
+	var new_v: Vector3 = attacker.orbit.v + recoil_dv
+	var r_a: float = EarthOrbit.compute_apoapsis(attacker.orbit.r, new_v)
 	if not is_finite(r_a):
 		return false
 	if r_a > attacker.max_orbital_radius_km:
 		return false
-	var r_p := EarthOrbit.compute_periapsis(attacker.orbit.r, new_v)
+	var r_p: float = EarthOrbit.compute_periapsis(attacker.orbit.r, new_v)
 	if r_p < SAFE_PERIAPSIS_KM:
 		return false
 	return true
@@ -152,13 +157,13 @@ func fire(attacker, target, sim_delta: float) -> bool:
 	if target.mass <= 0.0:
 		return false
 
-	var to_target := target.orbit.r - attacker.orbit.r
-	var dist_sq := to_target.length_squared()
+	var to_target: Vector3 = target.orbit.r - attacker.orbit.r
+	var dist_sq: float = to_target.length_squared()
 	if dist_sq <= 0.0:
 		return false
-	var dir := to_target / sqrt(dist_sq)
-	var attacker_dv := -dir * (SLUG_MOMENTUM_KG_KM_S / attacker.mass)
-	var target_dv := dir * (SLUG_MOMENTUM_KG_KM_S / target.mass)
+	var dir: Vector3 = to_target / sqrt(dist_sq)
+	var attacker_dv: Vector3 = -dir * (SLUG_MOMENTUM_KG_KM_S / attacker.mass)
+	var target_dv: Vector3 = dir * (SLUG_MOMENTUM_KG_KM_S / target.mass)
 
 	# Apply impulses through orbit.maneuver(t=0) so the orbit's derived
 	# elements (r_p, r_a, period, …) get recomputed atomically. A
