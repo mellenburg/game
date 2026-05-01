@@ -15,6 +15,7 @@ const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const ImpactMap = preload("res://scripts/impact_map.gd")
 const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
+const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -70,11 +71,19 @@ const METEORITE_PERIAPSIS_TARGET_KM: float = (
 # Cluster scatter relative to the storm's nominal entry point. Thousands
 # of km of lateral offset + altitude jitter so the three trajectory
 # lines fan out clearly on screen rather than overlapping; per-axis
-# velocity jitter peels each path further apart over time.
-const METEORITE_LATERAL_SPREAD_KM: float = 3000.0
-const METEORITE_ALT_JITTER_KM: float = 1500.0
-const METEORITE_VELOCITY_JITTER: float = 0.4
+# velocity jitter peels each path further apart over time. Doubled
+# from the original tuning so the cluster fans out widely enough that
+# adjacent bodies don't visually collapse into one trajectory.
+const METEORITE_LATERAL_SPREAD_KM: float = 6000.0
+const METEORITE_ALT_JITTER_KM: float = 3000.0
+const METEORITE_VELOCITY_JITTER: float = 0.8
 const METEORITE_HP: float = 100.0
+
+# Wave mode: 20 meteorites from a single shared nexus, arrival times
+# distributed uniformly across a 10-second wall-clock window so the
+# player has continuous incoming traffic rather than a single burst.
+const METEORITE_WAVE_COUNT: int = 20
+const METEORITE_WAVE_DURATION_SEC: float = 10.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
@@ -94,6 +103,11 @@ var meteorites_impacted: int = 0
 var _time_factor_accum: float = 0.0
 var _planning_dt_accum: float = 0.0
 var _rng := RandomNumberGenerator.new()
+# Active meteorite waves. Each carries its own nexus + queue of pending
+# spawn delays; ticked from _process so the 10-second window is real-
+# time and independent of time_factor (so pausing the sim doesn't
+# pause an in-flight wave).
+var _meteorite_waves: Array[MeteoriteWave] = []
 var impact_tracker := ImpactTracker.new()
 # Day-side albedo loaded once as an Image so we can sample it at an
 # impact's UV without an editor-only Texture readback. Lazily filled
@@ -141,6 +155,7 @@ func _process(delta: float) -> void:
 	camera.process_movement(delta)
 	_process_continuous_input(delta)
 	_process_one_shot_input()
+	_tick_meteorite_waves(delta)
 	_update_range_circle()
 	hud.update_hud(self, planning_mode, time_factor, planning_dt)
 	hud.draw_target_lines(self, camera)
@@ -340,6 +355,8 @@ func _process_one_shot_input() -> void:
 		add_enemies()
 	if Input.is_action_just_pressed("add_meteorites"):
 		add_meteorite_storm()
+	if Input.is_action_just_pressed("start_meteorite_wave"):
+		start_meteorite_wave()
 	if Input.is_action_just_pressed("toggle_los"):
 		hud.los_visible = not hud.los_visible
 	if Input.is_action_just_pressed("toggle_impact_map"):
@@ -446,9 +463,38 @@ func add_enemies(count: int = ENEMIES_PER_SPAWN) -> void:
 # few hundred km. Lasers can pick them off in transit; any survivors
 # self-terminate on ground impact.
 func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
-	var r_hat := _random_unit_vector()
-	var tangent := _random_perpendicular_unit(r_hat)
-	var base_altitude := _rng.randf_range(
+	var wave := _build_meteorite_wave_at_random_nexus()
+	for _i in range(count):
+		var sat := _make_meteorite(
+			wave.r_hat, wave.tangent, wave.base_altitude, wave.base_velocity
+		)
+		satellite_container.add_child(sat)
+		real_satellites.append(sat)
+
+
+# Begin a 10-second wave: 50 meteorites all sharing one random nexus,
+# their individual spawn delays drawn uniformly across the window so
+# arrivals are spread out rather than bursty. Multiple waves can overlap
+# (the player presses "i" again before the previous wave finishes) —
+# each is a separate entry in _meteorite_waves with its own nexus.
+func start_meteorite_wave(
+	count: int = METEORITE_WAVE_COUNT,
+	duration_sec: float = METEORITE_WAVE_DURATION_SEC,
+) -> void:
+	var wave := _build_meteorite_wave_at_random_nexus()
+	wave.populate_random_times(_rng, count, duration_sec)
+	_meteorite_waves.append(wave)
+
+
+# Sample a fresh nexus (entry direction, in-plane tangent, altitude,
+# base velocity) for a meteorite cluster. Shared between the
+# instantaneous storm (m) and the time-distributed wave (i) so both
+# spawn paths use the same physics setup.
+func _build_meteorite_wave_at_random_nexus() -> MeteoriteWave:
+	var wave := MeteoriteWave.new()
+	wave.r_hat = _random_unit_vector()
+	wave.tangent = _random_perpendicular_unit(wave.r_hat)
+	wave.base_altitude = _rng.randf_range(
 		METEORITE_ALT_MIN_KM, METEORITE_ALT_MAX_KM
 	)
 	var radial_speed := _rng.randf_range(
@@ -457,11 +503,34 @@ func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
 	var tangential_speed := _rng.randf_range(
 		METEORITE_TANGENTIAL_SPEED_MIN, METEORITE_TANGENTIAL_SPEED_MAX
 	)
-	var base_velocity := -r_hat * radial_speed + tangent * tangential_speed
-	for _i in range(count):
-		var sat := _make_meteorite(r_hat, tangent, base_altitude, base_velocity)
-		satellite_container.add_child(sat)
-		real_satellites.append(sat)
+	wave.base_velocity = (
+		-wave.r_hat * radial_speed + wave.tangent * tangential_speed
+	)
+	return wave
+
+
+# Advance every active wave's spawn timers by real-time delta. Spawns
+# any bodies whose timer expired this frame and drops completed waves.
+func _tick_meteorite_waves(delta: float) -> void:
+	if _meteorite_waves.is_empty():
+		return
+	var i := 0
+	while i < _meteorite_waves.size():
+		var wave := _meteorite_waves[i]
+		var to_spawn := wave.tick(delta)
+		for _j in range(to_spawn):
+			var sat := _make_meteorite(
+				wave.r_hat,
+				wave.tangent,
+				wave.base_altitude,
+				wave.base_velocity,
+			)
+			satellite_container.add_child(sat)
+			real_satellites.append(sat)
+		if wave.is_complete():
+			_meteorite_waves.remove_at(i)
+		else:
+			i += 1
 
 
 # Capture the impact coordinates of a meteorite that just terminated
