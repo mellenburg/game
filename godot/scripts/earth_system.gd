@@ -123,6 +123,12 @@ var meteorites_impacted: int = 0
 
 var _time_factor_accum: float = 0.0
 var _planning_dt_accum: float = 0.0
+# Latches the fleet-wide engagement-range adjustment mode (Shift+C+Up/Down).
+# Goes true on the rising edge of arrow input while Shift+C is held — that
+# edge is when we snap every armed player sat to the fleet's average range
+# so subsequent ticks just nudge a single shared value. Cleared as soon as
+# the arrow / Shift / C combination breaks so the next press re-snaps.
+var _fleet_range_adjusting: bool = false
 var _rng := RandomNumberGenerator.new()
 # Active meteorite waves. Each carries its own nexus + queue of pending
 # spawn delays; ticked from _process so the 10-second window is real-
@@ -370,7 +376,30 @@ func _process_continuous_input(delta: float) -> void:
 	# the planning clone is overwritten from reality every physics tick
 	# (clone_orbit_from copies engagement_range_km), so mutating the
 	# planning sat would be visually invisible the next frame.
-	if range_input != 0.0 and not real_satellites.is_empty():
+	#
+	# Two modes share the same arrow-while-Shift gesture:
+	#   * Shift + arrows  → adjusts the selected ship only.
+	#   * Shift + C + arrows → snaps every armed player ship to the fleet
+	#     average on the press edge, then drives the shared value as long
+	#     as the keys stay held. Snap-on-edge keeps the operator from
+	#     having to manually equalise ranges before commanding the fleet.
+	var fleet_range_mode := shift_held and Input.is_key_pressed(KEY_C)
+	var fleet_adjusting_now := false
+	if range_input != 0.0 and fleet_range_mode and not real_satellites.is_empty():
+		var armed := _armed_player_sats()
+		if not armed.is_empty():
+			if not _fleet_range_adjusting:
+				var sum := 0.0
+				for sat in armed:
+					sum += sat.engagement_range_km
+				var avg := sum / float(armed.size())
+				for sat in armed:
+					sat.set_engagement_range(avg)
+			var step_km := range_input * RANGE_RATE_KM_PER_SEC * delta
+			for sat in armed:
+				sat.set_engagement_range(sat.engagement_range_km + step_km)
+			fleet_adjusting_now = true
+	elif range_input != 0.0 and not real_satellites.is_empty():
 		var real_idx := planning_selected if planning_mode else selected_ship
 		if real_idx >= 0 and real_idx < real_satellites.size():
 			var rsat := real_satellites[real_idx]
@@ -383,6 +412,7 @@ func _process_continuous_input(delta: float) -> void:
 					rsat.engagement_range_km
 					+ range_input * RANGE_RATE_KM_PER_SEC * delta
 				)
+	_fleet_range_adjusting = fleet_adjusting_now
 
 
 func _process_one_shot_input() -> void:
@@ -407,7 +437,10 @@ func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("toggle_impact_map"):
 		_cycle_map_mode()
 	if Input.is_action_just_pressed("toggle_fire_control"):
-		_toggle_fire_control_on_selected()
+		if Input.is_key_pressed(KEY_SHIFT):
+			_toggle_fire_control_on_all()
+		else:
+			_toggle_fire_control_on_selected()
 
 
 # Toggle fire-control mode on the active player satellite. Mutates
@@ -424,6 +457,36 @@ func _toggle_fire_control_on_selected() -> void:
 	if sat.team != Satellite.TEAM_PLAYER or sat.weapons.is_empty():
 		return
 	sat.toggle_fire_control()
+
+
+# Toggle fire-control mode across every armed player satellite at once
+# (Shift+C). If any unit currently has it off, turn the whole fleet on;
+# otherwise turn the whole fleet off. Unarmed and enemy ships are skipped
+# — fire control is meaningless on them.
+func _toggle_fire_control_on_all() -> void:
+	var armed := _armed_player_sats()
+	if armed.is_empty():
+		return
+	var any_off := false
+	for sat in armed:
+		if not sat.fire_control_active:
+			any_off = true
+			break
+	var target := any_off
+	for sat in armed:
+		if sat.fire_control_active != target:
+			sat.toggle_fire_control()
+
+
+func _armed_player_sats() -> Array[Satellite]:
+	var out: Array[Satellite] = []
+	for sat in real_satellites:
+		if (
+			sat.team == Satellite.TEAM_PLAYER
+			and not sat.weapons.is_empty()
+		):
+			out.append(sat)
+	return out
 
 
 # Cycle the lower-right overlay between surface map / wave radar / off.
