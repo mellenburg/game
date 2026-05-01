@@ -48,6 +48,15 @@ const FC_TEXT_COLOR := Color(0.55, 0.95, 0.65, 1.0)
 const FC_FONT_SIZE: int = 10
 const FC_NODE_NAME: String = "FCStatus"
 
+# Targeting-mode readout. Always present on armed player ships (unlike
+# the FC line which only shows when fire control is on) — it's a
+# persistent gameplay setting, not a toggle-into-an-overlay state. Cyan
+# tint is distinct from the FC green so the two single-line meta
+# readouts don't blend visually.
+const TGT_TEXT_COLOR := Color(0.55, 0.85, 0.95, 1.0)
+const TGT_FONT_SIZE: int = 10
+const TGT_NODE_NAME: String = "TargetingStatus"
+
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 
@@ -429,6 +438,15 @@ func _make_fc_label() -> Label:
 	return l
 
 
+func _make_targeting_label() -> Label:
+	var l := Label.new()
+	l.name = TGT_NODE_NAME
+	l.add_theme_font_size_override("font_size", TGT_FONT_SIZE)
+	l.add_theme_color_override("font_color", TGT_TEXT_COLOR)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
 func _update_bar_row(row: Control, fill_color: Color, text: String, fraction: float) -> void:
 	var fill := row.get_child(1) as ColorRect
 	if fill != null:
@@ -456,9 +474,9 @@ func _update_box(
 		return
 
 	# Index 0 is the HP label; bar rows follow; an optional FC status
-	# label tails the box when fire control is active. Detach the FC
-	# label first so the bar-resize loop's child-count math stays
-	# unchanged — we re-append (or drop) it after the bars settle.
+	# label and targeting-mode label tail the box. Detach both meta
+	# labels first so the bar-resize loop's child-count math stays
+	# unchanged — we re-append (or drop) them after the bars settle.
 	var hp_label := rows.get_child(0) as Label
 	if hp_label != null:
 		hp_label.text = "HP %d/%d" % [int(sat.hp), int(sat.max_hp)]
@@ -466,6 +484,9 @@ func _update_box(
 	var fc_label := rows.get_node_or_null(FC_NODE_NAME) as Label
 	if fc_label != null:
 		rows.remove_child(fc_label)
+	var tgt_label := rows.get_node_or_null(TGT_NODE_NAME) as Label
+	if tgt_label != null:
+		rows.remove_child(tgt_label)
 
 	var desired_bars := 0
 	if not sat.weapons.is_empty():
@@ -492,6 +513,21 @@ func _update_box(
 		rows.add_child(fc_label)
 	elif fc_label != null:
 		fc_label.queue_free()
+
+	# Targeting mode is always shown on armed player ships — it's a
+	# persistent setting, not a transient overlay, so it doesn't gate
+	# on a toggle. Unarmed bodies skip it for the same reason FC does.
+	var want_tgt := not sat.weapons.is_empty()
+	if want_tgt:
+		if tgt_label == null:
+			tgt_label = _make_targeting_label()
+		tgt_label.text = (
+			"TGT MAX DANGER" if sat.targeting_mode == Satellite.TARGETING_MAX_DANGER
+			else "TGT MAX DAMAGE"
+		)
+		rows.add_child(tgt_label)
+	elif tgt_label != null:
+		tgt_label.queue_free()
 
 	if desired_bars == 0:
 		return

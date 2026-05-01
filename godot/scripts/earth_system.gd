@@ -264,7 +264,18 @@ func _process_combat(sim_delta: float) -> void:
 
 
 func _pick_target_for_weapon(attacker: Satellite, w: Weapon) -> Satellite:
+	# Two-key lexicographic ranking. In MAX_DAMAGE mode the primary key is
+	# distance² (closest wins, so range-falloff damage is highest). In
+	# MAX_DANGER mode the primary key is predicted time-to-impact (soonest
+	# threat to Earth wins), with distance² as a tiebreaker so non-impacting
+	# candidates fall back to the same closest-target rule rather than
+	# leaving the weapon idle when nothing is currently inbound. Time-to-
+	# impact is computed only when MAX_DANGER is active — the propagation
+	# clone is cheap but not free, so MAX_DAMAGE keeps the original tight
+	# loop.
+	var max_danger := attacker.targeting_mode == Satellite.TARGETING_MAX_DANGER
 	var best: Satellite = null
+	var best_t := INF
 	var best_d2 := INF
 	for other in real_satellites:
 		if other == attacker:
@@ -272,7 +283,20 @@ func _pick_target_for_weapon(attacker: Satellite, w: Weapon) -> Satellite:
 		if not w.is_target_in_engagement_envelope(attacker, other):
 			continue
 		var d2: float = (other.orbit.r - attacker.orbit.r).length_squared()
-		if d2 < best_d2:
+		var t := INF
+		if max_danger:
+			t = other.orbit.time_to_impact()
+		var better := false
+		if max_danger:
+			if t < best_t:
+				better = true
+			elif t == best_t and d2 < best_d2:
+				better = true
+		else:
+			if d2 < best_d2:
+				better = true
+		if better:
+			best_t = t
 			best_d2 = d2
 			best = other
 	return best
@@ -441,6 +465,11 @@ func _process_one_shot_input() -> void:
 			_toggle_fire_control_on_all()
 		else:
 			_toggle_fire_control_on_selected()
+	if Input.is_action_just_pressed("toggle_laser_targeting"):
+		if Input.is_key_pressed(KEY_SHIFT):
+			_toggle_targeting_mode_on_all()
+		else:
+			_toggle_targeting_mode_on_selected()
 
 
 # Toggle fire-control mode on the active player satellite. Mutates
@@ -476,6 +505,45 @@ func _toggle_fire_control_on_all() -> void:
 	for sat in armed:
 		if sat.fire_control_active != target:
 			sat.toggle_fire_control()
+
+
+# Toggle targeting mode on the active player satellite. Mirrors the
+# fire-control variant — mutates the *real* sat (planning clone gets
+# resync'd on the next physics tick) and silently no-ops on enemies /
+# unarmed units so the user gets no feedback for a meaningless toggle.
+func _toggle_targeting_mode_on_selected() -> void:
+	if real_satellites.is_empty():
+		return
+	var idx := planning_selected if planning_mode else selected_ship
+	if idx < 0 or idx >= real_satellites.size():
+		return
+	var sat := real_satellites[idx]
+	if sat.team != Satellite.TEAM_PLAYER or sat.weapons.is_empty():
+		return
+	sat.toggle_targeting_mode()
+
+
+# Fleet-wide targeting toggle (Shift+L). If any armed player ship is in
+# MAX_DAMAGE, snap the whole fleet to MAX_DANGER; otherwise snap them
+# all back to MAX_DAMAGE. Same "consensus then flip" pattern the
+# fire-control variant uses, so a mixed fleet converges to one mode in
+# a single press.
+func _toggle_targeting_mode_on_all() -> void:
+	var armed := _armed_player_sats()
+	if armed.is_empty():
+		return
+	var any_max_damage := false
+	for sat in armed:
+		if sat.targeting_mode == Satellite.TARGETING_MAX_DAMAGE:
+			any_max_damage = true
+			break
+	var target_mode := (
+		Satellite.TARGETING_MAX_DANGER if any_max_damage
+		else Satellite.TARGETING_MAX_DAMAGE
+	)
+	for sat in armed:
+		if sat.targeting_mode != target_mode:
+			sat.toggle_targeting_mode()
 
 
 func _armed_player_sats() -> Array[Satellite]:

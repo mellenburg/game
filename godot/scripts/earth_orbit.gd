@@ -188,6 +188,43 @@ static func make_circular(
 	return EarthOrbit.new(pos, vel)
 
 
+## Forward-only estimate of when this orbit's trajectory crosses the
+## Earth's surface, in seconds. Returns 0.0 if already underground, INF
+## if the orbit's periapsis is above the surface (no current-trajectory
+## impact) or no crossing is found within `max_seconds`. Stateless on
+## the receiver — propagation runs on a temporary clone, so calling
+## this never mutates `self`. Used by the laser "max danger" targeting
+## mode to rank candidates by impact urgency rather than radial
+## distance.
+func time_to_impact(
+	max_seconds: float = 1800.0, step_seconds: float = 30.0
+) -> float:
+	if not is_state_valid():
+		return INF
+	if norm_r <= EARTH_RADIUS_KM:
+		return 0.0
+	# A bound orbit whose periapsis sits above the surface won't cross it
+	# on its own — short-circuit before we waste a clone on a satellite
+	# that will just keep orbiting. Hyperbolic / parabolic flyby cases
+	# also fall through the inequality cleanly: their r_p is well-defined
+	# (positive in both arms of the branch above) and the gate still
+	# eliminates the ones that miss.
+	if is_finite(r_p) and r_p > EARTH_RADIUS_KM:
+		return INF
+	if step_seconds <= 0.0 or max_seconds <= 0.0:
+		return INF
+	var clone := EarthOrbit.new(r, v)
+	var t := 0.0
+	while t < max_seconds:
+		var dt: float = minf(step_seconds, max_seconds - t)
+		if not clone.propagate(dt):
+			return INF
+		t += dt
+		if clone.norm_r <= EARTH_RADIUS_KM:
+			return t
+	return INF
+
+
 ## Periapsis radius for the orbit defined by (r, v). Uses the
 ## conic-section identity r_p = p / (1+e), which is well-defined for all
 ## eccentricities (elliptic, parabolic, hyperbolic). Returns 0 for a

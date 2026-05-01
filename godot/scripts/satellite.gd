@@ -13,6 +13,16 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const TEAM_PLAYER: int = 0
 const TEAM_ENEMY: int = 1
 
+# Laser targeting modes. MAX_DAMAGE picks the closest in-envelope target
+# (current-distance scoring, so range-falloff damage is highest);
+# MAX_DANGER picks the in-envelope target with the smallest predicted
+# time-to-impact-on-Earth, falling back to closest distance when no
+# candidate is on a current-trajectory impact path. Stored on the
+# satellite so each ship can carry its own setting; toggled per-unit
+# (L) or fleet-wide (Shift+L).
+const TARGETING_MAX_DAMAGE: int = 0
+const TARGETING_MAX_DANGER: int = 1
+
 const SCENE_SCALE: float = 1.0 / 1000.0
 const DEFAULT_R := Vector3(-6045.0, -3490.0, 2500.0)
 const DEFAULT_V := Vector3(-3.56, 6.618, 2.533)
@@ -83,6 +93,11 @@ var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
 # engagement_range_km value is preserved so re-toggling fire control
 # brings the same setting back.
 var fire_control_active: bool = false
+# Per-ship laser targeting mode. Honored by EarthSystem._pick_target_for_weapon
+# when selecting which in-envelope enemy each weapon will fire at this tick.
+# Cloned across planning satellites so the planning view shows the same
+# auto-targeting choice the live simulation will make.
+var targeting_mode: int = TARGETING_MAX_DAMAGE
 
 # Wall-clock timestamp at which the orange "I got hit" tint reverts to
 # the team color. Wall-clock so the pulse is visible regardless of how
@@ -173,6 +188,17 @@ func set_maneuver(input: Vector3) -> void:
 ## empty.
 func toggle_fire_control() -> void:
 	fire_control_active = not fire_control_active
+
+
+## Flip the laser targeting mode between MAX_DAMAGE (closest target) and
+## MAX_DANGER (target whose trajectory impacts Earth soonest). Only
+## meaningful on armed units; on unarmed bodies the flag is harmless but
+## ignored by the combat loop.
+func toggle_targeting_mode() -> void:
+	if targeting_mode == TARGETING_MAX_DAMAGE:
+		targeting_mode = TARGETING_MAX_DANGER
+	else:
+		targeting_mode = TARGETING_MAX_DAMAGE
 
 
 ## Clamp + assign the operator-set engagement range. The lower bound
@@ -348,6 +374,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	energy = other.energy
 	engagement_range_km = other.engagement_range_km
 	fire_control_active = other.fire_control_active
+	targeting_mode = other.targeting_mode
 	if other.weapons.is_empty():
 		weapons.clear()
 	if is_inside_tree():
