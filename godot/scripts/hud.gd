@@ -183,7 +183,7 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 	var players: Array[Satellite] = []
 	var enemies: Array[Satellite] = []
 	var player_selected_in_roster: int = -1
-	var enemy_selected_in_roster: int = -1
+	var selected_enemy: Satellite = null
 
 	for i in range(satellites.size()):
 		var sat: Satellite = satellites[i]
@@ -191,15 +191,66 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 			continue
 		if sat.team == Satellite.TEAM_ENEMY:
 			if i == selected_idx:
-				enemy_selected_in_roster = enemies.size()
+				selected_enemy = sat
 			enemies.append(sat)
 		else:
 			if i == selected_idx:
 				player_selected_in_roster = players.size()
 			players.append(sat)
 
+	enemies = _sort_enemies_by_impact_urgency(enemies)
+	# Recompute the selected-enemy index after the sort so the green
+	# selection tint follows the satellite, not its old slot.
+	var enemy_selected_in_roster: int = -1
+	if selected_enemy != null:
+		enemy_selected_in_roster = enemies.find(selected_enemy)
+
 	_render_player_roster(players, player_selected_in_roster)
 	_render_enemy_roster(enemies, enemy_selected_in_roster)
+
+
+# Sort enemies so the body with the smallest predicted time-to-impact
+# on Earth lands in the top-left slot of the bottom-strip roster, with
+# the rest descending by urgency. Bodies whose current trajectory does
+# not intersect the surface (regular orbital enemies) all share INF and
+# fall to the tail; the instance-id tiebreaker keeps their relative
+# order stable across HUD refreshes so they don't shuffle visually.
+# Time-to-impact is sampled once per body, not per comparison, so the
+# sort is O(n log n) comparisons over O(n) propagation clones.
+#
+# Horizon is generous (2 hours) and step is coarse (60 sec): meteorite
+# storms spawn at 40–70 000 km altitude at 4–7 km/s inward, so a tighter
+# horizon would tie every freshly-spawned body at INF and the sort would
+# degenerate to instance-id order until they got close. 60 sec
+# resolution is plenty for ranking — the difference between two bodies
+# usually runs into hundreds of seconds.
+const ENEMY_TTI_HORIZON_SEC: float = 7200.0
+const ENEMY_TTI_STEP_SEC: float = 60.0
+
+
+func _sort_enemies_by_impact_urgency(
+	enemies: Array[Satellite]
+) -> Array[Satellite]:
+	if enemies.size() <= 1:
+		return enemies
+	var pairs: Array[Dictionary] = []
+	for sat in enemies:
+		pairs.append({
+			"sat": sat,
+			"tti": sat.orbit.time_to_impact(
+				ENEMY_TTI_HORIZON_SEC, ENEMY_TTI_STEP_SEC
+			),
+			"id": sat.get_instance_id(),
+		})
+	pairs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["tti"] != b["tti"]:
+			return a["tti"] < b["tti"]
+		return a["id"] < b["id"]
+	)
+	var sorted: Array[Satellite] = []
+	for pair: Dictionary in pairs:
+		sorted.append(pair["sat"])
+	return sorted
 
 
 func _render_player_roster(sats: Array[Satellite], selected: int) -> void:
