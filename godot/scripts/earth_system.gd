@@ -114,6 +114,11 @@ var _rng := RandomNumberGenerator.new()
 # time and independent of time_factor (so pausing the sim doesn't
 # pause an in-flight wave).
 var _meteorite_waves: Array[MeteoriteWave] = []
+# Tracks whether any wave was inbound on the previous tick. Edge-
+# triggered map-mode switching uses this — radar auto-selects on
+# rising edge, surface map auto-selects on falling edge — so manual K
+# presses during a live wave aren't yanked back every frame.
+var _wave_inbound_prev: bool = false
 var impact_tracker := ImpactTracker.new()
 # Day-side albedo loaded once as an Image so we can sample it at an
 # impact's UV without an editor-only Texture readback. Lazily filled
@@ -177,6 +182,7 @@ func _process(delta: float) -> void:
 	_process_continuous_input(delta)
 	_process_one_shot_input()
 	_tick_meteorite_waves(delta)
+	_auto_switch_map_mode()
 	_update_range_circle()
 	hud.update_hud(self, planning_mode, time_factor, planning_dt)
 	hud.draw_target_lines(self, camera)
@@ -415,6 +421,22 @@ func _apply_map_mode() -> void:
 		impact_map.visible = (map_mode == MAP_MODE_SURFACE)
 	if radar_map != null:
 		radar_map.visible = (map_mode == MAP_MODE_RADAR)
+
+
+# Auto-switch the lower-right overlay around incoming-wave transitions.
+# Radar selects on rising edge (a wave just appeared in the queue),
+# surface map selects on falling edge (the last wave just drained).
+# Edge-triggered so a manual K press during a live wave doesn't keep
+# snapping the panel back to radar every frame.
+func _auto_switch_map_mode() -> void:
+	var inbound := not _meteorite_waves.is_empty()
+	if inbound and not _wave_inbound_prev:
+		map_mode = MAP_MODE_RADAR
+		_apply_map_mode()
+	elif not inbound and _wave_inbound_prev:
+		map_mode = MAP_MODE_SURFACE
+		_apply_map_mode()
+	_wave_inbound_prev = inbound
 
 
 # Engagement-range visual. Renders a circle in the ecliptic plane
