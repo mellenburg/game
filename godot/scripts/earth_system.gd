@@ -79,10 +79,10 @@ const METEORITE_ALT_JITTER_KM: float = 3000.0
 const METEORITE_VELOCITY_JITTER: float = 0.8
 const METEORITE_HP: float = 100.0
 
-# Wave mode: 50 meteorites from a single shared nexus, arrival times
+# Wave mode: 20 meteorites from a single shared nexus, arrival times
 # distributed uniformly across a 10-second wall-clock window so the
 # player has continuous incoming traffic rather than a single burst.
-const METEORITE_WAVE_COUNT: int = 50
+const METEORITE_WAVE_COUNT: int = 20
 const METEORITE_WAVE_DURATION_SEC: float = 10.0
 
 @export var time_factor: int = 500
