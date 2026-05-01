@@ -3,13 +3,17 @@ extends Node3D
 ## Top-level controller. Simulation runs in _physics_process at a fixed
 ## tick rate so the orbit math is frame-rate independent. _process is
 ## reserved for camera + HUD.
+##
+## Spawn behaviours live in SpawnDirector and the combat scheduler in
+## CombatController; this node owns shared simulation state (the
+## real / planning satellite arrays, sim_time, selection) and routes
+## input through to the right service.
 
 const Satellite = preload("res://scripts/satellite.gd")
 const Earth = preload("res://scripts/earth.gd")
 const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
-const Weapon = preload("res://scripts/weapons/weapon.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const ImpactMap = preload("res://scripts/impact_map.gd")
@@ -17,7 +21,8 @@ const RadarMap = preload("res://scripts/radar_map.gd")
 const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
-const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
+const SpawnDirector = preload("res://scripts/spawn_director.gd")
+const CombatController = preload("res://scripts/combat_controller.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -29,82 +34,6 @@ const PLANNING_DT_MAX: int = 86400 * 7  # one week of plan window
 # to MAX_RANGE) in roughly four seconds — fast enough to feel
 # responsive, slow enough to land on a chosen ring.
 const RANGE_RATE_KM_PER_SEC: float = 10000.0
-
-const ENEMIES_PER_SPAWN: int = 3
-const ENEMY_ALT_MIN_KM: float = 600.0
-const ENEMY_ALT_MAX_KM: float = 2000.0
-
-# Starting fleet: three player satellites in 500 km circular orbits.
-# Inclinations are drawn independently below the cap so the planes
-# differ; RAAN is uniformly random per ship; consecutive true anomalies
-# are separated by a random gap inside [NU_GAP_MIN_DEG, NU_GAP_MAX_DEG]
-# so the ships fan out along their orbits instead of bunching at launch.
-const STARTING_SAT_COUNT: int = 3
-const STARTING_SAT_ALT_KM: float = 500.0
-const STARTING_SAT_INC_MAX_DEG: float = 60.0
-const STARTING_SAT_NU_GAP_MIN_DEG: float = 80.0
-const STARTING_SAT_NU_GAP_MAX_DEG: float = 160.0
-
-# Meteorite storms: a small cluster of fragile, sub-orbital bodies all
-# incoming from one random direction. Spawned high enough to give the
-# player a window to engage, with the per-body velocity post-clamped
-# (see _make_meteorite) to guarantee a sub-surface periapsis — so every
-# storm body genuinely impacts within a few minutes of sim time.
-const METEORITES_PER_STORM: int = 3
-const METEORITE_ALT_MIN_KM: float = 40000.0
-const METEORITE_ALT_MAX_KM: float = 70000.0
-# Inward radial dominates; the tangential share is small but non-zero so
-# the trajectories fan out over time. After spawn, each body's velocity
-# is clamped (EarthOrbit.clamp_velocity_for_periapsis) to guarantee
-# periapsis below the surface — without that clamp, lateral spread and
-# per-axis jitter can pump enough angular momentum into the orbit to
-# lift periapsis above ground, which both removes the trajectory arc
-# from the renderer and breaks the impact-on-ground gameplay rule.
-const METEORITE_RADIAL_SPEED_MIN: float = 4.0
-const METEORITE_RADIAL_SPEED_MAX: float = 7.0
-const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.4
-const METEORITE_TANGENTIAL_SPEED_MAX: float = 1.6
-# Margin: target r_p strictly less than EARTH_RADIUS so impact is
-# unambiguous under propagator step-size (the surface-cross termination
-# samples r at step boundaries and via the perihelion-cross detector).
-const METEORITE_PERIAPSIS_TARGET_KM: float = (
-	EarthOrbit.EARTH_RADIUS_KM * 0.9
-)
-# Cluster scatter relative to the storm's nominal entry point. Thousands
-# of km of lateral offset + altitude jitter so the three trajectory
-# lines fan out clearly on screen rather than overlapping; per-axis
-# velocity jitter peels each path further apart over time. Doubled
-# from the original tuning so the cluster fans out widely enough that
-# adjacent bodies don't visually collapse into one trajectory.
-const METEORITE_LATERAL_SPREAD_KM: float = 6000.0
-const METEORITE_ALT_JITTER_KM: float = 3000.0
-const METEORITE_VELOCITY_JITTER: float = 0.8
-const METEORITE_HP: float = 25.0
-
-# Wave mode: 20 meteorites from a single shared nexus, arrival times
-# distributed uniformly across a 10-second wall-clock window so the
-# player has continuous incoming traffic rather than a single burst.
-# A preroll alert window precedes the spawn window so the operator
-# gets time to react — bodies "scroll into" the radar from the top
-# during the preroll, then begin entering play once it elapses.
-const METEORITE_WAVE_COUNT: int = 20
-const METEORITE_WAVE_DURATION_SEC: float = 10.0
-const METEORITE_WAVE_PREROLL_SEC: float = 10.0
-
-# Decaying-orbit enemy: spawned just past apogee on a highly
-# eccentric ellipse — perigee 500 km, apogee 50000 km, e ≈ 0.78.
-# Body falls toward perigee, where each crossing fires a retrograde
-# burn that halves r_a. The orbit progressively shrinks (spirals
-# in) until the burn drives the OTHER apsis below Earth's surface,
-# at which point the body impacts on its next descending leg.
-const DECAYING_APOGEE_ALT_KM: float = 50000.0
-const DECAYING_PERIGEE_ALT_KM: float = 500.0
-# True anomaly at spawn, measured past apogee on the descending
-# leg (180° + 15° → orbit.nu wraps to ~-165° in (-π, π]). Body is
-# already heading inbound, so the very first observed motion is
-# "falling toward Earth" — sets the spiral-in narrative immediately.
-const DECAYING_INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
-const DECAYING_HP: float = 200.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
@@ -136,12 +65,6 @@ var _planning_dt_accum: float = 0.0
 # so subsequent ticks just nudge a single shared value. Cleared as soon as
 # the arrow / Shift / C combination breaks so the next press re-snaps.
 var _fleet_range_adjusting: bool = false
-var _rng := RandomNumberGenerator.new()
-# Active meteorite waves. Each carries its own nexus + queue of pending
-# spawn delays; ticked from _process so the 10-second window is real-
-# time and independent of time_factor (so pausing the sim doesn't
-# pause an in-flight wave).
-var _meteorite_waves: Array[MeteoriteWave] = []
 # Tracks whether any wave was inbound on the previous tick. Edge-
 # triggered map-mode switching uses this — radar auto-selects on
 # rising edge, surface map auto-selects on falling edge — so manual K
@@ -153,6 +76,9 @@ var impact_tracker := ImpactTracker.new()
 # in _ready; null-safe — if the texture's missing, ocean classification
 # falls back to the bounding-box table alone.
 var _albedo_image: Image = null
+
+var spawn_director: SpawnDirector
+var combat_controller: CombatController
 
 @onready var earth: Earth = $Earth as Earth
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
@@ -189,14 +115,23 @@ var satellites: Array[Satellite]:
 
 
 func _ready() -> void:
-	_rng.randomize()
 	_albedo_image = _load_albedo_image()
 	if impact_map != null:
 		impact_map.tracker = impact_tracker
-	if radar_map != null:
-		radar_map.waves = _meteorite_waves
 	_apply_map_mode()
-	_spawn_starting_fleet()
+
+	spawn_director = SpawnDirector.new()
+	add_child(spawn_director)
+	spawn_director.setup(satellite_container, real_satellites, threat_alert)
+
+	combat_controller = CombatController.new()
+	add_child(combat_controller)
+	combat_controller.setup(hud, beam_renderer)
+
+	if radar_map != null:
+		radar_map.waves = spawn_director.meteorite_waves
+
+	spawn_director.spawn_starting_fleet()
 	if not real_satellites.is_empty():
 		selected_ship = 0
 		real_satellites[0].select()
@@ -218,7 +153,7 @@ func _process(delta: float) -> void:
 	camera.process_movement(delta)
 	_process_continuous_input(delta)
 	_process_one_shot_input()
-	_tick_meteorite_waves(delta)
+	spawn_director.tick_waves(delta)
 	_auto_switch_map_mode()
 	_update_range_circle()
 	_render_orbits(delta)
@@ -234,7 +169,7 @@ func _physics_process(delta: float) -> void:
 	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
 		sat.advance_time(sim_delta)
-	_process_combat(sim_delta)
+	combat_controller.process_combat(real_satellites, sim_time, sim_delta)
 	_remove_dead_satellites()
 
 	if planning_mode:
@@ -269,94 +204,6 @@ func _render_orbits(delta: float) -> void:
 	if planning_mode:
 		for i in range(planning_satellites.size()):
 			planning_satellites[i].render_orbit(i == planning_selected)
-
-
-# Charge each satellite's energy pool, then either fire each weapon
-# at the closest valid enemy or let it cool. Lasers are continuous-
-# fire now: the same call applies dt-scaled damage, energy drain, and
-# heating; weapons that don't fire this tick cool toward ready instead.
-# Tower-defense: no player input needed.
-func _process_combat(sim_delta: float) -> void:
-	# One alive-and-orbit-alive scan per tick instead of one per weapon —
-	# the cheap pre-filter shared across every targeting query collapses
-	# the inner loop's work to envelope-distance + LOS, which is what
-	# actually depends on the attacker.
-	var candidates := _collect_targetable()
-	for sat in real_satellites:
-		if not sat.alive:
-			continue
-		sat.tick_combat(sim_delta)
-		for w_idx in range(sat.weapons.size()):
-			var w: Weapon = sat.weapons[w_idx]
-			var fired := false
-			if w.can_fire(sat):
-				var target := _pick_target_for_weapon(sat, w, candidates)
-				if target != null and w.fire(sat, target, sim_delta):
-					fired = true
-					hud.register_hit(sat, target)
-					beam_renderer.register_fire(sat, w_idx, target)
-			if not fired:
-				w.tick(sim_delta)
-
-
-# Bodies that can plausibly be shot at this tick. The team check is
-# left to the per-attacker pass (an attacker's valid targets are the
-# bodies on the *opposing* team) but everything else — alive flags,
-# orbit_alive, dead-but-not-yet-swept entries — is universal and gets
-# filtered once here so each weapon's inner loop touches a smaller
-# array.
-func _collect_targetable() -> Array[Satellite]:
-	var out: Array[Satellite] = []
-	for sat in real_satellites:
-		if sat.alive and sat.orbit_alive:
-			out.append(sat)
-	return out
-
-
-func _pick_target_for_weapon(
-	attacker: Satellite, w: Weapon, candidates: Array[Satellite]
-) -> Satellite:
-	# Two-key lexicographic ranking. In MAX_DAMAGE mode the primary key is
-	# distance² (closest wins, so range-falloff damage is highest). In
-	# MAX_DANGER mode the primary key is predicted time-to-impact (soonest
-	# threat to Earth wins), with distance² as a tiebreaker so non-impacting
-	# candidates fall back to the same closest-target rule rather than
-	# leaving the weapon idle when nothing is currently inbound. Time-to-
-	# impact is computed only when MAX_DANGER is active — the propagation
-	# clone is cheap but not free, so MAX_DAMAGE keeps the original tight
-	# loop.
-	var max_danger := attacker.targeting_mode == Satellite.TARGETING_MAX_DANGER
-	var best: Satellite = null
-	var best_t := INF
-	var best_d2 := INF
-	for other in candidates:
-		if other == attacker:
-			continue
-		if other.team == attacker.team:
-			continue
-		if not w.is_target_in_engagement_envelope(attacker, other):
-			continue
-		var d2: float = (other.orbit.r - attacker.orbit.r).length_squared()
-		var t := INF
-		if max_danger:
-			# Absolute impact time, not relative — a smaller value still
-			# means "more urgent" and ordering is identical, so we save
-			# a per-satellite subtraction in the targeting hot loop.
-			t = other.predict_impact_sim_time(sim_time)
-		var better := false
-		if max_danger:
-			if t < best_t:
-				better = true
-			elif t == best_t and d2 < best_d2:
-				better = true
-		else:
-			if d2 < best_d2:
-				better = true
-		if better:
-			best_t = t
-			best_d2 = d2
-			best = other
-	return best
 
 
 func _remove_dead_satellites() -> void:
@@ -506,13 +353,13 @@ func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("toggle_planning"):
 		toggle_planning()
 	if Input.is_action_just_pressed("add_enemies"):
-		add_enemies()
+		spawn_director.add_enemies()
 	if Input.is_action_just_pressed("add_meteorites"):
-		add_meteorite_storm()
+		spawn_director.add_meteorite_storm()
 	if Input.is_action_just_pressed("start_meteorite_wave"):
-		start_meteorite_wave()
+		spawn_director.start_meteorite_wave()
 	if Input.is_action_just_pressed("add_decaying_enemy"):
-		add_decaying_enemy()
+		spawn_director.add_decaying_enemy()
 	if Input.is_action_just_pressed("toggle_los"):
 		hud.los_visible = not hud.los_visible
 	if Input.is_action_just_pressed("toggle_impact_map"):
@@ -635,7 +482,7 @@ func _apply_map_mode() -> void:
 # Edge-triggered so a manual K press during a live wave doesn't keep
 # snapping the panel back to radar every frame.
 func _auto_switch_map_mode() -> void:
-	var inbound := not _meteorite_waves.is_empty()
+	var inbound := spawn_director.has_active_waves()
 	if inbound and not _wave_inbound_prev:
 		map_mode = MAP_MODE_RADAR
 		_apply_map_mode()
@@ -686,133 +533,6 @@ func add_satellite() -> void:
 	sat.select()
 
 
-# Spawn the starting fleet — three player satellites in 500 km circular
-# orbits with independent inclinations under the cap, random RAANs, and
-# true anomalies separated by a random gap so the formation fans out.
-# Selection is left to the caller so the standard "select index 0"
-# pattern in _ready stays in one place.
-func _spawn_starting_fleet() -> void:
-	var inc_max := deg_to_rad(STARTING_SAT_INC_MAX_DEG)
-	var gap_min := deg_to_rad(STARTING_SAT_NU_GAP_MIN_DEG)
-	var gap_max := deg_to_rad(STARTING_SAT_NU_GAP_MAX_DEG)
-	var nu := _rng.randf_range(0.0, TAU)
-	for i in range(STARTING_SAT_COUNT):
-		var sat := Satellite.new()
-		sat.orbit = EarthOrbit.make_circular(
-			STARTING_SAT_ALT_KM,
-			_rng.randf_range(0.0, inc_max),
-			_rng.randf_range(0.0, TAU),
-			nu,
-		)
-		satellite_container.add_child(sat)
-		real_satellites.append(sat)
-		nu = fposmod(nu + _rng.randf_range(gap_min, gap_max), TAU)
-
-
-# Spawn a fixed batch of unarmed enemies in random circular orbits.
-# Circular keeps them stable (no decay, no escape) so they're easy
-# tower-defense fodder; random altitude + orientation gives variety
-# without relying on hand-authored elements.
-func add_enemies(count: int = ENEMIES_PER_SPAWN) -> void:
-	for _i in range(count):
-		var sat := _make_enemy_in_random_orbit()
-		satellite_container.add_child(sat)
-		real_satellites.append(sat)
-
-
-# Spawn a cluster of meteorites all incoming from one random direction
-# — sub-orbital, unarmed, fragile. The cluster shares an entry point
-# and base velocity, jittered per body so they arrive separated by a
-# few hundred km. Lasers can pick them off in transit; any survivors
-# self-terminate on ground impact.
-func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
-	var wave := _build_meteorite_wave_at_random_nexus()
-	for _i in range(count):
-		var spec := _sample_meteorite_spec(
-			METEORITE_LATERAL_SPREAD_KM,
-			METEORITE_ALT_JITTER_KM,
-			METEORITE_VELOCITY_JITTER,
-		)
-		var sat := _make_meteorite(
-			wave.r_hat, wave.tangent, wave.base_altitude, wave.base_velocity, spec
-		)
-		satellite_container.add_child(sat)
-		real_satellites.append(sat)
-
-
-# Begin a 10-second wave: 50 meteorites all sharing one random nexus,
-# their individual spawn delays drawn uniformly across the window so
-# arrivals are spread out rather than bursty. Multiple waves can overlap
-# (the player presses "i" again before the previous wave finishes) —
-# each is a separate entry in _meteorite_waves with its own nexus.
-func start_meteorite_wave(
-	count: int = METEORITE_WAVE_COUNT,
-	duration_sec: float = METEORITE_WAVE_DURATION_SEC,
-	preroll_sec: float = METEORITE_WAVE_PREROLL_SEC,
-) -> void:
-	var wave := _build_meteorite_wave_at_random_nexus()
-	wave.populate(
-		_rng,
-		count,
-		duration_sec,
-		METEORITE_LATERAL_SPREAD_KM,
-		METEORITE_ALT_JITTER_KM,
-		METEORITE_VELOCITY_JITTER,
-		preroll_sec,
-	)
-	_meteorite_waves.append(wave)
-	if threat_alert != null:
-		threat_alert.trigger()
-
-
-# Sample a fresh nexus (entry direction, in-plane tangent, altitude,
-# base velocity) for a meteorite cluster. Shared between the
-# instantaneous storm (m) and the time-distributed wave (i) so both
-# spawn paths use the same physics setup.
-func _build_meteorite_wave_at_random_nexus() -> MeteoriteWave:
-	var wave := MeteoriteWave.new()
-	wave.r_hat = _random_unit_vector()
-	wave.tangent = _random_perpendicular_unit(wave.r_hat)
-	wave.base_altitude = _rng.randf_range(
-		METEORITE_ALT_MIN_KM, METEORITE_ALT_MAX_KM
-	)
-	var radial_speed := _rng.randf_range(
-		METEORITE_RADIAL_SPEED_MIN, METEORITE_RADIAL_SPEED_MAX
-	)
-	var tangential_speed := _rng.randf_range(
-		METEORITE_TANGENTIAL_SPEED_MIN, METEORITE_TANGENTIAL_SPEED_MAX
-	)
-	wave.base_velocity = (
-		-wave.r_hat * radial_speed + wave.tangent * tangential_speed
-	)
-	return wave
-
-
-# Advance every active wave's spawn timers by real-time delta. Spawns
-# any bodies whose timer expired this frame and drops completed waves.
-func _tick_meteorite_waves(delta: float) -> void:
-	if _meteorite_waves.is_empty():
-		return
-	var i := 0
-	while i < _meteorite_waves.size():
-		var wave := _meteorite_waves[i]
-		var ready_specs: Array[Dictionary] = wave.tick(delta)
-		for spec: Dictionary in ready_specs:
-			var sat := _make_meteorite(
-				wave.r_hat,
-				wave.tangent,
-				wave.base_altitude,
-				wave.base_velocity,
-				spec,
-			)
-			satellite_container.add_child(sat)
-			real_satellites.append(sat)
-		if wave.is_complete():
-			_meteorite_waves.remove_at(i)
-		else:
-			i += 1
-
-
 # Capture the impact coordinates of a meteorite that just terminated
 # on ground contact. Pulls the body's last ECI position, samples the
 # day-side albedo at the resulting UV to flag ocean vs land, and hands
@@ -842,151 +562,6 @@ func _spawn_impact_explosion(surface_pos: Vector3) -> void:
 	var explosion := ImpactExplosion.new()
 	add_child(explosion)
 	explosion.set_impact_position(surface_pos)
-
-
-func _make_meteorite(
-	r_hat: Vector3,
-	tangent: Vector3,
-	base_altitude: float,
-	base_velocity: Vector3,
-	spec: Dictionary,
-) -> Satellite:
-	var sat := Satellite.new()
-	sat.team = Satellite.TEAM_ENEMY
-	sat.weapons.clear()
-	sat.is_meteorite = true
-	sat.max_hp = METEORITE_HP
-	sat.hp = METEORITE_HP
-
-	# Lateral offset uses the in-plane basis (tangent + bitangent); the
-	# bitangent is just r_hat × tangent so the offset stays in the plane
-	# perpendicular to the entry vector. The lateral / altitude / vel-
-	# jitter values come pre-sampled in `spec` so the radar overlay can
-	# preview the same numbers before the body actually spawns.
-	var bitangent := r_hat.cross(tangent).normalized()
-	var lateral: Vector2 = spec["lateral"]
-	var alt_offset: float = spec["alt_offset"]
-	var vel_jitter: Vector3 = spec["vel_jitter"]
-	var altitude := base_altitude + alt_offset
-	var pos := r_hat * (EarthOrbit.EARTH_RADIUS_KM + altitude) + (
-		tangent * lateral.x + bitangent * lateral.y
-	)
-	var vel := base_velocity + vel_jitter
-	vel = EarthOrbit.clamp_velocity_for_periapsis(
-		pos, vel, METEORITE_PERIAPSIS_TARGET_KM
-	)
-	sat.orbit = EarthOrbit.new(pos, vel)
-	return sat
-
-
-# Roll a single meteorite spec. Used by the instantaneous storm path,
-# which (unlike the time-distributed wave) has no pre-populated queue
-# to draw from. Mirrors the per-body sampling done in
-# MeteoriteWave.populate so both spawn paths produce the same kind of
-# spread for the same lateral / altitude / velocity bands.
-func _sample_meteorite_spec(
-	lateral_spread: float,
-	altitude_jitter: float,
-	vel_jitter: float,
-) -> Dictionary:
-	var ang := _rng.randf_range(0.0, TAU)
-	var dist := _rng.randf_range(0.0, lateral_spread)
-	return {
-		"t": 0.0,
-		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
-		"alt_offset": _rng.randf_range(-altitude_jitter, altitude_jitter),
-		"vel_jitter": Vector3(
-			_rng.randf_range(-vel_jitter, vel_jitter),
-			_rng.randf_range(-vel_jitter, vel_jitter),
-			_rng.randf_range(-vel_jitter, vel_jitter),
-		),
-	}
-
-
-# Spawn a single decaying-orbit enemy. Highly eccentric, spawned
-# just past apogee on the descending leg. The body falls toward
-# perigee, gets a retrograde momentum kick at each perigee that
-# halves r_a (the orbit spirals inward), and eventually one of
-# those kicks pushes the trailing apsis below the surface — body
-# impacts on its next descent.
-func add_decaying_enemy() -> void:
-	var sat := _make_decaying_enemy()
-	satellite_container.add_child(sat)
-	real_satellites.append(sat)
-
-
-func _make_decaying_enemy() -> Satellite:
-	var sat := Satellite.new()
-	sat.team = Satellite.TEAM_ENEMY
-	sat.weapons.clear()
-	sat.is_decaying = true
-	sat.max_hp = DECAYING_HP
-	sat.hp = DECAYING_HP
-
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + DECAYING_PERIGEE_ALT_KM
-	var r_a := EarthOrbit.EARTH_RADIUS_KM + DECAYING_APOGEE_ALT_KM
-	var a := 0.5 * (r_p + r_a)
-	var e := (r_a - r_p) / (r_a + r_p)
-	var p_slr := a * (1.0 - e * e)
-	# 180° + offset → just past apogee, descending toward perigee.
-	var nu := PI + deg_to_rad(DECAYING_INITIAL_NU_FROM_APOGEE_DEG)
-
-	# Random orbital plane: pick an inclination/RAAN/argp triple so each
-	# spawn comes in from a different direction. Build perifocal-frame
-	# state (perigee along +x_pqw) at the requested true anomaly, then
-	# rotate into ECI with the standard 3-1-3 sequence.
-	var inc := _rng.randf_range(0.0, PI)
-	var raan := _rng.randf_range(0.0, TAU)
-	var argp := _rng.randf_range(0.0, TAU)
-	var co := cos(raan); var so := sin(raan)
-	var ci := cos(inc); var si := sin(inc)
-	var cw := cos(argp); var sw := sin(argp)
-	var pqw_x := Vector3(co * cw - so * sw * ci,  so * cw + co * sw * ci,  sw * si)
-	var pqw_y := Vector3(-co * sw - so * cw * ci, -so * sw + co * cw * ci, cw * si)
-
-	var r_at := p_slr / (1.0 + e * cos(nu))
-	var pos := pqw_x * (r_at * cos(nu)) + pqw_y * (r_at * sin(nu))
-	# Perifocal velocity from the conic identities: v_p = sqrt(μ/p) * -sin(ν),
-	# v_q = sqrt(μ/p) * (e + cos(ν)). Same prograde sense as a normal
-	# orbit — at nu just past apogee that means inbound (r·v < 0).
-	var v_mag := sqrt(EarthOrbit.MU / p_slr)
-	var vel := pqw_x * (-v_mag * sin(nu)) + pqw_y * (v_mag * (e + cos(nu)))
-	sat.orbit = EarthOrbit.new(pos, vel)
-	return sat
-
-
-func _make_enemy_in_random_orbit() -> Satellite:
-	var sat := Satellite.new()
-	sat.team = Satellite.TEAM_ENEMY
-	sat.weapons.clear()  # Enemies are unarmed in the MVP.
-
-	var altitude := _rng.randf_range(ENEMY_ALT_MIN_KM, ENEMY_ALT_MAX_KM)
-	var radius := EarthOrbit.EARTH_RADIUS_KM + altitude
-	var r_hat := _random_unit_vector()
-	var v_hat := _random_perpendicular_unit(r_hat)
-	var v_mag := sqrt(EarthOrbit.MU / radius)
-
-	sat.orbit = EarthOrbit.new(r_hat * radius, v_hat * v_mag)
-	return sat
-
-
-func _random_unit_vector() -> Vector3:
-	# Marsaglia: uniform on the sphere via two uniforms, no rejection.
-	var z := _rng.randf_range(-1.0, 1.0)
-	var theta := _rng.randf_range(0.0, TAU)
-	var r_xy := sqrt(maxf(1.0 - z * z, 0.0))
-	return Vector3(r_xy * cos(theta), r_xy * sin(theta), z)
-
-
-func _random_perpendicular_unit(axis: Vector3) -> Vector3:
-	# Build an arbitrary tangent in the plane perpendicular to `axis`,
-	# rotated through a random angle. Picks a stable seed direction
-	# that's never near-parallel to axis.
-	var seed_axis := Vector3.UP if absf(axis.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
-	var u := axis.cross(seed_axis).normalized()
-	var w := axis.cross(u).normalized()
-	var phi := _rng.randf_range(0.0, TAU)
-	return (u * cos(phi) + w * sin(phi)).normalized()
 
 
 func remove_satellite() -> void:
