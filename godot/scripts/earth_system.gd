@@ -91,6 +91,21 @@ const METEORITE_WAVE_COUNT: int = 20
 const METEORITE_WAVE_DURATION_SEC: float = 10.0
 const METEORITE_WAVE_PREROLL_SEC: float = 10.0
 
+# Decaying-orbit enemy: spawned just past apogee on a highly
+# eccentric ellipse — perigee 500 km, apogee 50000 km, e ≈ 0.78.
+# Body falls toward perigee, where each crossing fires a retrograde
+# burn that halves r_a. The orbit progressively shrinks (spirals
+# in) until the burn drives the OTHER apsis below Earth's surface,
+# at which point the body impacts on its next descending leg.
+const DECAYING_APOGEE_ALT_KM: float = 50000.0
+const DECAYING_PERIGEE_ALT_KM: float = 500.0
+# True anomaly at spawn, measured past apogee on the descending
+# leg (180° + 15° → orbit.nu wraps to ~-165° in (-π, π]). Body is
+# already heading inbound, so the very first observed motion is
+# "falling toward Earth" — sets the spiral-in narrative immediately.
+const DECAYING_INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
+const DECAYING_HP: float = 100.0
+
 @export var time_factor: int = 500
 var planning_dt: int = 0
 var planning_mode: bool = false
@@ -265,12 +280,13 @@ func _remove_dead_satellites() -> void:
 			i += 1
 			continue
 		# Tally enemy terminations by cause: HP gone -> shot down by a
-		# weapon; meteorite still has HP -> ground impact (advance_time
-		# kills it on surface crossing without touching hp).
+		# weapon; sub-orbital body (meteorite or post-burn decaying
+		# enemy) still has HP -> ground impact (advance_time kills it
+		# on surface crossing without touching hp).
 		if sat.team == Satellite.TEAM_ENEMY:
 			if sat.hp <= 0.0:
 				enemies_shot_down += 1
-			elif sat.is_meteorite:
+			elif sat.is_meteorite or sat.is_decaying:
 				meteorites_impacted += 1
 				_record_meteorite_impact(sat)
 		# Mirror removal in planning so indices stay aligned.
@@ -384,6 +400,8 @@ func _process_one_shot_input() -> void:
 		add_meteorite_storm()
 	if Input.is_action_just_pressed("start_meteorite_wave"):
 		start_meteorite_wave()
+	if Input.is_action_just_pressed("add_decaying_enemy"):
+		add_decaying_enemy()
 	if Input.is_action_just_pressed("toggle_los"):
 		hud.los_visible = not hud.los_visible
 	if Input.is_action_just_pressed("toggle_impact_map"):
@@ -694,6 +712,57 @@ func _sample_meteorite_spec(
 			_rng.randf_range(-vel_jitter, vel_jitter),
 		),
 	}
+
+
+# Spawn a single decaying-orbit enemy. Highly eccentric, spawned
+# just past apogee on the descending leg. The body falls toward
+# perigee, gets a retrograde momentum kick at each perigee that
+# halves r_a (the orbit spirals inward), and eventually one of
+# those kicks pushes the trailing apsis below the surface — body
+# impacts on its next descent.
+func add_decaying_enemy() -> void:
+	var sat := _make_decaying_enemy()
+	satellite_container.add_child(sat)
+	real_satellites.append(sat)
+
+
+func _make_decaying_enemy() -> Satellite:
+	var sat := Satellite.new()
+	sat.team = Satellite.TEAM_ENEMY
+	sat.weapons.clear()
+	sat.is_decaying = true
+	sat.hp = DECAYING_HP
+
+	var r_p := EarthOrbit.EARTH_RADIUS_KM + DECAYING_PERIGEE_ALT_KM
+	var r_a := EarthOrbit.EARTH_RADIUS_KM + DECAYING_APOGEE_ALT_KM
+	var a := 0.5 * (r_p + r_a)
+	var e := (r_a - r_p) / (r_a + r_p)
+	var p_slr := a * (1.0 - e * e)
+	# 180° + offset → just past apogee, descending toward perigee.
+	var nu := PI + deg_to_rad(DECAYING_INITIAL_NU_FROM_APOGEE_DEG)
+
+	# Random orbital plane: pick an inclination/RAAN/argp triple so each
+	# spawn comes in from a different direction. Build perifocal-frame
+	# state (perigee along +x_pqw) at the requested true anomaly, then
+	# rotate into ECI with the standard 3-1-3 sequence.
+	var inc := _rng.randf_range(0.0, PI)
+	var raan := _rng.randf_range(0.0, TAU)
+	var argp := _rng.randf_range(0.0, TAU)
+	var co := cos(raan); var so := sin(raan)
+	var ci := cos(inc); var si := sin(inc)
+	var cw := cos(argp); var sw := sin(argp)
+	var pqw_x := Vector3(co * cw - so * sw * ci,  so * cw + co * sw * ci,  sw * si)
+	var pqw_y := Vector3(-co * sw - so * cw * ci, -so * sw + co * cw * ci, cw * si)
+
+	var r_at := p_slr / (1.0 + e * cos(nu))
+	var pos := pqw_x * (r_at * cos(nu)) + pqw_y * (r_at * sin(nu))
+	# Perifocal velocity from the conic identities: v_p = sqrt(μ/p) * -sin(ν),
+	# v_q = sqrt(μ/p) * (e + cos(ν)). Same prograde sense as a normal
+	# orbit — at nu just past apogee that means inbound (r·v < 0).
+	var v_mag := sqrt(EarthOrbit.MU / p_slr)
+	var vel := pqw_x * (-v_mag * sin(nu)) + pqw_y * (v_mag * (e + cos(nu)))
+	sat.orbit = EarthOrbit.new(pos, vel)
+	return sat
 
 
 func _make_enemy_in_random_orbit() -> Satellite:
