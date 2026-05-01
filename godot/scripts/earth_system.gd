@@ -175,6 +175,15 @@ const MAP_MODE_OFF: int = 2
 const MAP_MODE_COUNT: int = 3
 var map_mode: int = MAP_MODE_SURFACE
 
+# Wall-clock cadence at which orbit visuals get rebuilt. Decoupled from
+# the physics tick: the orbit/trajectory mesh doesn't need to refresh
+# at 60 Hz — at high time_factor the orbit shape is cached anyway, and
+# meteorite/decaying-spiral geometry that *does* rebuild per tick is
+# visually indistinguishable above ~15 Hz. Rebuilding at this rate
+# avoids 1200+ surface re-allocations per second during a 20-body wave.
+const ORBIT_RENDER_INTERVAL: float = 1.0 / 15.0
+var _orbit_render_accum: float = ORBIT_RENDER_INTERVAL
+
 var satellites: Array[Satellite]:
 	get: return planning_satellites if planning_mode else real_satellites
 
@@ -212,6 +221,7 @@ func _process(delta: float) -> void:
 	_tick_meteorite_waves(delta)
 	_auto_switch_map_mode()
 	_update_range_circle()
+	_render_orbits(delta)
 	hud.update_hud(self, planning_mode, time_factor, planning_dt)
 	hud.draw_target_lines(self, camera)
 
@@ -226,8 +236,6 @@ func _physics_process(delta: float) -> void:
 		sat.advance_time(sim_delta)
 	_process_combat(sim_delta)
 	_remove_dead_satellites()
-	for sat in real_satellites:
-		sat.render_orbit(true)
 
 	if planning_mode:
 		_sync_planning_to_reality()
@@ -241,11 +249,26 @@ func _physics_process(delta: float) -> void:
 			plan_sat.clone_orbit_from(real_satellites[i])
 			if plan_sat.orbit_alive and plan_sat.alive and window > 0.0:
 				plan_sat.advance_time(window)
-			plan_sat.render_orbit(i == planning_selected)
 			plan_sat.visible = true
 	else:
 		for sat in planning_satellites:
 			sat.visible = false
+
+
+# Throttled orbit-visual rebuild. Lives in _process so the cadence is
+# wall-clock and time_factor-independent — the underlying orbit math
+# already advanced this frame in _physics_process; we just refresh the
+# line strip(s) at human-perceptual rates.
+func _render_orbits(delta: float) -> void:
+	_orbit_render_accum += delta
+	if _orbit_render_accum < ORBIT_RENDER_INTERVAL:
+		return
+	_orbit_render_accum = 0.0
+	for sat in real_satellites:
+		sat.render_orbit(true)
+	if planning_mode:
+		for i in range(planning_satellites.size()):
+			planning_satellites[i].render_orbit(i == planning_selected)
 
 
 # Charge each satellite's energy pool, then either fire each weapon
@@ -254,6 +277,11 @@ func _physics_process(delta: float) -> void:
 # heating; weapons that don't fire this tick cool toward ready instead.
 # Tower-defense: no player input needed.
 func _process_combat(sim_delta: float) -> void:
+	# One alive-and-orbit-alive scan per tick instead of one per weapon —
+	# the cheap pre-filter shared across every targeting query collapses
+	# the inner loop's work to envelope-distance + LOS, which is what
+	# actually depends on the attacker.
+	var candidates := _collect_targetable()
 	for sat in real_satellites:
 		if not sat.alive:
 			continue
@@ -262,7 +290,7 @@ func _process_combat(sim_delta: float) -> void:
 			var w: Weapon = sat.weapons[w_idx]
 			var fired := false
 			if w.can_fire(sat):
-				var target := _pick_target_for_weapon(sat, w)
+				var target := _pick_target_for_weapon(sat, w, candidates)
 				if target != null and w.fire(sat, target, sim_delta):
 					fired = true
 					hud.register_hit(sat, target)
@@ -271,7 +299,23 @@ func _process_combat(sim_delta: float) -> void:
 				w.tick(sim_delta)
 
 
-func _pick_target_for_weapon(attacker: Satellite, w: Weapon) -> Satellite:
+# Bodies that can plausibly be shot at this tick. The team check is
+# left to the per-attacker pass (an attacker's valid targets are the
+# bodies on the *opposing* team) but everything else — alive flags,
+# orbit_alive, dead-but-not-yet-swept entries — is universal and gets
+# filtered once here so each weapon's inner loop touches a smaller
+# array.
+func _collect_targetable() -> Array[Satellite]:
+	var out: Array[Satellite] = []
+	for sat in real_satellites:
+		if sat.alive and sat.orbit_alive:
+			out.append(sat)
+	return out
+
+
+func _pick_target_for_weapon(
+	attacker: Satellite, w: Weapon, candidates: Array[Satellite]
+) -> Satellite:
 	# Two-key lexicographic ranking. In MAX_DAMAGE mode the primary key is
 	# distance² (closest wins, so range-falloff damage is highest). In
 	# MAX_DANGER mode the primary key is predicted time-to-impact (soonest
@@ -285,8 +329,10 @@ func _pick_target_for_weapon(attacker: Satellite, w: Weapon) -> Satellite:
 	var best: Satellite = null
 	var best_t := INF
 	var best_d2 := INF
-	for other in real_satellites:
+	for other in candidates:
 		if other == attacker:
+			continue
+		if other.team == attacker.team:
 			continue
 		if not w.is_target_in_engagement_envelope(attacker, other):
 			continue
