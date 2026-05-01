@@ -11,6 +11,15 @@ extends "res://scripts/weapons/weapon.gd"
 
 const LosCheck = preload("res://scripts/los_check.gd")
 
+# Targeting modes. Stored as ints on Satellite.targeting_mode and read
+# by pick_target() to rank in-envelope candidates. Definitions live on
+# the weapon (the strategy that consumes them) rather than the
+# satellite (which just carries the operator setting); HUD and
+# EarthSystem reference them via LaserWeapon.* so toggling and
+# rendering stay aligned with the weapon's semantics.
+const TARGETING_MAX_DAMAGE: int = 0
+const TARGETING_MAX_DANGER: int = 1
+
 # Damage applied to target.hp per sim-second of beam contact at zero
 # range. Effective damage is scaled by range_factor(distance).
 const DAMAGE_PER_SEC: float = 5.0
@@ -37,6 +46,10 @@ const MAX_RANGE_KM: float = 40000.0
 # Floor on a satellite's user-set engagement range. Pulling it below
 # this would let an operator effectively disable fire control.
 const MIN_ENGAGEMENT_RANGE_KM: float = 500.0
+
+
+func display_name() -> String:
+	return "Laser"
 
 
 func damage_per_second() -> float:
@@ -96,6 +109,52 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 	if distance >= cap:
 		return false
 	return not LosCheck.is_blocked(attacker.orbit.r, target.orbit.r)
+
+
+## Two-key lexicographic ranking. In MAX_DAMAGE mode the primary key is
+## distance² (closest wins, so range-falloff damage is highest). In
+## MAX_DANGER mode the primary key is predicted time-to-impact (soonest
+## threat to Earth wins), with distance² as a tiebreaker so non-impacting
+## candidates fall back to the same closest-target rule rather than
+## leaving the weapon idle when nothing is currently inbound. Time-to-
+## impact is computed only when MAX_DANGER is active — the propagation
+## clone is cheap but not free, so MAX_DAMAGE keeps the original tight
+## loop. Returns null when no candidate is in envelope this tick.
+func pick_target(attacker, candidates: Array, sim_time: float):
+	if attacker == null:
+		return null
+	var max_danger: bool = attacker.targeting_mode == TARGETING_MAX_DANGER
+	var best = null
+	var best_t := INF
+	var best_d2 := INF
+	for other in candidates:
+		if other == attacker:
+			continue
+		if other.team == attacker.team:
+			continue
+		if not is_target_in_engagement_envelope(attacker, other):
+			continue
+		var d2: float = (other.orbit.r - attacker.orbit.r).length_squared()
+		var t := INF
+		if max_danger:
+			# Absolute impact time, not relative — a smaller value still
+			# means "more urgent" and ordering is identical, so we save
+			# a per-satellite subtraction in the targeting hot loop.
+			t = other.predict_impact_sim_time(sim_time)
+		var better := false
+		if max_danger:
+			if t < best_t:
+				better = true
+			elif t == best_t and d2 < best_d2:
+				better = true
+		else:
+			if d2 < best_d2:
+				better = true
+		if better:
+			best_t = t
+			best_d2 = d2
+			best = other
+	return best
 
 
 func fire(attacker, target, sim_delta: float) -> bool:

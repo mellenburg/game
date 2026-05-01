@@ -23,6 +23,8 @@ const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
 const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
+const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
+const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -34,6 +36,12 @@ const PLANNING_DT_MAX: int = 86400 * 7  # one week of plan window
 # to MAX_RANGE) in roughly four seconds — fast enough to feel
 # responsive, slow enough to land on a chosen ring.
 const RANGE_RATE_KM_PER_SEC: float = 10000.0
+# Max-orbital-radius adjustment rate while shift+left/right is held.
+# Faster than the engagement-range knob because the railgun cap covers
+# a much wider band (100 km up to GEO+ and beyond) — sweeping at 10
+# k/s would feel sluggish at the high end. 25 k/s lets the operator
+# move from a tight 1 000 km cap to the default 50 000 km in ~2 s.
+const MAX_RADIUS_RATE_KM_PER_SEC: float = 25000.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
@@ -253,9 +261,16 @@ func _process_continuous_input(delta: float) -> void:
 	var shift_held := Input.is_key_pressed(KEY_SHIFT)
 	var thrust := Vector3.ZERO
 	var range_input := 0.0
+	var radius_input := 0.0
 	if shift_held:
+		# Shift gates the arrow keys onto two adjustment axes: up/down
+		# nudge the laser engagement range, left/right nudge the railgun
+		# max-orbital-radius cap. Thrust is suppressed in this branch so
+		# releasing shift mid-press doesn't dribble unintended thrust.
 		if Input.is_action_pressed("thrust_prograde"):  range_input += 1.0
 		if Input.is_action_pressed("thrust_retrograde"): range_input -= 1.0
+		if Input.is_action_pressed("thrust_right"):      radius_input += 1.0
+		if Input.is_action_pressed("thrust_left"):       radius_input -= 1.0
 	else:
 		if Input.is_action_pressed("thrust_prograde"):  thrust.x += 1.0
 		if Input.is_action_pressed("thrust_retrograde"): thrust.x -= 1.0
@@ -342,6 +357,24 @@ func _process_continuous_input(delta: float) -> void:
 				)
 	_fleet_range_adjusting = fleet_adjusting_now
 
+	# Railgun max-orbital-radius nudge. Same write-to-real-not-planning
+	# pattern as the engagement-range slider, since clone_orbit_from
+	# overwrites the planning copy each tick. No fire-control gate here
+	# — the cap is always live (the railgun checks it on every shot
+	# regardless of which other modes are toggled).
+	if radius_input != 0.0 and not real_satellites.is_empty():
+		var real_idx := planning_selected if planning_mode else selected_ship
+		if real_idx >= 0 and real_idx < real_satellites.size():
+			var rsat := real_satellites[real_idx]
+			if (
+				rsat.team == Satellite.TEAM_PLAYER
+				and not rsat.weapons.is_empty()
+			):
+				rsat.set_max_orbital_radius(
+					rsat.max_orbital_radius_km
+					+ radius_input * MAX_RADIUS_RATE_KM_PER_SEC * delta
+				)
+
 
 func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("select_next"):
@@ -374,6 +407,8 @@ func _process_one_shot_input() -> void:
 			_toggle_targeting_mode_on_all()
 		else:
 			_toggle_targeting_mode_on_selected()
+	if Input.is_action_just_pressed("toggle_railgun"):
+		_toggle_railgun_on_all()
 
 
 # Toggle fire-control mode on the active player satellite. Mutates
@@ -438,16 +473,36 @@ func _toggle_targeting_mode_on_all() -> void:
 		return
 	var any_max_damage := false
 	for sat in armed:
-		if sat.targeting_mode == Satellite.TARGETING_MAX_DAMAGE:
+		if sat.targeting_mode == LaserWeapon.TARGETING_MAX_DAMAGE:
 			any_max_damage = true
 			break
 	var target_mode := (
-		Satellite.TARGETING_MAX_DANGER if any_max_damage
-		else Satellite.TARGETING_MAX_DAMAGE
+		LaserWeapon.TARGETING_MAX_DANGER if any_max_damage
+		else LaserWeapon.TARGETING_MAX_DAMAGE
 	)
 	for sat in armed:
 		if sat.targeting_mode != target_mode:
 			sat.toggle_targeting_mode()
+
+
+# Fleet-wide railgun gate (X). If any armed player ship currently has
+# its railgun on, snap the whole fleet off; otherwise snap them all on.
+# Same "consensus then flip" pattern as fire-control / targeting so a
+# mixed fleet converges to one state in a single press. Unarmed and
+# enemy ships are skipped — railgun_enabled is meaningless on them.
+func _toggle_railgun_on_all() -> void:
+	var armed := _armed_player_sats()
+	if armed.is_empty():
+		return
+	var any_on := false
+	for sat in armed:
+		if sat.railgun_enabled:
+			any_on = true
+			break
+	var target := not any_on
+	for sat in armed:
+		if sat.railgun_enabled != target:
+			sat.toggle_railgun()
 
 
 func _armed_player_sats() -> Array[Satellite]:
