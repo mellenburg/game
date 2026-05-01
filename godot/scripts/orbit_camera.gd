@@ -6,7 +6,7 @@ extends Camera3D
 ##   A / D            rotate clockwise / counterclockwise along the path
 ##                    (clockwise as viewed from world +Z).
 ##   W / S            decrease / increase the path's radius.
-##   Shift+W / Shift+D
+##   Shift+W / Shift+S
 ##                    temporarily increase / decrease the orbit's
 ##                    inclination, pivoting the camera out of plane about
 ##                    its current location (the line of nodes).
@@ -31,7 +31,7 @@ const ORBIT_TILT_DEG: float = 20.0
 const AUTO_ORBIT_RATE: float = TAU / 90.0  # rad/s, slow ambient drift
 const USER_ANGULAR_RATE: float = TAU / 15.0  # rad/s while A/D held
 const RADIUS_RATE: float = 0.6 * DEFAULT_ORBIT_RADIUS  # units/s while W/S
-const INCLINATION_RATE_DEG: float = 90.0  # deg/s while shift+W/D held
+const INCLINATION_RATE_DEG: float = 90.0  # deg/s while shift+W/S held
 const MAX_INCLINATION_DEG: float = 60.0
 const MOUSE_SENSITIVITY: float = 0.15
 
@@ -101,12 +101,8 @@ func process_movement(delta: float) -> void:
 		_orbit_phase -= USER_ANGULAR_RATE * delta
 		phase_input = true
 	if Input.is_action_pressed("move_right"):
-		if shift:
-			_inclination_offset -= incl_step
-			inclination_input = true
-		else:
-			_orbit_phase += USER_ANGULAR_RATE * delta
-			phase_input = true
+		_orbit_phase += USER_ANGULAR_RATE * delta
+		phase_input = true
 	if Input.is_action_pressed("move_forward"):
 		if shift:
 			_inclination_offset += incl_step
@@ -115,8 +111,12 @@ func process_movement(delta: float) -> void:
 			_orbit_radius -= RADIUS_RATE * delta
 			radius_input = true
 	if Input.is_action_pressed("move_backward"):
-		_orbit_radius += RADIUS_RATE * delta
-		radius_input = true
+		if shift:
+			_inclination_offset -= incl_step
+			inclination_input = true
+		else:
+			_orbit_radius += RADIUS_RATE * delta
+			radius_input = true
 
 	# Phase auto-advances unless the player is actively scrubbing it.
 	if not phase_input:
