@@ -277,19 +277,12 @@ func render_orbit(show_path: bool) -> void:
 	# style as a regular orbit, but cut off at the surface so the part
 	# that would tunnel through Earth isn't drawn.
 	if is_decaying:
-		# While the orbit's perigee is still above ground we render
-		# the full ellipse — the spiral-in story is told by the
-		# ellipse visibly shrinking after each perigee burn. Once a
-		# burn drops r_p below the surface the body is on its final
-		# inbound leg, so we switch to the truncated trajectory the
-		# meteorites use.
-		if (
-			is_finite(orbit.r_p)
-			and orbit.r_p >= EarthOrbit.EARTH_RADIUS_KM
-		):
-			path_visual.update_orbit(orbit)
-		else:
-			path_visual.update_trajectory(orbit)
+		# Render the body's entire predicted future trajectory as a
+		# multi-segment spiral: current arc to next perigee, then a
+		# full ellipse for each remaining post-burn orbit, then the
+		# truncated final inbound leg to the surface. The spiral
+		# tells the player how many cycles are left before impact.
+		path_visual.update_decaying_spiral(orbit)
 	elif is_meteorite:
 		path_visual.update_trajectory(orbit)
 	else:

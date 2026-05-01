@@ -5,6 +5,7 @@ extends "res://tests/framework.gd"
 ## is exercised indirectly through the orbit it produces.
 
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const OrbitalPath = preload("res://scripts/orbital_path.gd")
 
 const APOGEE_ALT_KM: float = 50000.0
 const PERIGEE_ALT_KM: float = 500.0
@@ -131,3 +132,63 @@ func test_repeated_burns_eventually_drive_orbit_into_surface() -> void:
 		):
 			return
 	fail("orbit never spiraled below the surface after 6 perigee burns")
+
+
+func test_spiral_segment_count_for_default_orbit() -> void:
+	# Apogee 50000 km, perigee 500 km: r_a halves to 28186 → 14093 →
+	# 7046 above r_p, then the fourth burn flips orientation and the
+	# trailing apsis lands below ground. Initial inbound arc + three
+	# full ellipses + final inbound arc = five segments.
+	var o := _make_decaying()
+	var segs: Array = OrbitalPath._build_decaying_segments(o)
+	assert_eq(segs.size(), 5)
+
+
+func test_spiral_first_segment_runs_to_perigee() -> void:
+	# Spawn nu is just past apogee on the descending leg (negative,
+	# wrapped). Initial segment must sweep forward to the next perigee
+	# at nu = 0.
+	var o := _make_decaying()
+	var segs: Array = OrbitalPath._build_decaying_segments(o)
+	var s0: Dictionary = segs[0]
+	assert_close(s0["nu_start"], o.nu, 1.0e-6)
+	assert_close(s0["nu_end"], 0.0, 1.0e-6)
+
+
+func test_spiral_middle_segments_are_full_revolutions() -> void:
+	# Every segment between the initial inbound arc and the final
+	# impact arc covers a full revolution.
+	var o := _make_decaying()
+	var segs: Array = OrbitalPath._build_decaying_segments(o)
+	assert_true(segs.size() >= 3, "expected at least 3 segments")
+	for i in range(1, segs.size() - 1):
+		var seg: Dictionary = segs[i]
+		var sweep: float = seg["nu_end"] - seg["nu_start"]
+		assert_close(sweep, TAU, 1.0e-9)
+
+
+func test_spiral_final_segment_meets_earth_surface() -> void:
+	# r evaluated at the final segment's end nu must equal Earth's
+	# radius — that's the impact point the renderer truncates at.
+	var o := _make_decaying()
+	var segs: Array = OrbitalPath._build_decaying_segments(o)
+	var last: Dictionary = segs[-1]
+	var e: float = last["e"]
+	var p_slr: float = last["p_slr"]
+	var r_at_end: float = p_slr / (1.0 + e * cos(last["nu_end"]))
+	assert_close(r_at_end, EarthOrbit.EARTH_RADIUS_KM, 1.0e-3)
+
+
+func test_spiral_segments_nest_inward() -> void:
+	# Each successive full-ellipse segment must have a smaller apogee
+	# than the previous — that's the literal "spiral in" property.
+	var o := _make_decaying()
+	var segs: Array = OrbitalPath._build_decaying_segments(o)
+	var prev_r_a := INF
+	for i in range(segs.size() - 1):  # exclude final partial
+		var seg: Dictionary = segs[i]
+		var a: float = seg["p_slr"] / (1.0 - seg["e"] * seg["e"])
+		var r_a: float = a * (1.0 + seg["e"])
+		assert_true(r_a <= prev_r_a + 1.0e-3,
+			"segment %d r_a=%f exceeded previous %f" % [i, r_a, prev_r_a])
+		prev_r_a = r_a

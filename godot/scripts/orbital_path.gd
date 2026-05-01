@@ -167,6 +167,243 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	_last_color = color
 
 
+# Maximum number of perigee-burn segments to walk before giving up. Real
+# spirals settle in ~4 cycles before an apsis falls below the surface;
+# the bound is a safety net against numerical pathologies.
+const _DECAYING_MAX_SEGMENTS: int = 8
+# Floor on points per segment so even a tiny final-impact arc still
+# reads as a curve rather than collapsing to a single line segment.
+const _DECAYING_MIN_PTS_PER_SEG: int = 8
+
+
+## Render a decaying-orbit enemy's full predicted future trajectory as
+## a multi-segment spiral: the inbound arc to its next perigee, then a
+## full ellipse for each post-burn orbit, ending with the inbound arc
+## that intersects Earth's surface. Each perigee-burn halves r_a, so
+## the orbits visibly nest inward — the rendered spiral is the player's
+## window into "how many cycles before this thing impacts".
+func update_decaying_spiral(orbit: EarthOrbit) -> void:
+	if not orbit.is_state_valid():
+		_array_mesh.clear_surfaces()
+		return
+	var ecc0 := orbit.ecc
+	var p0 := orbit.p_slr
+	if (
+		not is_finite(ecc0) or not is_finite(p0)
+		or p0 <= 0.0 or ecc0 <= 0.0
+	):
+		_array_mesh.clear_surfaces()
+		return
+
+	var segs := _build_decaying_segments(orbit)
+	if segs.is_empty():
+		_array_mesh.clear_surfaces()
+		return
+
+	var total_sweep := 0.0
+	for seg in segs:
+		total_sweep += seg["nu_end"] - seg["nu_start"]
+	if total_sweep <= 0.0:
+		_array_mesh.clear_surfaces()
+		return
+
+	# Allocate points proportional to nu sweep, with a floor per segment
+	# so short final arcs aren't visually collapsed.
+	var per_radian := float(POINTS) / total_sweep
+	var counts: PackedInt32Array = PackedInt32Array()
+	counts.resize(segs.size())
+	var total_pts := 0
+	for i in range(segs.size()):
+		var s: Dictionary = segs[i]
+		var sweep: float = s["nu_end"] - s["nu_start"]
+		var n := maxi(_DECAYING_MIN_PTS_PER_SEG, int(round(sweep * per_radian)))
+		counts[i] = n
+		total_pts += n
+
+	# Resize the cached buffers so the spiral writes in place — no per-
+	# frame Vector3Array allocation, matching the rest of this file.
+	if _points.size() != total_pts:
+		_points.resize(total_pts)
+		_colors.resize(total_pts)
+
+	# Plane (raan, inc) is invariant across in-plane perigee burns; only
+	# argp flips when a halving over-shoots r_p (the orientation flip).
+	# Cache the raan/inc trig once and recompute argp trig per segment.
+	var co := cos(orbit.raan); var so := sin(orbit.raan)
+	var ci := cos(orbit.inc); var si := sin(orbit.inc)
+
+	var write_idx := 0
+	for i in range(segs.size()):
+		var seg: Dictionary = segs[i]
+		var seg_e: float = seg["e"]
+		var seg_p: float = seg["p_slr"]
+		var seg_argp: float = seg["argp"]
+		var nu_a: float = seg["nu_start"]
+		var nu_b: float = seg["nu_end"]
+		var n: int = counts[i]
+		var cw := cos(seg_argp); var sw := sin(seg_argp)
+		var pqw_x := Vector3(
+			co * cw - so * sw * ci,
+			so * cw + co * sw * ci,
+			sw * si,
+		)
+		var pqw_y := Vector3(
+			-co * sw - so * cw * ci,
+			-so * sw + co * cw * ci,
+			cw * si,
+		)
+		for j in range(n):
+			var t: float = (
+				0.0 if n <= 1 else float(j) / float(n - 1)
+			)
+			var nu := lerpf(nu_a, nu_b, t)
+			var r_at: float = seg_p / (1.0 + seg_e * cos(nu))
+			var pos := (
+				pqw_x * (r_at * cos(nu)) + pqw_y * (r_at * sin(nu))
+			) * SCENE_SCALE
+			_points[write_idx] = pos
+			_colors[write_idx] = color
+			write_idx += 1
+
+	_upload_surface()
+	_material.albedo_color = color
+	# Spiral geometry changes every tick (nu0 of segment 0 sweeps with
+	# the body, segments compress after each burn); invalidate the
+	# orbit-cache signature so update_orbit rebuilds correctly if ever
+	# called on a former decaying body.
+	_last_signature = Vector4(NAN, NAN, NAN, NAN)
+	_last_color = color
+
+
+# Forward-simulate the perigee-burn sequence and return one dictionary
+# per spiral segment with (e, p_slr, argp, nu_start, nu_end). raan and
+# inc are taken straight off `orbit` by the caller — in-plane burns
+# don't perturb them. Static so headless tests can exercise the
+# segmentation without instantiating a Node.
+static func _build_decaying_segments(orbit: EarthOrbit) -> Array:
+	var segs: Array = []
+	var cur_e: float = orbit.ecc
+	var cur_p: float = orbit.p_slr
+	var cur_argp: float = orbit.argp
+	var cur_r_p: float = orbit.r_p
+	var cur_r_a: float = orbit.r_a
+	if not is_finite(cur_r_p) or not is_finite(cur_r_a):
+		return segs
+
+	var nu0: float = orbit.nu
+
+	# Final-descent shortcut: after the over-shooting burn the orbit's
+	# perigee already sits below ground, so the body won't reach a
+	# next "perigee" — it impacts first. Render only the inbound arc
+	# from the current nu to the surface crossing, no further burns.
+	if cur_r_p < EarthOrbit.EARTH_RADIUS_KM:
+		var nu_end_impact := _next_surface_crossing(cur_p, cur_e, nu0)
+		if is_finite(nu_end_impact) and nu_end_impact > nu0:
+			segs.append({
+				"e": cur_e, "p_slr": cur_p, "argp": cur_argp,
+				"nu_start": nu0, "nu_end": nu_end_impact,
+			})
+		return segs
+
+	# Normal case: initial segment runs from the body's current true
+	# anomaly forward in motion to the next perigee. orbit.nu wraps to
+	# (-π, π]; forward motion sweeps nu monotonically upward, so the
+	# next perigee is at nu = 0 if currently negative (descending) or
+	# nu = TAU if currently positive (already past perigee, full
+	# revolution to the next).
+	var initial_end: float = 0.0 if nu0 <= 0.0 else TAU
+	segs.append({
+		"e": cur_e, "p_slr": cur_p, "argp": cur_argp,
+		"nu_start": nu0, "nu_end": initial_end,
+	})
+
+	for _cycle in range(_DECAYING_MAX_SEGMENTS):
+		# Halve r_a. If r_a/2 falls below r_p, the burn over-shoots:
+		# the burn point becomes the new orbit's apogee and the trailing
+		# apsis (= old r_a/2) becomes the new perigee.
+		var halved: float = cur_r_a * 0.5
+		var new_r_p: float = minf(cur_r_p, halved)
+		var new_r_a: float = maxf(cur_r_p, halved)
+		var flipped: bool = halved < cur_r_p
+		var new_argp: float = (
+			fposmod(cur_argp + PI, TAU) if flipped else cur_argp
+		)
+		var new_a: float = 0.5 * (new_r_p + new_r_a)
+		var denom: float = new_r_a + new_r_p
+		if denom <= 0.0:
+			break
+		var new_e: float = (new_r_a - new_r_p) / denom
+		var new_p: float = new_a * (1.0 - new_e * new_e)
+		if new_p <= 0.0:
+			break
+		# Body's nu in the new orbit: at perigee (nu = 0) when not
+		# flipped, at apogee (nu = π) when flipped. Rendering sweeps
+		# forward from there.
+		var seg_nu_start: float = PI if flipped else 0.0
+
+		if new_r_p < EarthOrbit.EARTH_RADIUS_KM:
+			# Final segment: arc from start nu forward to the surface
+			# crossing on the descending leg. r(ν) = p / (1 + e cos ν)
+			# = R_earth → cos(ν) = (p/R − 1)/e, taking the descending
+			# solution at nu = TAU − acos(...).
+			var cos_surf: float = (
+				new_p / EarthOrbit.EARTH_RADIUS_KM - 1.0
+			) / new_e
+			if cos_surf > 1.0 or cos_surf < -1.0:
+				break
+			var nu_surf: float = acos(clampf(cos_surf, -1.0, 1.0))
+			var nu_end_final: float = TAU - nu_surf
+			# When flipped the body starts at nu=π (apogee), so the
+			# arc to nu = TAU − nu_surf is the inbound leg. When not
+			# flipped (rare — would require cur_r_p already below R,
+			# which the spiral's growth pattern doesn't reach in
+			# practice), keep the same impact target — it's still the
+			# next descending crossing.
+			segs.append({
+				"e": new_e, "p_slr": new_p, "argp": new_argp,
+				"nu_start": seg_nu_start, "nu_end": nu_end_final,
+			})
+			break
+
+		# Otherwise the segment is a full revolution starting from the
+		# body's location in the new orbit.
+		segs.append({
+			"e": new_e, "p_slr": new_p, "argp": new_argp,
+			"nu_start": seg_nu_start,
+			"nu_end": seg_nu_start + TAU,
+		})
+
+		cur_e = new_e
+		cur_p = new_p
+		cur_argp = new_argp
+		cur_r_p = new_r_p
+		cur_r_a = new_r_a
+
+	return segs
+
+
+# Smallest unwrapped nu strictly greater than `nu_start` at which the
+# orbit's radius equals EARTH_RADIUS. Returns NAN if the orbit's
+# r_p is above the surface (no real crossing). Used to truncate the
+# spiral's final inbound arc at the impact point.
+static func _next_surface_crossing(
+	p_slr: float, e: float, nu_start: float
+) -> float:
+	if e <= 0.0 or p_slr <= 0.0:
+		return NAN
+	var cos_surf := (p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / e
+	if cos_surf > 1.0 or cos_surf < -1.0:
+		return NAN
+	var nu_surf := acos(clampf(cos_surf, -1.0, 1.0))
+	# In unwrapped form, descending surface crossings live at
+	# −nu_surf + 2πk for integer k. Pick the smallest one strictly
+	# greater than nu_start.
+	var candidate := -nu_surf
+	while candidate <= nu_start:
+		candidate += TAU
+	return candidate
+
+
 func _upload_surface() -> void:
 	_array_mesh.clear_surfaces()
 	var arrays := []
