@@ -1,14 +1,17 @@
 class_name HUD
 extends Control
-## Roster + targeting overlay. Player units render as green-tinted boxes
-## along the top-left, enemies as red-tinted boxes along the bottom-left,
-## both growing rightward. Each box surfaces only HP / energy / cooldown
-## — orbital metadata is intentionally hidden but still reachable on the
-## Satellite for future on-demand drill-downs.
+## Roster + targeting overlay. Player units render as green-tinted
+## panels along the top-left and surface HP / energy / cooldown rows.
+## Enemies render along the bottom-left as area-proportional squares —
+## edge length scales with sqrt(max_hp) so a meteorite (25 HP) is small,
+## a sat (100 HP) is medium, a decaying body (200 HP) is large. The
+## solid fill shrinks bottom-up as HP drops, revealing a translucent
+## red layer that marks the original footprint. Rows wrap upward once
+## adding the next box would push them past half the viewport width.
 ##
-## BBCode rebuilds throttle to ~10 Hz; per-frame allocations are avoided
-## by reusing PanelContainer children across ticks (we only add/remove
-## when the per-team count changes).
+## BBCode / panel rebuilds throttle to ~10 Hz; per-frame allocations
+## are avoided by reusing children across ticks (we only add/remove
+## when the per-team / per-row count changes).
 
 const Satellite = preload("res://scripts/satellite.gd")
 const LosCheck = preload("res://scripts/los_check.gd")
@@ -18,15 +21,13 @@ const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
 const PLAYER_BG := Color(0.06, 0.25, 0.10, 0.65)
 const PLAYER_BG_SEL := Color(0.20, 0.65, 0.25, 0.90)
-const ENEMY_BG := Color(0.30, 0.06, 0.06, 0.65)
-const ENEMY_BG_SEL := Color(0.85, 0.20, 0.20, 0.90)
 # Roster box flash on hit. Red — a damage indicator, distinct from the
 # orange used on the 3D marker and BeamRenderer beam so the two
 # surfaces don't blur into the same visual signal.
 const BOX_HIT_FLASH := Color(0.95, 0.15, 0.15, 0.95)
-# Width is fixed so player and enemy boxes line up in the strips;
-# height auto-sizes from the content (an unarmed enemy box collapses
-# down to just HP, an armed player box is taller than an enemy).
+# Player roster width is fixed so the boxes line up evenly along the
+# top strip. Height auto-sizes from the contained HP / energy /
+# weapon rows. Enemy boxes don't share this — they're area-scaled.
 const BOX_MIN_SIZE := Vector2(105, 0)
 
 # Bar row colors. The energy reservoir is blue; weapon recovery starts
@@ -59,7 +60,7 @@ const HIT_DURATION: float = 0.25
 
 @onready var info_label: RichTextLabel = $InfoLabel as RichTextLabel
 @onready var player_roster: HBoxContainer = $PlayerRoster as HBoxContainer
-@onready var enemy_roster: HBoxContainer = $EnemyRoster as HBoxContainer
+@onready var enemy_roster: VBoxContainer = $EnemyRoster as VBoxContainer
 @onready var target_container: Control = $TargetContainer as Control
 @onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
 
@@ -188,25 +189,167 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 				player_selected_in_roster = players.size()
 			players.append(sat)
 
-	_render_roster(player_roster, players, player_selected_in_roster, false)
-	_render_roster(enemy_roster, enemies, enemy_selected_in_roster, true)
+	_render_player_roster(players, player_selected_in_roster)
+	_render_enemy_roster(enemies, enemy_selected_in_roster)
 
 
-func _render_roster(
-	roster: HBoxContainer,
-	sats: Array[Satellite],
-	selected: int,
-	is_enemy: bool
-) -> void:
-	while roster.get_child_count() < sats.size():
-		roster.add_child(_make_box())
-	while roster.get_child_count() > sats.size():
-		var stale := roster.get_child(roster.get_child_count() - 1)
-		roster.remove_child(stale)
+func _render_player_roster(sats: Array[Satellite], selected: int) -> void:
+	while player_roster.get_child_count() < sats.size():
+		player_roster.add_child(_make_box())
+	while player_roster.get_child_count() > sats.size():
+		var stale := player_roster.get_child(player_roster.get_child_count() - 1)
+		player_roster.remove_child(stale)
 		stale.queue_free()
 	for i in range(sats.size()):
-		var box := roster.get_child(i) as PanelContainer
-		_update_box(box, sats[i], i == selected, is_enemy)
+		var box := player_roster.get_child(i) as PanelContainer
+		_update_box(box, sats[i], i == selected)
+
+
+# Square area encodes max HP (px² per HP point). Tuned so a 25 HP
+# meteorite is a 20 px square, a 100 HP enemy sat is 40 px, and a
+# 200 HP decaying body is ~57 px — visually distinct without any
+# single body dominating the strip at typical viewport widths.
+const ENEMY_HP_AREA_PER_PX: float = 16.0
+const ENEMY_BOX_SEPARATION: int = 6
+# Drawn behind the solid fill at full box dimensions, so any area the
+# fill no longer covers reads as "lost HP". Translucent so it doesn't
+# fight the overlapping LOS lines or the radar / impact map below.
+const ENEMY_LOST_HP_COLOR := Color(1.0, 0.3, 0.3, 0.30)
+# Subtype-tinted solid fill — matches the 3D marker color so a glance
+# at the HUD links each box back to a body in the orbital view.
+const ENEMY_FILL_SAT := Color(1.0, 0.35, 0.35, 0.95)
+const ENEMY_FILL_METEORITE := Color(1.0, 0.85, 0.40, 0.95)
+const ENEMY_FILL_DECAYING := Color(0.95, 0.45, 0.95, 0.95)
+const ENEMY_FILL_SELECTED := Color(0.20, 1.00, 0.20, 1.0)
+
+
+# Multi-row, area-proportional enemy strip. Boxes flow left-to-right
+# along the bottom and wrap into a new row above once the next box
+# would push the row past half the viewport width — the rest of the
+# screen is reserved for the impact map and orbital view.
+func _render_enemy_roster(sats: Array[Satellite], selected: int) -> void:
+	if enemy_roster == null:
+		return
+	var max_row_w: float = get_viewport_rect().size.x * 0.5
+	var sep: float = float(ENEMY_BOX_SEPARATION)
+
+	# Partition sats into rows under the half-viewport cap. A row never
+	# wraps on its first box — a single oversize box on its own line is
+	# still less surprising than dropping it entirely.
+	var rows: Array = []
+	var current: Array = []
+	var current_w: float = 0.0
+	for i in range(sats.size()):
+		var side := _enemy_box_side(sats[i])
+		var span := side + (sep if not current.is_empty() else 0.0)
+		if not current.is_empty() and current_w + span > max_row_w:
+			rows.append(current)
+			current = [i]
+			current_w = side
+		else:
+			current.append(i)
+			current_w += span
+	if not current.is_empty():
+		rows.append(current)
+
+	# Reuse row containers across ticks; only resize the pool when the
+	# row count changes (matches the player-roster idiom).
+	while enemy_roster.get_child_count() < rows.size():
+		enemy_roster.add_child(_make_enemy_row())
+	while enemy_roster.get_child_count() > rows.size():
+		var stale := enemy_roster.get_child(enemy_roster.get_child_count() - 1)
+		enemy_roster.remove_child(stale)
+		stale.queue_free()
+
+	for r in range(rows.size()):
+		var row := enemy_roster.get_child(r) as HBoxContainer
+		var indices: Array = rows[r]
+		while row.get_child_count() < indices.size():
+			row.add_child(_make_enemy_box())
+		while row.get_child_count() > indices.size():
+			var stale_box := row.get_child(row.get_child_count() - 1)
+			row.remove_child(stale_box)
+			stale_box.queue_free()
+		for c in range(indices.size()):
+			var sat_i: int = indices[c]
+			_update_enemy_box(
+				row.get_child(c) as Control,
+				sats[sat_i],
+				sat_i == selected,
+			)
+
+
+func _enemy_box_side(sat: Satellite) -> float:
+	# sqrt because area (not edge length) tracks HP; a 4× HP target is
+	# a 2× wider square, which reads as "much bigger" without any one
+	# threat type dwarfing the row.
+	return sqrt(maxf(sat.max_hp, 1.0) * ENEMY_HP_AREA_PER_PX)
+
+
+func _make_enemy_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", ENEMY_BOX_SEPARATION)
+	# SHRINK_END so a row with mixed-size boxes plants every box on a
+	# common bottom line — the smaller meteorite squares hug the same
+	# baseline as the bigger decaying bodies.
+	row.size_flags_vertical = Control.SIZE_SHRINK_END
+	return row
+
+
+func _make_enemy_box() -> Control:
+	var box := Control.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.size_flags_vertical = Control.SIZE_SHRINK_END
+	box.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+
+	# Layer 0: full-size translucent red — the "original size" footprint.
+	var lost := ColorRect.new()
+	lost.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lost.color = ENEMY_LOST_HP_COLOR
+	lost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(lost)
+
+	# Layer 1: solid fill, anchor-driven so we never measure pixels —
+	# anchor_top = 1 - hp/max yields a bottom-aligned column whose area
+	# tracks current HP linearly.
+	var fill := ColorRect.new()
+	fill.anchor_left = 0.0
+	fill.anchor_right = 1.0
+	fill.anchor_top = 0.0
+	fill.anchor_bottom = 1.0
+	fill.color = ENEMY_FILL_SAT
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(fill)
+
+	return box
+
+
+func _update_enemy_box(box: Control, sat: Satellite, is_selected: bool) -> void:
+	var side := _enemy_box_side(sat)
+	box.custom_minimum_size = Vector2(side, side)
+
+	var fill := box.get_child(1) as ColorRect
+	if fill == null:
+		return
+	if _is_hit_target(sat):
+		fill.color = BOX_HIT_FLASH
+	elif is_selected:
+		fill.color = ENEMY_FILL_SELECTED
+	else:
+		fill.color = _enemy_fill_color(sat)
+
+	var max_hp := maxf(sat.max_hp, 1.0)
+	var frac := clampf(sat.hp / max_hp, 0.0, 1.0)
+	fill.anchor_top = 1.0 - frac
+
+
+func _enemy_fill_color(sat: Satellite) -> Color:
+	if sat.is_meteorite:
+		return ENEMY_FILL_METEORITE
+	if sat.is_decaying:
+		return ENEMY_FILL_DECAYING
+	return ENEMY_FILL_SAT
 
 
 func _make_box() -> PanelContainer:
@@ -300,14 +443,11 @@ func _update_box(
 	box: PanelContainer,
 	sat: Satellite,
 	is_selected: bool,
-	is_enemy: bool
 ) -> void:
 	var sb := box.get_theme_stylebox("panel") as StyleBoxFlat
 	if sb != null:
 		if _is_hit_target(sat):
 			sb.bg_color = BOX_HIT_FLASH
-		elif is_enemy:
-			sb.bg_color = ENEMY_BG_SEL if is_selected else ENEMY_BG
 		else:
 			sb.bg_color = PLAYER_BG_SEL if is_selected else PLAYER_BG
 
@@ -321,7 +461,7 @@ func _update_box(
 	# unchanged — we re-append (or drop) it after the bars settle.
 	var hp_label := rows.get_child(0) as Label
 	if hp_label != null:
-		hp_label.text = "HP %d/%d" % [int(sat.hp), int(Satellite.MAX_HP)]
+		hp_label.text = "HP %d/%d" % [int(sat.hp), int(sat.max_hp)]
 
 	var fc_label := rows.get_node_or_null(FC_NODE_NAME) as Label
 	if fc_label != null:

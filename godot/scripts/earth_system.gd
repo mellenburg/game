@@ -79,7 +79,7 @@ const METEORITE_PERIAPSIS_TARGET_KM: float = (
 const METEORITE_LATERAL_SPREAD_KM: float = 6000.0
 const METEORITE_ALT_JITTER_KM: float = 3000.0
 const METEORITE_VELOCITY_JITTER: float = 0.8
-const METEORITE_HP: float = 100.0
+const METEORITE_HP: float = 25.0
 
 # Wave mode: 20 meteorites from a single shared nexus, arrival times
 # distributed uniformly across a 10-second wall-clock window so the
@@ -104,7 +104,7 @@ const DECAYING_PERIGEE_ALT_KM: float = 500.0
 # already heading inbound, so the very first observed motion is
 # "falling toward Earth" — sets the spiral-in narrative immediately.
 const DECAYING_INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
-const DECAYING_HP: float = 100.0
+const DECAYING_HP: float = 200.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
@@ -667,6 +667,7 @@ func _make_meteorite(
 	sat.team = Satellite.TEAM_ENEMY
 	sat.weapons.clear()
 	sat.is_meteorite = true
+	sat.max_hp = METEORITE_HP
 	sat.hp = METEORITE_HP
 
 	# Lateral offset uses the in-plane basis (tangent + bitangent); the
@@ -731,6 +732,7 @@ func _make_decaying_enemy() -> Satellite:
 	sat.team = Satellite.TEAM_ENEMY
 	sat.weapons.clear()
 	sat.is_decaying = true
+	sat.max_hp = DECAYING_HP
 	sat.hp = DECAYING_HP
 
 	var r_p := EarthOrbit.EARTH_RADIUS_KM + DECAYING_PERIGEE_ALT_KM
