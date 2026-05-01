@@ -99,23 +99,25 @@ var fire_control_active: bool = false
 # auto-targeting choice the live simulation will make.
 var targeting_mode: int = TARGETING_MAX_DAMAGE
 
-# Cached predicted seconds until this body's current trajectory hits
-# Earth's surface, valid as of right now. NAN means "unknown — compute
-# on next access"; INF means "no impact in the propagator's horizon"
-# (and stays INF as long as the orbit isn't perturbed); a finite value
-# decrements by sim_delta each tick the orbit is propagated without a
-# velocity change. advance_time invalidates the cache on player thrust
-# and on the decaying-enemy perigee burn, since either of those alter
-# the orbit and the previous prediction no longer holds.
+# Cached absolute simulated time at which this body's current
+# trajectory crosses Earth's surface. NAN means "unknown — compute on
+# next access"; INF means "no impact within the propagator's horizon"
+# (which collapses to "never" for an orbit that won't be perturbed);
+# any finite value is in the same sim-clock frame EarthSystem.sim_time
+# advances. Storing the *absolute* impact time means free propagation
+# never has to update it — the body moves through time but the
+# impact instant doesn't. Maneuvers / perigee burns invalidate it
+# because they actually change the orbit.
 #
 # Horizon at cache fill is generous (one day) so meteorites spawned at
 # the high end of the storm shell — where naive ttf can run > 7000 sec
 # — still resolve to a real number rather than INF. The propagation is
 # paid once per spawn (or per maneuver); in normal play each body
-# computes its tti exactly once before being shot down or impacting.
+# computes its impact time exactly once before being shot down or
+# impacting.
 const IMPACT_CACHE_HORIZON_SEC: float = 86400.0
 const IMPACT_CACHE_STEP_SEC: float = 60.0
-var cached_impact_eta: float = NAN
+var impact_sim_time: float = NAN
 
 # Wall-clock timestamp at which the orange "I got hit" tint reverts to
 # the team color. Wall-clock so the pulse is visible regardless of how
@@ -208,28 +210,30 @@ func toggle_fire_control() -> void:
 	fire_control_active = not fire_control_active
 
 
-## Predicted seconds-until-impact-on-Earth as of right now, cached so
-## the targeting / HUD ranking paths don't pay a fresh propagation per
-## frame. First call computes it the slow way (clone the orbit, march
-## forward in 60 sec steps until a surface crossing or the one-day
-## horizon expires); subsequent calls just return the stored value.
-## advance_time decrements the cache by sim_delta each tick the body
-## propagates without a velocity change, and maneuvers / perigee burns
-## invalidate it so the next access recomputes against the new orbit.
-func time_to_impact_now() -> float:
-	if is_nan(cached_impact_eta):
-		cached_impact_eta = orbit.time_to_impact(
+## Absolute simulated time at which this body's current trajectory
+## crosses Earth, computed lazily on first access against the current
+## sim-clock. Subsequent accesses return the stored value as-is — the
+## impact *instant* is invariant under free propagation, so neither the
+## caller nor advance_time has to nudge it each tick. INF is returned
+## (and stored) for orbits whose periapsis stays above the surface or
+## whose impact is past the propagator's horizon.
+func predict_impact_sim_time(current_sim_time: float) -> float:
+	if is_nan(impact_sim_time):
+		var eta := orbit.time_to_impact(
 			IMPACT_CACHE_HORIZON_SEC, IMPACT_CACHE_STEP_SEC
 		)
-	return cached_impact_eta
+		# eta == INF flows through as INF (current_sim_time + INF == INF),
+		# so non-impacting orbits don't need a separate branch.
+		impact_sim_time = current_sim_time + eta
+	return impact_sim_time
 
 
-## Mark the cached impact ETA stale so the next access recomputes it.
+## Mark the cached impact time stale so the next access recomputes it.
 ## Called by every code path that mutates `orbit.v` outside of free
 ## propagation — player thrust, the decaying-orbit perigee burn, and
 ## state cloning between real and planning satellites.
 func invalidate_impact_cache() -> void:
-	cached_impact_eta = NAN
+	impact_sim_time = NAN
 
 
 ## Flip the laser targeting mode between MAX_DAMAGE (closest target) and
@@ -297,14 +301,10 @@ func advance_time(delta_time: float) -> void:
 			get_current_maneuver(), delta_time, SAFE_PERIAPSIS_KM
 		)
 	else:
+		# Free propagation leaves the orbit shape (and therefore the
+		# absolute impact time) unchanged, so the cache stays valid
+		# without any per-tick bookkeeping.
 		ok = orbit.propagate(delta_time)
-		# Free propagation: orbit shape is unchanged, so the cached
-		# impact ETA just shrinks by the elapsed simulated time. NAN
-		# (uncached) and INF (no-impact orbit) are left alone — the
-		# is_finite guard catches both. Whichever side runs first does
-		# not matter; we burn the propagation we have to do anyway.
-		if is_finite(cached_impact_eta):
-			cached_impact_eta -= delta_time
 	did_maneuver = false
 	raw_maneuver = Vector3.ZERO
 	if not ok:
@@ -430,11 +430,11 @@ func clone_orbit_from(other: Satellite) -> void:
 	engagement_range_km = other.engagement_range_km
 	fire_control_active = other.fire_control_active
 	targeting_mode = other.targeting_mode
-	# Mirror the cache so the planning preview's HUD ranking matches the
-	# real fleet's. The planning sat advances on its own timeline after
-	# this clone, and its own advance_time will keep the ETA consistent
-	# (decrementing on free propagation, invalidating on maneuvers).
-	cached_impact_eta = other.cached_impact_eta
+	# Mirror the cache so the planning preview's HUD ranking matches
+	# the real fleet's. The stored value is an absolute sim-time, so
+	# the planning sat — which lives on the same sim clock as reality
+	# — can reuse it as-is until a maneuver invalidates it.
+	impact_sim_time = other.impact_sim_time
 	if other.weapons.is_empty():
 		weapons.clear()
 	if is_inside_tree():

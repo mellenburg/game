@@ -198,7 +198,8 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 				player_selected_in_roster = players.size()
 			players.append(sat)
 
-	enemies = _sort_enemies_by_impact_urgency(enemies)
+	var current_sim_time: float = orbital_set.sim_time
+	enemies = _sort_enemies_by_impact_urgency(enemies, current_sim_time)
 	# Recompute the selected-enemy index after the sort so the green
 	# selection tint follows the satellite, not its old slot.
 	var enemy_selected_in_roster: int = -1
@@ -209,19 +210,22 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 	_render_enemy_roster(enemies, enemy_selected_in_roster)
 
 
-# Sort enemies so the body with the smallest predicted time-to-impact
-# on Earth lands in the top-left slot of the bottom-strip roster, with
+# Sort enemies so the body with the smallest predicted impact time on
+# Earth lands in the top-left slot of the bottom-strip roster, with
 # the rest descending by urgency. Bodies whose current trajectory does
-# not intersect the surface (regular orbital enemies) all share INF and
-# fall to the tail; the instance-id tiebreaker keeps their relative
-# order stable across HUD refreshes so they don't shuffle visually.
+# not intersect the surface (regular orbital enemies) all share INF
+# and fall to the tail; the instance-id tiebreaker keeps their
+# relative order stable across HUD refreshes so they don't shuffle
+# visually.
 #
-# Reads the cached `time_to_impact_now()` value — for an unforced body
-# that's a single field read, computed once at spawn and decremented
-# each tick by the satellite itself. So this sort is O(n log n) field
-# reads with at most one fresh propagation per newly-spawned enemy.
+# Reads the cached absolute impact sim-time via predict_impact_sim_time
+# — for an unforced body that's a single field read, computed once at
+# spawn and never updated thereafter. Ordering by absolute time gives
+# the same ranking as ordering by relative ETA without the per-tick
+# bookkeeping. The sort is O(n log n) field reads with at most one
+# fresh propagation per newly-spawned enemy.
 func _sort_enemies_by_impact_urgency(
-	enemies: Array[Satellite]
+	enemies: Array[Satellite], current_sim_time: float
 ) -> Array[Satellite]:
 	if enemies.size() <= 1:
 		return enemies
@@ -229,7 +233,7 @@ func _sort_enemies_by_impact_urgency(
 	for sat in enemies:
 		pairs.append({
 			"sat": sat,
-			"tti": sat.time_to_impact_now(),
+			"tti": sat.predict_impact_sim_time(current_sim_time),
 			"id": sat.get_instance_id(),
 		})
 	pairs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:

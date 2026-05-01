@@ -110,6 +110,13 @@ const DECAYING_HP: float = 200.0
 var planning_dt: int = 0
 var planning_mode: bool = false
 
+# Simulated seconds elapsed since the scene came up. Advanced in
+# _physics_process by sim_delta — same units satellites use for orbital
+# propagation. Read by Satellite.predict_impact_sim_time() to stamp
+# fresh impact-cache entries in absolute time, so subsequent ranking
+# lookups don't need to renormalise relative ETAs every tick.
+var sim_time: float = 0.0
+
 var real_satellites: Array[Satellite] = []
 var planning_satellites: Array[Satellite] = []
 var selected_ship: int = 0
@@ -212,6 +219,7 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	# Convert wall-clock seconds to simulated seconds.
 	var sim_delta := float(time_factor) * delta
+	sim_time += sim_delta
 	earth.advance_phase(sim_delta)
 	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
@@ -285,7 +293,10 @@ func _pick_target_for_weapon(attacker: Satellite, w: Weapon) -> Satellite:
 		var d2: float = (other.orbit.r - attacker.orbit.r).length_squared()
 		var t := INF
 		if max_danger:
-			t = other.time_to_impact_now()
+			# Absolute impact time, not relative — a smaller value still
+			# means "more urgent" and ordering is identical, so we save
+			# a per-satellite subtraction in the targeting hot loop.
+			t = other.predict_impact_sim_time(sim_time)
 		var better := false
 		if max_danger:
 			if t < best_t:
