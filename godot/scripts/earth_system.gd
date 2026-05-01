@@ -285,7 +285,7 @@ func _pick_target_for_weapon(attacker: Satellite, w: Weapon) -> Satellite:
 		var d2: float = (other.orbit.r - attacker.orbit.r).length_squared()
 		var t := INF
 		if max_danger:
-			t = other.orbit.time_to_impact()
+			t = other.time_to_impact_now()
 		var better := false
 		if max_danger:
 			if t < best_t:

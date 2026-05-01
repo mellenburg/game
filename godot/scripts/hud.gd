@@ -215,19 +215,11 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 # not intersect the surface (regular orbital enemies) all share INF and
 # fall to the tail; the instance-id tiebreaker keeps their relative
 # order stable across HUD refreshes so they don't shuffle visually.
-# Time-to-impact is sampled once per body, not per comparison, so the
-# sort is O(n log n) comparisons over O(n) propagation clones.
 #
-# Horizon is generous (2 hours) and step is coarse (60 sec): meteorite
-# storms spawn at 40–70 000 km altitude at 4–7 km/s inward, so a tighter
-# horizon would tie every freshly-spawned body at INF and the sort would
-# degenerate to instance-id order until they got close. 60 sec
-# resolution is plenty for ranking — the difference between two bodies
-# usually runs into hundreds of seconds.
-const ENEMY_TTI_HORIZON_SEC: float = 7200.0
-const ENEMY_TTI_STEP_SEC: float = 60.0
-
-
+# Reads the cached `time_to_impact_now()` value — for an unforced body
+# that's a single field read, computed once at spawn and decremented
+# each tick by the satellite itself. So this sort is O(n log n) field
+# reads with at most one fresh propagation per newly-spawned enemy.
 func _sort_enemies_by_impact_urgency(
 	enemies: Array[Satellite]
 ) -> Array[Satellite]:
@@ -237,9 +229,7 @@ func _sort_enemies_by_impact_urgency(
 	for sat in enemies:
 		pairs.append({
 			"sat": sat,
-			"tti": sat.orbit.time_to_impact(
-				ENEMY_TTI_HORIZON_SEC, ENEMY_TTI_STEP_SEC
-			),
+			"tti": sat.time_to_impact_now(),
 			"id": sat.get_instance_id(),
 		})
 	pairs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
