@@ -167,52 +167,6 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	_last_color = color
 
 
-## Render the ascending-arc-only path of a decaying-orbit enemy: from
-## the body's current true anomaly forward in motion up to (but not
-## past) apogee at nu = π. Used when r·v ≥ 0 — once the body has
-## crossed apogee and the burn has fired, the caller switches over to
-## update_trajectory to draw the ground-impact arc instead.
-func update_ascent_arc(orbit: EarthOrbit) -> void:
-	if not orbit.is_state_valid():
-		_array_mesh.clear_surfaces()
-		return
-	var e := orbit.ecc
-	var p_slr := orbit.p_slr
-	if not is_finite(e) or not is_finite(p_slr) or p_slr <= 0.0:
-		_array_mesh.clear_surfaces()
-		return
-	# orbit.nu wraps to (-π, π]; on the ascending branch r·v ≥ 0 it sits
-	# in [0, π]. Refuse to render past apogee — caller is responsible
-	# for switching renderers once the body crosses.
-	var nu0: float = orbit.nu
-	if nu0 < 0.0 or nu0 >= PI:
-		_array_mesh.clear_surfaces()
-		return
-
-	var co := cos(orbit.raan); var so := sin(orbit.raan)
-	var ci := cos(orbit.inc); var si := sin(orbit.inc)
-	var cw := cos(orbit.argp); var sw := sin(orbit.argp)
-	var pqw_x := Vector3(co * cw - so * sw * ci,  so * cw + co * sw * ci,  sw * si)
-	var pqw_y := Vector3(-co * sw - so * cw * ci, -so * sw + co * cw * ci, cw * si)
-
-	for i in range(POINTS + 1):
-		var t := float(i) / float(POINTS)
-		var nu := lerpf(nu0, PI, t)
-		var r_at := p_slr / (1.0 + e * cos(nu))
-		var p_local := r_at * cos(nu)
-		var q_local := r_at * sin(nu)
-		var pos := (pqw_x * p_local + pqw_y * q_local) * SCENE_SCALE
-		_points[i] = pos
-		_colors[i] = color
-
-	_upload_surface()
-	_material.albedo_color = color
-	# nu0 sweeps every tick — invalidate the orbit-cache signature so a
-	# later switch back to update_orbit forces a rebuild.
-	_last_signature = Vector4(NAN, NAN, NAN, NAN)
-	_last_color = color
-
-
 func _upload_surface() -> void:
 	_array_mesh.clear_surfaces()
 	var arrays := []

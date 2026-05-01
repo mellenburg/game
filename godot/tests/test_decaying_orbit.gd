@@ -1,26 +1,26 @@
 extends "res://tests/framework.gd"
-## Decaying-orbit enemy tests. Pure-math: verify the geometry of the
-## spawn orbit and the analytical apogee-burn that halves r_p. The
-## Satellite-side detection (apogee crossing → burn) is exercised
-## indirectly through the orbit it produces.
+## Decaying-orbit enemy tests. Pure-math: verify the spawn geometry
+## (near apogee, descending) and the analytical perigee-burn that
+## halves r_a. The Satellite-side detection (perigee crossing → burn)
+## is exercised indirectly through the orbit it produces.
 
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
 const APOGEE_ALT_KM: float = 50000.0
 const PERIGEE_ALT_KM: float = 500.0
-const INITIAL_NU_DEG: float = 15.0
+const INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
 
 
-# Build the same perifocal-state spawn orbit that EarthSystem uses.
-# Equatorial / RAAN=0 / argp=0 to keep the geometry test-introspectable
-# without dragging the rotation matrices in.
+# Build the same spawn orbit EarthSystem uses. RAAN = inc = argp = 0
+# so the perifocal frame coincides with ECI x/y, keeping the geometry
+# test-introspectable without dragging in the rotation matrices.
 func _make_decaying() -> EarthOrbit:
 	var r_p := EarthOrbit.EARTH_RADIUS_KM + PERIGEE_ALT_KM
 	var r_a := EarthOrbit.EARTH_RADIUS_KM + APOGEE_ALT_KM
 	var a := 0.5 * (r_p + r_a)
 	var e := (r_a - r_p) / (r_a + r_p)
 	var p_slr := a * (1.0 - e * e)
-	var nu := deg_to_rad(INITIAL_NU_DEG)
+	var nu := PI + deg_to_rad(INITIAL_NU_FROM_APOGEE_DEG)
 	var r_at := p_slr / (1.0 + e * cos(nu))
 	var pos := Vector3(r_at * cos(nu), r_at * sin(nu), 0.0)
 	var v_mag := sqrt(EarthOrbit.MU / p_slr)
@@ -38,91 +38,96 @@ func test_perigee_matches_spec() -> void:
 	assert_close(o.r_p, EarthOrbit.EARTH_RADIUS_KM + PERIGEE_ALT_KM, 1.0e-2)
 
 
-func test_spawn_is_above_surface() -> void:
-	# 15° past perigee with these altitudes leaves the spawn point well
-	# above ground — if the constants are ever cranked toward higher
-	# eccentricity, this guard catches a sub-surface spawn before it
-	# becomes a soft crash in the propagator.
+func test_spawn_is_near_apogee() -> void:
+	# 15° past apogee on a highly eccentric ellipse leaves the body deep
+	# in the upper half of the orbit — well above perigee, well above
+	# the surface, so the player has visible time to engage before the
+	# first perigee burn.
 	var o := _make_decaying()
 	assert_true(
-		o.norm_r > EarthOrbit.EARTH_RADIUS_KM,
-		"spawn r=%f below surface=%f" % [o.norm_r, EarthOrbit.EARTH_RADIUS_KM]
+		o.norm_r > EarthOrbit.EARTH_RADIUS_KM + 0.5 * APOGEE_ALT_KM,
+		"spawn r=%f, expected near apogee" % o.norm_r
 	)
 
 
-func test_spawn_is_ascending() -> void:
-	# Body must be moving outward toward apogee at spawn — otherwise the
-	# apogee-burn detector (r·v sign flip) never fires.
+func test_spawn_is_descending() -> void:
+	# Body must be moving inward toward perigee at spawn — the perigee-
+	# burn detector keys off the descending → ascending r·v sign flip,
+	# so an ascending spawn would never trigger the first burn.
 	var o := _make_decaying()
-	assert_true(o.r.dot(o.v) > 0.0, "spawn r·v=%f, expected > 0" % o.r.dot(o.v))
+	assert_true(o.r.dot(o.v) < 0.0, "spawn r·v=%f, expected < 0" % o.r.dot(o.v))
 
 
-func test_spawn_true_anomaly_matches() -> void:
-	var o := _make_decaying()
-	assert_close(o.nu, deg_to_rad(INITIAL_NU_DEG), 1.0e-5)
-
-
-func test_propagation_reaches_apogee() -> void:
-	# Step through half a period; r·v must cross from positive to
-	# negative once apogee is reached. A successful crossing detection
-	# is the precondition for the satellite-side burn trigger.
-	var o := _make_decaying()
-	var crossed := false
-	var dt := 10.0
-	for _i in range(int(o.period / dt) + 5):
+func _step_to_perigee(o: EarthOrbit, dt: float) -> bool:
+	# Step until r·v flips from negative (descending) to positive
+	# (ascending) — the perigee-crossing condition the satellite-side
+	# burn detector uses. Bound by ~2 orbital periods.
+	var bound := int(o.period / dt) * 2 + 5
+	for _i in range(bound):
 		var rdv_before: float = o.r.dot(o.v)
-		assert_true(o.propagate(dt))
-		var rdv_after: float = o.r.dot(o.v)
-		if rdv_before > 0.0 and rdv_after < 0.0:
-			crossed = true
-			break
-	assert_true(crossed, "ascending body never crossed apogee")
+		if not o.propagate(dt):
+			return false
+		if rdv_before < 0.0 and o.r.dot(o.v) > 0.0:
+			return true
+	return false
 
 
-func test_apogee_burn_halves_perigee() -> void:
-	# Analytical scale factor v_new/v_old = sqrt((r+r_p)/(2r+r_p)) at
-	# apogee. Apply it and check the new orbit's r_p ≈ r_p/2.
+func test_propagation_reaches_perigee() -> void:
 	var o := _make_decaying()
-	# Roll forward to apogee. r·v sign flip terminates the loop; using
-	# a small step keeps us within ~ a step's worth of true anomaly past
-	# the exact apogee point, where the analytic scaling is still valid.
-	var dt := 5.0
-	for _i in range(int(o.period / dt) + 5):
-		var rdv_before: float = o.r.dot(o.v)
-		assert_true(o.propagate(dt))
-		if rdv_before > 0.0 and o.r.dot(o.v) < 0.0:
-			break
-	var r_p_before := o.r_p
-	var r := o.norm_r
-	var k := sqrt((r + r_p_before) / (2.0 * r + r_p_before))
+	assert_true(_step_to_perigee(o, 20.0), "descending body never crossed perigee")
+
+
+func test_perigee_burn_halves_apogee() -> void:
+	# Analytical scale factor v_new/v_old = sqrt((r_p+r_a)/(2r_p+r_a))
+	# at perigee, derived from vis-viva. Apply it and check the new
+	# orbit's r_a ≈ r_a_old/2.
+	var o := _make_decaying()
+	assert_true(_step_to_perigee(o, 20.0))
+	var r_a_before := o.r_a
+	var r_p := o.r_p
+	var k := sqrt((r_p + r_a_before) / (2.0 * r_p + r_a_before))
 	# maneuver(dv, t=0) → v += dv, recompute elements. Same call site
-	# Satellite._apogee_decay_burn uses.
+	# Satellite._perigee_decay_burn uses.
 	assert_true(o.maneuver(o.v * (k - 1.0), 0.0))
-	# Tolerance is loose because we burn slightly past apogee — the
-	# velocity has a tiny radial component, so post-burn r_p is within
-	# a few km of r_p/2 rather than exact.
-	assert_close(o.r_p, r_p_before * 0.5, 5.0)
+	# Tolerance loose because we burn a step's worth past exact perigee
+	# — velocity has a small radial component, so post-burn r_a drifts
+	# a few tens of km off the analytic target.
+	assert_close(o.r_a, r_a_before * 0.5, 50.0)
 
 
-func test_post_burn_perigee_below_surface() -> void:
-	# With apogee 500 km and perigee 100 km, halving r_p drops it to
-	# ~3236 km — well below the surface, so the body's next perigee
-	# pass impacts. Locks the gameplay invariant: one apogee burn is
-	# enough for the body to leave play.
+func test_perigee_preserved_through_burn() -> void:
+	# Retrograde tangential burn at perigee preserves the perigee point;
+	# only the trailing apsis (apogee) shrinks. This is the property
+	# that lets the spiral-in unfold over multiple cycles instead of
+	# scrambling both apsides at once.
 	var o := _make_decaying()
-	var dt := 5.0
-	for _i in range(int(o.period / dt) + 5):
-		var rdv_before: float = o.r.dot(o.v)
-		assert_true(o.propagate(dt))
-		if rdv_before > 0.0 and o.r.dot(o.v) < 0.0:
-			break
+	assert_true(_step_to_perigee(o, 20.0))
 	var r_p_before := o.r_p
-	var r := o.norm_r
-	var k := sqrt((r + r_p_before) / (2.0 * r + r_p_before))
+	var k := sqrt((r_p_before + o.r_a) / (2.0 * r_p_before + o.r_a))
 	assert_true(o.maneuver(o.v * (k - 1.0), 0.0))
-	assert_true(
-		o.r_p < EarthOrbit.EARTH_RADIUS_KM,
-		"post-burn r_p=%f still above surface=%f" % [
-			o.r_p, EarthOrbit.EARTH_RADIUS_KM
-		]
-	)
+	# Same loose tolerance: the burn is at near-perigee, not exact, so
+	# the new perigee drifts a touch from the old.
+	assert_close(o.r_p, r_p_before, 50.0)
+
+
+func test_repeated_burns_eventually_drive_orbit_into_surface() -> void:
+	# Spiral-in invariant: with apogee 50000 km and perigee 500 km,
+	# halving r_a four times brings the orbit down through the surface
+	# (the fourth burn flips orientation: the body's burn-point becomes
+	# the new orbit's apogee and the trailing apsis ends up below R).
+	var o := _make_decaying()
+	for cycle in range(6):
+		if not _step_to_perigee(o, 20.0):
+			break
+		var k := sqrt((o.r_p + o.r_a) / (2.0 * o.r_p + o.r_a))
+		assert_true(o.maneuver(o.v * (k - 1.0), 0.0))
+		# Either apsis dipping below the surface counts as terminal —
+		# update_trajectory in OrbitalPath kicks in for the inbound
+		# leg, and Satellite.advance_time kills the body on the
+		# surface crossing.
+		if (
+			(is_finite(o.r_p) and o.r_p < EarthOrbit.EARTH_RADIUS_KM)
+			or (is_finite(o.r_a) and o.r_a < EarthOrbit.EARTH_RADIUS_KM)
+		):
+			return
+	fail("orbit never spiraled below the surface after 6 perigee burns")

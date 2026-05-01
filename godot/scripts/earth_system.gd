@@ -91,16 +91,19 @@ const METEORITE_WAVE_COUNT: int = 20
 const METEORITE_WAVE_DURATION_SEC: float = 10.0
 const METEORITE_WAVE_PREROLL_SEC: float = 10.0
 
-# Decaying-orbit enemy: spawned just past perigee on a highly
-# eccentric ellipse — perigee at the configured altitude (500 km),
-# apogee far enough out that the body lingers near max-r for a
-# while before the burn fires. After the apogee kick, r_p is
-# halved (r_p_new = r_p/2 ≈ 3436 km < EARTH_RADIUS), so the body
-# impacts on its very next perigee pass. Apogee chosen as high
-# as the engine practically supports without numerical drama.
+# Decaying-orbit enemy: spawned just past apogee on a highly
+# eccentric ellipse — perigee 500 km, apogee 50000 km, e ≈ 0.78.
+# Body falls toward perigee, where each crossing fires a retrograde
+# burn that halves r_a. The orbit progressively shrinks (spirals
+# in) until the burn drives the OTHER apsis below Earth's surface,
+# at which point the body impacts on its next descending leg.
 const DECAYING_APOGEE_ALT_KM: float = 50000.0
 const DECAYING_PERIGEE_ALT_KM: float = 500.0
-const DECAYING_INITIAL_NU_DEG: float = 15.0
+# True anomaly at spawn, measured past apogee on the descending
+# leg (180° + 15° → orbit.nu wraps to ~-165° in (-π, π]). Body is
+# already heading inbound, so the very first observed motion is
+# "falling toward Earth" — sets the spiral-in narrative immediately.
+const DECAYING_INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
 const DECAYING_HP: float = 100.0
 
 @export var time_factor: int = 500
@@ -711,11 +714,12 @@ func _sample_meteorite_spec(
 	}
 
 
-# Spawn a single decaying-orbit enemy. Highly elliptical, spawned just
-# past perigee on the ascending leg with apogee at the configured low
-# altitude. The body climbs to apogee, gets a retrograde momentum kick
-# that halves r_p (driving perigee below Earth's surface), and then
-# impacts on the descending leg.
+# Spawn a single decaying-orbit enemy. Highly eccentric, spawned
+# just past apogee on the descending leg. The body falls toward
+# perigee, gets a retrograde momentum kick at each perigee that
+# halves r_a (the orbit spirals inward), and eventually one of
+# those kicks pushes the trailing apsis below the surface — body
+# impacts on its next descent.
 func add_decaying_enemy() -> void:
 	var sat := _make_decaying_enemy()
 	satellite_container.add_child(sat)
@@ -734,7 +738,8 @@ func _make_decaying_enemy() -> Satellite:
 	var a := 0.5 * (r_p + r_a)
 	var e := (r_a - r_p) / (r_a + r_p)
 	var p_slr := a * (1.0 - e * e)
-	var nu := deg_to_rad(DECAYING_INITIAL_NU_DEG)
+	# 180° + offset → just past apogee, descending toward perigee.
+	var nu := PI + deg_to_rad(DECAYING_INITIAL_NU_FROM_APOGEE_DEG)
 
 	# Random orbital plane: pick an inclination/RAAN/argp triple so each
 	# spawn comes in from a different direction. Build perifocal-frame
@@ -752,8 +757,8 @@ func _make_decaying_enemy() -> Satellite:
 	var r_at := p_slr / (1.0 + e * cos(nu))
 	var pos := pqw_x * (r_at * cos(nu)) + pqw_y * (r_at * sin(nu))
 	# Perifocal velocity from the conic identities: v_p = sqrt(μ/p) * -sin(ν),
-	# v_q = sqrt(μ/p) * (e + cos(ν)). Prograde so the body advances
-	# toward apogee.
+	# v_q = sqrt(μ/p) * (e + cos(ν)). Same prograde sense as a normal
+	# orbit — at nu just past apogee that means inbound (r·v < 0).
 	var v_mag := sqrt(EarthOrbit.MU / p_slr)
 	var vel := pqw_x * (-v_mag * sin(nu)) + pqw_y * (v_mag * (e + cos(nu)))
 	sat.orbit = EarthOrbit.new(pos, vel)
