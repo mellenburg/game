@@ -38,9 +38,13 @@ var lateral_spread_km: float = 0.0
 
 ## Fill the queue with `count` independent pre-sampled per-body specs.
 ## Each spec carries an independent uniform spawn delay in
-## [0, duration_sec], a uniform-angle / uniform-radius lateral offset
-## inside `lateral_spread`, signed altitude jitter, and per-axis velocity
-## jitter. Order is irrelevant; tick() walks the whole array each frame.
+## [preroll, preroll + duration_sec], a uniform-angle / uniform-radius
+## lateral offset inside `lateral_spread`, signed altitude jitter, and
+## per-axis velocity jitter. `preroll` shifts every timer forward so
+## the wave doesn't begin spawning until that many seconds have elapsed
+## — the radar overlay uses the gap to scroll bodies in from above
+## rather than painting the full distribution at once. Order is
+## irrelevant; tick() walks the whole array each frame.
 func populate(
 	rng: RandomNumberGenerator,
 	count: int,
@@ -48,6 +52,7 @@ func populate(
 	lateral_spread: float,
 	altitude_jitter: float,
 	vel_jitter: float,
+	preroll: float = 0.0,
 ) -> void:
 	pending.clear()
 	duration_sec = duration
@@ -56,7 +61,7 @@ func populate(
 		var ang := rng.randf_range(0.0, TAU)
 		var dist := rng.randf_range(0.0, lateral_spread)
 		pending.append({
-			"t": rng.randf_range(0.0, duration),
+			"t": rng.randf_range(0.0, duration) + preroll,
 			"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
 			"alt_offset": rng.randf_range(-altitude_jitter, altitude_jitter),
 			"vel_jitter": Vector3(

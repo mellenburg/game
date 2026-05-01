@@ -14,6 +14,7 @@ const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const ImpactMap = preload("res://scripts/impact_map.gd")
 const RadarMap = preload("res://scripts/radar_map.gd")
+const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
 const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
@@ -83,8 +84,12 @@ const METEORITE_HP: float = 100.0
 # Wave mode: 20 meteorites from a single shared nexus, arrival times
 # distributed uniformly across a 10-second wall-clock window so the
 # player has continuous incoming traffic rather than a single burst.
+# A preroll alert window precedes the spawn window so the operator
+# gets time to react — bodies "scroll into" the radar from the top
+# during the preroll, then begin entering play once it elapses.
 const METEORITE_WAVE_COUNT: int = 20
 const METEORITE_WAVE_DURATION_SEC: float = 10.0
+const METEORITE_WAVE_PREROLL_SEC: float = 10.0
 
 @export var time_factor: int = 500
 var planning_dt: int = 0
@@ -125,6 +130,9 @@ var _albedo_image: Image = null
 @onready var range_circle: RangeCircle = $RangeCircle as RangeCircle
 @onready var impact_map: ImpactMap = $CanvasLayer/HUD/ImpactMap as ImpactMap
 @onready var radar_map: RadarMap = $CanvasLayer/HUD/RadarMap as RadarMap
+@onready var threat_alert: ThreatAlert = (
+	$CanvasLayer/HUD/ThreatAlert as ThreatAlert
+)
 
 # Lower-right overlay cycle: surface impact map → wave radar → off → ...
 # Driven by the "toggle_impact_map" input (K). Indices into MAP_MODES.
@@ -512,6 +520,7 @@ func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
 func start_meteorite_wave(
 	count: int = METEORITE_WAVE_COUNT,
 	duration_sec: float = METEORITE_WAVE_DURATION_SEC,
+	preroll_sec: float = METEORITE_WAVE_PREROLL_SEC,
 ) -> void:
 	var wave := _build_meteorite_wave_at_random_nexus()
 	wave.populate(
@@ -521,8 +530,11 @@ func start_meteorite_wave(
 		METEORITE_LATERAL_SPREAD_KM,
 		METEORITE_ALT_JITTER_KM,
 		METEORITE_VELOCITY_JITTER,
+		preroll_sec,
 	)
 	_meteorite_waves.append(wave)
+	if threat_alert != null:
+		threat_alert.trigger()
 
 
 # Sample a fresh nexus (entry direction, in-plane tangent, altitude,

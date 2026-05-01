@@ -80,6 +80,10 @@ class _BlipLayer extends Control:
 		for entry: Dictionary in pending:
 			var lat: Vector2 = entry["lateral"]
 			var t: float = entry["t"]
+			# Bodies still in the preroll window (t > duration) are above
+			# the radar — skip until they scroll into view from the top.
+			if t > duration:
+				continue
 			# X projection: tangent-axis component of the in-plane offset,
 			# normalised to [-1, 1] of the wave's lateral spread. A wave
 			# uniformly distributed on the entry disc collapses to the
