@@ -93,7 +93,7 @@ var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
 # engagement_range_km value is preserved so re-toggling fire control
 # brings the same setting back.
 var fire_control_active: bool = false
-# Per-ship laser targeting mode. Honored by EarthSystem._pick_target_for_weapon
+# Per-ship laser targeting mode. Honored by CombatController._pick_target_for_weapon
 # when selecting which in-envelope enemy each weapon will fire at this tick.
 # Cloned across planning satellites so the planning view shows the same
 # auto-targeting choice the live simulation will make.
@@ -135,7 +135,7 @@ func _init() -> void:
 
 
 ## Charge the shared energy pool. Per-weapon cooling is driven by
-## EarthSystem._process_combat — only weapons that did NOT fire this
+## CombatController.process_combat — only weapons that did NOT fire this
 ## tick get their tick() called, since fire() handles its own heat
 ## bookkeeping.
 func tick_combat(sim_delta: float) -> void:

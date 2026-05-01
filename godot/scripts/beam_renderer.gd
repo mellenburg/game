@@ -2,7 +2,7 @@ class_name BeamRenderer
 extends Node3D
 ## 3D laser-beam visuals.
 ##
-## EarthSystem._process_combat calls register_fire() on every successful
+## CombatController.process_combat calls register_fire() on every successful
 ## weapon hit. The renderer pools one MeshInstance3D per
 ## (attacker, weapon_index); endpoints are recomputed every _process
 ## frame from current orbital positions, so the beam start anchors to
