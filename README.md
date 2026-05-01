@@ -70,6 +70,30 @@ CI runs `make test` on every push and PR — see `.github/workflows/godot-ci.yml
 - [ ] Galactic background sphere
 - [ ] Distinct color/style for projection (planning) data
 
+### Performance & mobile readiness backlog
+
+Deferred but blocking on a real mobile build; track here so they don't get
+lost in the issue queue.
+
+- [ ] **Mobile texture variants for the Earth shader.** The four 4096²
+  JPEGs (`albedo`, `night`, `normal`, `clouds`) total ~80 MB of VRAM
+  after compression — fine on desktop, OOM on a 2 GB Android device.
+  Ship 1024²/2048² ETC2/ASTC variants selected at startup via
+  `OS.has_feature("mobile")`, wired through the existing `*_path`
+  exports on `earth.gd`. Same change should drop the persistent
+  `_albedo_image` in `earth_system.gd` (a fully-decompressed 4096²
+  Image kept in RAM just to read one pixel per impact) — replace with
+  a small landmask texture or load-then-free at impact time.
+- [ ] **Extract `SpawnDirector` and `CombatController` from
+  `earth_system.gd`.** The controller is ~1000 lines mixing input,
+  spawning, combat scheduling, planning mode, and HUD plumbing.
+  Splitting the spawn paths (starting fleet, enemies, meteorites,
+  meteorite waves, decaying-orbit body) and the combat loop
+  (`_process_combat`, `_pick_target_for_weapon`) into focused nodes
+  makes the hot loop profileable in isolation and gives the eventual
+  network refactor a clean seam for moving spawn/combat authority to
+  a server. Pure refactor — no behaviour change.
+
 ## Gameplay
 
 The game is **RTS + tower defense, with orbital physics as the core

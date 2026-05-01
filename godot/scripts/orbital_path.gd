@@ -12,7 +12,10 @@ const SCENE_SCALE: float = 1.0 / 1000.0  # km -> scene units
 var _array_mesh: ArrayMesh
 var _material: StandardMaterial3D
 var _points: PackedVector3Array
-var _colors: PackedColorArray
+# Vertex count of the surface currently uploaded to the GPU. -1 means
+# "no surface yet"; mismatches against `_points.size()` force a full
+# add_surface_from_arrays rebuild instead of an in-place vertex update.
+var _surface_vertex_count: int = -1
 var _last_signature := Vector4(NAN, NAN, NAN, NAN)
 var _last_inc := NAN
 var _last_argp := NAN
@@ -26,24 +29,25 @@ func _ready() -> void:
 
 	_material = StandardMaterial3D.new()
 	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_material.vertex_color_use_as_albedo = true
+	# Single uniform color drives the line — the previous port stored a
+	# PackedColorArray of N copies of the same color; that was pure waste
+	# (an extra GPU buffer + per-frame upload) since every vertex shared
+	# the line's tint. Material's albedo_color is the source of truth now.
 	_material.albedo_color = color
 	material_override = _material
 
 	_points = PackedVector3Array()
 	_points.resize(POINTS + 1)
-	_colors = PackedColorArray()
-	_colors.resize(POINTS + 1)
 
 
 ## Recompute orbit geometry only when elements have actually changed past a
 ## small tolerance, then upload the vertex buffer to the cached ArrayMesh.
 func update_orbit(orbit: EarthOrbit) -> void:
 	if not orbit.is_state_valid():
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 	if not is_finite(orbit.a) or not is_finite(orbit.ecc) or orbit.a <= 0.0:
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 
 	var sig := Vector4(orbit.a, orbit.ecc, orbit.raan, orbit.inc)
@@ -88,9 +92,7 @@ func _compute_points(orbit: EarthOrbit) -> void:
 		var ang := TAU * float(i % POINTS) / float(POINTS)
 		var p := a * (cos(ang) - e)
 		var q := b * sin(ang)
-		var pos := (pqw_x * p + pqw_y * q) * SCENE_SCALE
-		_points[i] = pos
-		_colors[i] = color
+		_points[i] = (pqw_x * p + pqw_y * q) * SCENE_SCALE
 
 
 ## Render the inbound arc of a sub-orbital trajectory: from the body's
@@ -102,12 +104,12 @@ func _compute_points(orbit: EarthOrbit) -> void:
 ## cache anything here because the body's nu changes every tick.
 func update_trajectory(orbit: EarthOrbit) -> void:
 	if not orbit.is_state_valid():
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 	var e := orbit.ecc
 	var p_slr := orbit.p_slr
 	if not is_finite(e) or not is_finite(p_slr) or p_slr <= 0.0 or e <= 0.0:
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 	# Surface-crossing true anomaly: r(nu) = p_slr / (1 + e*cos(nu)) = R.
 	# Two solutions ±nu_surf bracket the inbound and outbound crossings;
@@ -117,7 +119,7 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	if cos_nu_surf > 1.0 or cos_nu_surf < -1.0:
 		# Periapsis is above the surface — not a meteorite trajectory.
 		# Fall through to the regular orbit renderer.
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 	var nu_surf := acos(clampf(cos_nu_surf, -1.0, 1.0))
 	# Body is inbound iff r·v < 0 (radius decreasing). The descending
@@ -125,7 +127,7 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	# on that branch, so nu_target = -nu_surf.
 	var r_dot_v := orbit.r.dot(orbit.v)
 	if r_dot_v >= 0.0:
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 	var nu0: float = orbit.nu
 	# orbit.nu is wrapped to (-π, π]; the inbound branch crosses the
@@ -138,7 +140,7 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	if nu_target <= nu0:
 		# Body is already past the surface crossing on the descending
 		# branch — should have been killed; render nothing.
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 
 	# Same perifocal-to-ECI rotation as _compute_points.
@@ -148,15 +150,15 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	var pqw_x := Vector3(co * cw - so * sw * ci,  so * cw + co * sw * ci,  sw * si)
 	var pqw_y := Vector3(-co * sw - so * cw * ci, -so * sw + co * cw * ci, cw * si)
 
+	if _points.size() != POINTS + 1:
+		_points.resize(POINTS + 1)
 	for i in range(POINTS + 1):
 		var t := float(i) / float(POINTS)
 		var nu := lerpf(nu0, nu_target, t)
 		var r_at := p_slr / (1.0 + e * cos(nu))
 		var p_local := r_at * cos(nu)
 		var q_local := r_at * sin(nu)
-		var pos := (pqw_x * p_local + pqw_y * q_local) * SCENE_SCALE
-		_points[i] = pos
-		_colors[i] = color
+		_points[i] = (pqw_x * p_local + pqw_y * q_local) * SCENE_SCALE
 
 	_upload_surface()
 	_material.albedo_color = color
@@ -184,7 +186,7 @@ const _DECAYING_MIN_PTS_PER_SEG: int = 8
 ## window into "how many cycles before this thing impacts".
 func update_decaying_spiral(orbit: EarthOrbit) -> void:
 	if not orbit.is_state_valid():
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 	var ecc0 := orbit.ecc
 	var p0 := orbit.p_slr
@@ -192,19 +194,19 @@ func update_decaying_spiral(orbit: EarthOrbit) -> void:
 		not is_finite(ecc0) or not is_finite(p0)
 		or p0 <= 0.0 or ecc0 <= 0.0
 	):
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 
 	var segs := _build_decaying_segments(orbit)
 	if segs.is_empty():
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 
 	var total_sweep := 0.0
 	for seg in segs:
 		total_sweep += seg["nu_end"] - seg["nu_start"]
 	if total_sweep <= 0.0:
-		_array_mesh.clear_surfaces()
+		_clear_surfaces()
 		return
 
 	# Allocate points proportional to nu sweep, with a floor per segment
@@ -220,11 +222,10 @@ func update_decaying_spiral(orbit: EarthOrbit) -> void:
 		counts[i] = n
 		total_pts += n
 
-	# Resize the cached buffers so the spiral writes in place — no per-
+	# Resize the cached buffer so the spiral writes in place — no per-
 	# frame Vector3Array allocation, matching the rest of this file.
 	if _points.size() != total_pts:
 		_points.resize(total_pts)
-		_colors.resize(total_pts)
 
 	# Plane (raan, inc) is invariant across in-plane perigee burns; only
 	# argp flips when a halving over-shoots r_p (the orientation flip).
@@ -258,11 +259,9 @@ func update_decaying_spiral(orbit: EarthOrbit) -> void:
 			)
 			var nu := lerpf(nu_a, nu_b, t)
 			var r_at: float = seg_p / (1.0 + seg_e * cos(nu))
-			var pos := (
+			_points[write_idx] = (
 				pqw_x * (r_at * cos(nu)) + pqw_y * (r_at * sin(nu))
 			) * SCENE_SCALE
-			_points[write_idx] = pos
-			_colors[write_idx] = color
 			write_idx += 1
 
 	_upload_surface()
@@ -404,14 +403,33 @@ static func _next_surface_crossing(
 	return candidate
 
 
+func _clear_surfaces() -> void:
+	_array_mesh.clear_surfaces()
+	_surface_vertex_count = -1
+
+
 func _upload_surface() -> void:
+	# Fast path: vertex count is unchanged, so the GPU buffer is the
+	# right size — rewrite positions in place instead of re-creating
+	# the surface. Matters most for meteorite trajectories and the
+	# decaying spiral, both of which rebuild every render tick (their
+	# nu sweeps with the body), so the slow path was 1+ surface
+	# re-allocation per body per frame at MVP wave sizes.
+	if (
+		_array_mesh.get_surface_count() == 1
+		and _surface_vertex_count == _points.size()
+	):
+		_array_mesh.surface_update_vertex_region(
+			0, 0, _points.to_byte_array()
+		)
+		return
 	_array_mesh.clear_surfaces()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = _points
-	arrays[Mesh.ARRAY_COLOR] = _colors
 	_array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINE_STRIP, arrays)
 	_array_mesh.surface_set_material(0, _material)
+	_surface_vertex_count = _points.size()
 
 
 static func _signature_close(a: Vector4, b: Vector4) -> bool:
