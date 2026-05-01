@@ -37,8 +37,14 @@ class FakeSat extends RefCounted:
 		pass
 
 
-# Player satellite at 500 km circular orbit, oriented along +x.
-func _make_player(radius: float = EARTH_RADIUS_KM + 500.0) -> FakeSat:
+# Player satellite at a circular orbit oriented along +x. Default
+# altitude 5000 km (radius ~11 371 km) is comfortably above the
+# safety floor + margin for the design SLUG_MOMENTUM: 200 m/s
+# retrograde recoil from this altitude drops periapsis to ~10 000
+# km, well clear of the 6 471 km floor. Refusal-case tests pass
+# `R+500` explicitly to deliberately set up the LEO geometry where
+# the same recoil tips the shooter's orbit unsafe.
+func _make_player(radius: float = EARTH_RADIUS_KM + 5000.0) -> FakeSat:
 	var s := FakeSat.new()
 	s.team = 0
 	var v_circ := sqrt(EarthOrbit.MU / radius)
@@ -207,8 +213,11 @@ func test_refuses_shot_that_would_drop_periapsis_below_floor() -> void:
 	var attacker := _make_player(EARTH_RADIUS_KM + 500.0)
 	# Modest mass cut so the recoil produces a periapsis-crash without
 	# also exceeding escape velocity (which would hit the apoapsis-INF
-	# branch first and never test the periapsis floor).
-	attacker.mass = 10.0
+	# branch first and never test the periapsis floor). Sized against
+	# the current SLUG_MOMENTUM: 200 kg·km/s / 50 kg = 4 km/s recoil,
+	# which on a 7.6 km/s circular orbit drops periapsis below the
+	# 100 km altitude floor while staying clearly bound.
+	attacker.mass = 50.0
 	# Target prograde of attacker (+y direction) so slug fires +y →
 	# recoil is -y → orbital velocity drops → periapsis crashes.
 	var enemy := FakeSat.new()
@@ -256,27 +265,30 @@ func test_pick_target_does_not_gate_on_enabled_flag() -> void:
 
 
 func test_pick_target_skips_unsafe_shots() -> void:
-	# Two candidates: one would produce a safe shot, one would push
-	# the shooter past max_orbital_radius. pick_target should always
-	# return the safe one.
+	# Two candidates: one would produce a safe shot, one would drop
+	# the shooter's periapsis below the 100 km altitude floor.
+	# pick_target should always return the safe one.
 	var w := RailgunWeapon.new()
 	var attacker := _make_player(EARTH_RADIUS_KM + 500.0)
-	attacker.max_orbital_radius_km = EARTH_RADIUS_KM + 510.0
-	# Safe enemy: target at +y (retrograde-of-velocity slug → recoil
-	# drops orbital speed → apoapsis stays close to current radius
-	# or below, periapsis drops slightly but stays above the floor).
-	var safe_enemy := _make_enemy(
-		Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0)
+	# Generous cap so the apoapsis ceiling never trips — the test is
+	# specifically about the periapsis floor refusing the unsafe
+	# shot, not about the operator's max-radius slider.
+	attacker.max_orbital_radius_km = 12000.0
+	# Safe enemy: laterally offset from the attacker's orbital plane
+	# (+z direction). Recoil is purely perpendicular to the
+	# attacker's velocity, so the orbit barely changes and both
+	# r_p and r_a stay comfortably inside bounds.
+	var sr := EARTH_RADIUS_KM + 500.0
+	var safe_enemy := FakeSat.new()
+	safe_enemy.team = 1
+	safe_enemy.orbit = EarthOrbit.new(
+		Vector3(sr, 0.0, 3000.0),
+		Vector3(0.0, sqrt(EarthOrbit.MU / sr), 0.0)
 	)
-	# Unsafe enemy: at -y → recoil is +y → orbital speed rises →
-	# apoapsis raises past the tight cap.
-	var unsafe_enemy := FakeSat.new()
-	unsafe_enemy.team = 1
-	var ey := EARTH_RADIUS_KM + 500.0
-	unsafe_enemy.orbit = EarthOrbit.new(
-		Vector3(ey, -3000.0, 0.0),
-		Vector3(0.0, 0.0, sqrt(EarthOrbit.MU / ey))
-	)
+	# Unsafe enemy: prograde of attacker (+y). Slug fires +y →
+	# recoil is -y (retrograde) → orbital velocity drops →
+	# periapsis falls below the floor and the shot is refused.
+	var unsafe_enemy := _make_enemy(Vector3(sr, 3000.0, 0.0))
 	# Sanity: confirm the two are correctly classified.
 	assert_true(RailgunWeapon.is_shot_safe_for_attacker(attacker, safe_enemy))
 	assert_false(RailgunWeapon.is_shot_safe_for_attacker(attacker, unsafe_enemy))

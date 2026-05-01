@@ -22,11 +22,13 @@ extends "res://scripts/weapons/weapon.gd"
 const LosCheck = preload("res://scripts/los_check.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
-# Slug momentum (kg·km/s). Sized to feel meaningful on the default
-# 1 t satellite (50 m/s recoil per shot ≈ 0.7% of LEO velocity) without
-# trivialising the operator's orbit. Tuning knob — turn it up for a
-# more dramatic kinetic engagement, down to keep orbital cost low.
-const SLUG_MOMENTUM_KG_KM_S: float = 50.0
+# Slug momentum (kg·km/s). 200 kg·km/s on a 1 t satellite ⇒ 200 m/s
+# Δv per shot, ~2.6% of LEO orbital velocity — small enough that a
+# single shot doesn't immediately doom the shooter, large enough that
+# the orbit visibly shifts in the next render tick. Symmetric on the
+# target side, so a meteorite (1 t) deflects by 200 m/s along the
+# shot ray, plenty to nudge it off an impact path with a few hits.
+const SLUG_MOMENTUM_KG_KM_S: float = 200.0
 # Energy fraction drained per shot. With ENERGY_RATE_PER_SIM_SEC at
 # 0.00014 the reservoir takes ~24 minutes of sim time to refill from
 # empty, so a sustained railgun engagement is energy-bound.
@@ -35,10 +37,13 @@ const ENERGY_PER_SHOT: float = 0.20
 # the railgun reads as a heavy weapon, not a peashooter.
 const DAMAGE_PER_SHOT: float = 35.0
 # Sim-seconds for the cooldown bar to climb from 0 (just-fired) back
-# to 1 (ready). Sized so the impulse cadence is visibly distinct from
-# the laser's continuous fire — the railgun is the slow-but-heavy
-# option in the loadout.
-const COOLDOWN_SEC: float = 12.0
+# to 1 (ready). At the default time_factor=500 that's ~1.2 seconds
+# of wall-clock — comparable to the laser's full overheat-cool cycle
+# but felt as a single discrete beat between shots rather than a
+# saturation lockout. Sized far slower than the original 12 sim-sec
+# value, which compressed to a near-instant strobe at high
+# time_factor.
+const COOLDOWN_SEC: float = 600.0
 const COOL_PER_SEC: float = 1.0 / COOLDOWN_SEC
 # Hard floor on the shooter's post-recoil periapsis: 100 km clearance
 # above Earth's surface, per the design spec. Lives on the weapon (the
