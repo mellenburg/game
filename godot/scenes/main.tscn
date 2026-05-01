@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=14 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
@@ -9,6 +9,7 @@
 [ext_resource type="Shader" path="res://shaders/sky.gdshader" id="7_sky"]
 [ext_resource type="Script" path="res://scripts/impact_map.gd" id="8_impact_map"]
 [ext_resource type="Script" path="res://scripts/range_circle.gd" id="9_range_circle"]
+[ext_resource type="Script" path="res://scripts/moon.gd" id="10_moon"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -48,6 +49,9 @@ light_energy = 1.2
 
 [node name="Sun" type="Node3D" parent="."]
 script = ExtResource("5_sun")
+
+[node name="Moon" type="MeshInstance3D" parent="."]
+script = ExtResource("10_moon")
 
 [node name="Satellites" type="Node3D" parent="."]
 

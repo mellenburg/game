@@ -6,6 +6,7 @@ extends Node3D
 
 const Satellite = preload("res://scripts/satellite.gd")
 const Earth = preload("res://scripts/earth.gd")
+const Moon = preload("res://scripts/moon.gd")
 const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
@@ -102,6 +103,7 @@ var impact_tracker := ImpactTracker.new()
 var _albedo_image: Image = null
 
 @onready var earth: Earth = $Earth as Earth
+@onready var moon: Moon = $Moon as Moon
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
 @onready var hud: HUD = $CanvasLayer/HUD as HUD
 @onready var satellite_container: Node3D = $Satellites as Node3D
@@ -150,6 +152,8 @@ func _physics_process(delta: float) -> void:
 	# Convert wall-clock seconds to simulated seconds.
 	var sim_delta := float(time_factor) * delta
 	earth.advance_phase(sim_delta)
+	if moon != null:
+		moon.advance_phase(sim_delta)
 	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
 		sat.advance_time(sim_delta)
