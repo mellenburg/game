@@ -94,17 +94,20 @@ offset_bottom = 100.0
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="EnemyRoster" type="HBoxContainer" parent="CanvasLayer/HUD"]
+[node name="EnemyRoster" type="VBoxContainer" parent="CanvasLayer/HUD"]
 layout_mode = 1
-anchors_preset = 2
-anchor_top = 1.0
+anchors_preset = 0
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = 10.0
-offset_top = -100.0
-offset_right = 1190.0
+offset_top = 200.0
+offset_right = 0.0
 offset_bottom = -10.0
 mouse_filter = 2
-theme_override_constants/separation = 6
+alignment = 2
+theme_override_constants/separation = 4
 
 [node name="TargetContainer" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1

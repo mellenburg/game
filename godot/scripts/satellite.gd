@@ -43,6 +43,10 @@ var did_maneuver: bool = false
 var orbit_alive: bool = true
 
 var team: int = TEAM_PLAYER
+# Per-instance HP cap. Defaults to MAX_HP for player / standard enemy
+# satellites; threat-spawning paths (meteorite, decaying-orbit body)
+# override it with their own cap and seed `hp` to the same value.
+var max_hp: float = MAX_HP
 var hp: float = MAX_HP
 var alive: bool = true
 # Sub-orbital trajectory (a meteorite) — its periapsis is below Earth's
@@ -333,6 +337,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	selected = other.selected
 	orbit_alive = other.orbit_alive
 	team = other.team
+	max_hp = other.max_hp
 	hp = other.hp
 	alive = other.alive
 	is_meteorite = other.is_meteorite
