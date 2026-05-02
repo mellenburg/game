@@ -7,8 +7,15 @@ config_version=5
 [application]
 
 config/name="Orbit Game"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[autoload]
+
+; Persistent pre-game player choices (selected stage, per-unit weapon
+; loadout, per-unit initial orbit). Lives on /root so it survives the
+; menu->stage scene transition. Read by SpawnDirector at start.
+PlayerLoadout="*res://scripts/player_loadout.gd"
 
 [debug]
 
@@ -132,6 +139,10 @@ toggle_laser_targeting={
 toggle_railgun={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":88,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)]
+}
+pause_game={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194308,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)]
 }
 
 [physics]

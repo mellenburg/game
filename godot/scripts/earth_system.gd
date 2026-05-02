@@ -25,6 +25,7 @@ const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const UnitConfig = preload("res://scripts/unit_config.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -139,10 +140,32 @@ func _ready() -> void:
 	if radar_map != null:
 		radar_map.waves = spawn_director.meteorite_waves
 
-	spawn_director.spawn_starting_fleet()
+	spawn_director.spawn_starting_fleet(_player_loadout_units())
 	if not real_satellites.is_empty():
 		selected_ship = 0
 		real_satellites[0].select()
+
+
+# Pull the per-unit configs the pre-game menu set into PlayerLoadout, if
+# the autoload is present and the player launched from the menu. Empty
+# array otherwise — SpawnDirector treats that as "use the legacy
+# randomised fleet", which keeps direct-boot of main.tscn working for
+# debugging and any future smoke tests.
+func _player_loadout_units() -> Array[UnitConfig]:
+	var empty: Array[UnitConfig] = []
+	var tree := get_tree()
+	if tree == null:
+		return empty
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null:
+		return empty
+	if not loadout.launched:
+		return empty
+	# Loadout.units is already typed Array[UnitConfig]; assign through
+	# a typed local so the strict-warnings build doesn't see an
+	# inferred-Variant return.
+	var units: Array[UnitConfig] = loadout.units
+	return units
 
 
 # Pull the day-side albedo into an Image once. Sampling at impact time
