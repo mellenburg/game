@@ -23,6 +23,10 @@ const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
 const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
+const Mission = preload("res://scripts/mission.gd")
+const EndGameOverlay = preload("res://scripts/end_game_overlay.gd")
+const ReconSettings = preload("res://scripts/recon_settings.gd")
+const WaveUnitClass = preload("res://scripts/wave_unit_class.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
@@ -102,6 +106,26 @@ var _albedo_image: Image = null
 var spawn_director: SpawnDirector
 var combat_controller: CombatController
 
+# Mission wave scheduler. Non-null when the player launched from the
+# pre-game menu (PlayerLoadout.launched). Null on direct main-scene
+# boot so the existing debug entry path keeps its quiet sandbox — the
+# operator can still trigger waves manually via the I/J/M keys.
+var mission: Mission = null
+# Latches that the mission summary has already been opened so we only
+# trigger the overlay once. Without this, the post-clear tick would
+# call show_summary() every frame.
+var _mission_summary_shown: bool = false
+# Per-wave base entry directions. Filled the first time the mission
+# emits a wave-unit for a given wave_id; reused for every subsequent
+# wave-unit in that wave so the cluster lands inside one solid-angle
+# patch. Indexed by int wave_id, value is a unit Vector3.
+var _mission_wave_bases: Dictionary = {}
+# Snapshot of ReconSettings the active mission was started against.
+# Mid-mission edits land on PlayerLoadout but don't rebuild this; we
+# snapshot at start so a wave-unit emission still resolves to the
+# class config the player intended at launch time.
+var _mission_settings: ReconSettings = null
+
 @onready var earth: Earth = $Earth as Earth
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
 @onready var hud: HUD = $CanvasLayer/HUD as HUD
@@ -113,6 +137,9 @@ var combat_controller: CombatController
 @onready var radar_map: RadarMap = $CanvasLayer/HUD/RadarMap as RadarMap
 @onready var threat_alert: ThreatAlert = (
 	$CanvasLayer/HUD/ThreatAlert as ThreatAlert
+)
+@onready var end_game_overlay: EndGameOverlay = (
+	$CanvasLayer/EndGameOverlay as EndGameOverlay
 )
 
 # Lower-right overlay cycle: surface impact map → wave radar → off → ...
@@ -172,6 +199,43 @@ func _ready() -> void:
 	if not real_satellites.is_empty():
 		selected_ship = _first_orbital_player_index()
 		real_satellites[selected_ship].select()
+
+	# Only auto-arm the mission scheduler when the player came in via
+	# the menu's Launch button. Direct main.tscn boot keeps the legacy
+	# sandbox where waves are only triggered by the debug keybinds.
+	if _player_loadout_is_launched():
+		_mission_settings = _player_loadout_recon_settings()
+		mission = Mission.new()
+		mission.start_from_settings(_mission_settings)
+
+
+# Pull the player's wave configuration off PlayerLoadout. Falls back
+# to the shipped default settings if the autoload is missing or has
+# never been initialised — direct main.tscn boots take this branch.
+func _player_loadout_recon_settings() -> ReconSettings:
+	var tree := get_tree()
+	if tree == null:
+		return ReconSettings.default_settings()
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null or loadout.recon_settings == null:
+		return ReconSettings.default_settings()
+	# Snapshot a copy so live edits to PlayerLoadout.recon_settings can
+	# never mutate the running mission's config out from under it.
+	return loadout.recon_settings.duplicate_settings()
+
+
+# Tighter check than `_player_loadout_launches`: we want a true / false
+# answer for "did the player launch through the menu?" without copying
+# the launches array. Mirrors the same null-safe lookup the launch / pool
+# helpers do so all four agree on the gating condition.
+func _player_loadout_is_launched() -> bool:
+	var tree := get_tree()
+	if tree == null:
+		return false
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null:
+		return false
+	return bool(loadout.launched)
 
 
 # Pull the launches the pre-game menu set into PlayerLoadout, if the
@@ -254,12 +318,75 @@ func _process(delta: float) -> void:
 	camera.process_movement(delta)
 	_process_continuous_input(delta)
 	_process_one_shot_input()
+	_tick_mission(delta)
 	spawn_director.tick_waves(delta)
+	_check_mission_complete()
 	_auto_switch_map_mode()
 	_update_range_circle()
 	_render_orbits(delta)
 	hud.update_hud(self, planning_mode, time_factor, planning_dt)
 	hud.draw_target_lines(self, camera)
+
+
+# Drain any wave-unit emissions whose start threshold elapsed this
+# tick and hand each off to the spawn director as one full meteorite
+# wave. Wave-units sharing a wave_id reuse the same per-wave base
+# entry direction (sampled fresh on the first emission of each wave),
+# so the cluster of bursts lands inside one solid-angle patch rather
+# than scattering across the sky. Keyed off real-time delta to match
+# the existing wave-spawn cadence — pausing the sim (time_factor=0)
+# doesn't pause the mission clock, and the fully-spawned wave bodies
+# still ride the same _process tick_waves loop downstream.
+func _tick_mission(delta: float) -> void:
+	if mission == null:
+		return
+	var ready: Array[Dictionary] = mission.tick(delta)
+	for emission: Dictionary in ready:
+		var wave_id := int(emission.get("wave_id", -1))
+		if not _mission_wave_bases.has(wave_id):
+			_mission_wave_bases[wave_id] = spawn_director.sample_unit_vector()
+		var base: Vector3 = _mission_wave_bases[wave_id]
+		var size_class := int(emission.get("size_class", ReconSettings.SIZE_ALPHA))
+		var unit_class: WaveUnitClass = null
+		if _mission_settings != null:
+			unit_class = _mission_settings.class_for(size_class)
+		# Mission baked the per-wave-unit object count into the spec at
+		# schedule-build time so the per-wave 250-body cap can be
+		# enforced across siblings; pass it through as an override so
+		# SpawnDirector doesn't resample.
+		var count_override := int(emission.get("object_count", -1))
+		spawn_director.start_wave_unit_clustered(
+			base, unit_class, count_override
+		)
+
+
+# Once every wave has been handed to the spawn director, the in-flight
+# wave queue has drained, and no live enemy satellites remain, the
+# mission is over. Mark complete (so we don't re-fire) and pop the
+# end-of-run summary, which pauses the tree and routes the operator
+# back to the menu on acknowledge.
+func _check_mission_complete() -> void:
+	if mission == null or _mission_summary_shown:
+		return
+	if mission.is_complete():
+		return
+	if not mission.all_waves_spawned():
+		return
+	if spawn_director.has_active_waves():
+		return
+	if _any_live_enemies():
+		return
+	mission.mark_complete()
+	_mission_summary_shown = true
+	if end_game_overlay != null:
+		end_game_overlay.show_summary()
+
+
+func _any_live_enemies() -> bool:
+	for sat in real_satellites:
+		if sat.team == Satellite.TEAM_ENEMY and sat.alive:
+			return true
+	return false
 
 
 func _physics_process(delta: float) -> void:

@@ -21,6 +21,7 @@ const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
 const Launch = preload("res://scripts/launch.gd")
+const WaveUnitClass = preload("res://scripts/wave_unit_class.gd")
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -137,6 +138,15 @@ const DECAYING_INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
 # heaviest large-class band the wave path can produce. Wave-borne
 # decaying threats sample their own mass from the medium / large band.
 const DECAYING_DEFAULT_MASS_KG: float = 1000.0
+
+# Half-angle of the cone within which a single mission wave's wave-
+# units cluster around its base entry direction. ~20° gives a "broad,
+# lumpy" group while still reading as one arrival from one quadrant of
+# the sky. Each wave-unit is itself a 20-body meteorite wave with its
+# own ~7° internal lateral spread, so the visible footprint of a wave
+# on radar covers roughly 50° of arc — wide, but unmistakeably one
+# coordinated assault rather than scattered noise.
+const MISSION_NEXUS_CONE_HALF_ANGLE_DEG: float = 20.0
 
 # Active meteorite waves. Each carries its own nexus + queue of pending
 # spawn delays; ticked from the controller's _process so the spawn
@@ -411,12 +421,157 @@ func start_meteorite_wave(
 	duration_sec: float = METEORITE_WAVE_DURATION_SEC,
 	preroll_sec: float = METEORITE_WAVE_PREROLL_SEC,
 ) -> void:
-	var wave := _build_meteorite_wave_at_random_nexus()
+	_emit_meteorite_wave(_random_unit_vector(), count, duration_sec, preroll_sec)
+
+
+# Begin a meteorite wave whose entry direction is jittered around a
+# caller-supplied base. The base is the per-mission-wave anchor; the
+# perturbation is sampled inside MISSION_NEXUS_CONE_HALF_ANGLE so every
+# wave-unit in a single mission wave lands inside one solid-angle
+# patch — the "broad lumpy group from one quadrant of the sky" the
+# brief calls for. Composition / preroll / spawn-window match the
+# default `start_meteorite_wave` so each wave-unit is a full 20-body
+# burst, indistinguishable from one the I keybind would produce.
+func start_meteorite_wave_clustered(base_r_hat: Vector3) -> void:
+	var perturbed := _perturb_unit_vector(
+		base_r_hat, deg_to_rad(MISSION_NEXUS_CONE_HALF_ANGLE_DEG)
+	)
+	_emit_meteorite_wave(
+		perturbed,
+		METEORITE_WAVE_COUNT,
+		METEORITE_WAVE_DURATION_SEC,
+		METEORITE_WAVE_PREROLL_SEC,
+	)
+
+
+# Sample a uniform-on-sphere unit vector. Public so the mission scheduler
+# in EarthSystem can fix a fresh per-wave base direction without having
+# to mint its own RNG — keeps every wave-related random draw on the one
+# seeded RNG this director owns.
+func sample_unit_vector() -> Vector3:
+	return _random_unit_vector()
+
+
+# Begin a meteorite wave driven by a WaveUnitClass: object count, the
+# decaying-orbit ratio, the per-object size mix, the time spread, and
+# the location-arc spread all come from the class's range / barycentric
+# fields. `count_override` lets Mission pre-sample and cap object
+# counts (so the per-wave 250-body ceiling holds across siblings); a
+# negative value keeps the legacy behaviour of resampling from the
+# class's count range here. Preroll stays fixed at the class's lead-
+# time default — the radar overlay needs the 10 s scroll-in window
+# regardless of how short the spawn burst itself is.
+func start_wave_unit_clustered(
+	base_r_hat: Vector3,
+	unit_class: WaveUnitClass,
+	count_override: int = -1,
+) -> void:
+	if unit_class == null:
+		start_meteorite_wave_clustered(base_r_hat)
+		return
+	var perturbed := _perturb_unit_vector(
+		base_r_hat, deg_to_rad(MISSION_NEXUS_CONE_HALF_ANGLE_DEG)
+	)
+	var count: int
+	if count_override >= 0:
+		count = count_override
+	else:
+		count = unit_class.sample_count(_rng)
+	var decaying_ratio := unit_class.sample_decaying_ratio(_rng)
+	var wave := _build_meteorite_wave_at_nexus(perturbed)
+	var spread_km := unit_class.lateral_spread_for_altitude(wave.base_altitude)
+	var duration_sec := unit_class.time_spread_sec
+	var specs := _sample_class_wave_specs(
+		count,
+		decaying_ratio,
+		unit_class,
+		duration_sec,
+		METEORITE_WAVE_PREROLL_SEC,
+		spread_km,
+	)
+	wave.set_specs(specs, duration_sec, spread_km)
+	meteorite_waves.append(wave)
+	if _threat_alert != null:
+		_threat_alert.trigger()
+
+
+# Build per-object specs for a class-driven wave-unit. Object size
+# bands come from the class's barycentric weights (largest-remainder
+# rounded so the three counts always sum to `count` exactly); the
+# decaying-orbit subset is a uniform-random pick of `round(count *
+# decaying_ratio)` slots across the *whole* spec list — unlike the
+# legacy 20-body wave (which restricted decaying to medium/large), a
+# class-driven wave can pour decaying threats onto any size.
+func _sample_class_wave_specs(
+	count: int,
+	decaying_ratio: float,
+	unit_class: WaveUnitClass,
+	duration_sec: float,
+	preroll_sec: float,
+	lateral_spread_km: float,
+) -> Array[Dictionary]:
+	var specs: Array[Dictionary] = []
+	if count <= 0:
+		return specs
+	var bands := unit_class.sample_object_size_counts(count)
+	var sizes: Array[int] = []
+	for _i in range(int(bands["small"])):
+		sizes.append(SIZE_SMALL)
+	for _i in range(int(bands["medium"])):
+		sizes.append(SIZE_MEDIUM)
+	for _i in range(int(bands["large"])):
+		sizes.append(SIZE_LARGE)
+	_shuffle_int_array(sizes)
+	# Decaying-slot picks are independent of size — the class's
+	# decaying ratio governs the overall share, not the heavy-body
+	# subset like the legacy wave did.
+	var n_decaying := clampi(
+		int(round(float(count) * decaying_ratio)), 0, count
+	)
+	var indices: Array[int] = []
+	for i in range(count):
+		indices.append(i)
+	_shuffle_int_array(indices)
+	var decaying_set := {}
+	for i in range(n_decaying):
+		decaying_set[indices[i]] = true
+	for i in range(count):
+		var size_class: int = sizes[i]
+		var mass := _sample_mass_for_class(size_class)
+		specs.append(_make_wave_spec(
+			mass, decaying_set.has(i), duration_sec, preroll_sec,
+			lateral_spread_km,
+		))
+	return specs
+
+
+# Internal: shared body of `start_meteorite_wave` (random nexus) and
+# `start_meteorite_wave_clustered` (caller-supplied + jittered nexus).
+# The two paths only differ in how `r_hat` is chosen; the rest of the
+# wave construction (mass mix, decaying-orbit subset, threat alert) is
+# identical so both produce the same wave shape downstream.
+func _emit_meteorite_wave(
+	r_hat: Vector3, count: int, duration_sec: float, preroll_sec: float
+) -> void:
+	var wave := _build_meteorite_wave_at_nexus(r_hat)
 	var specs := _sample_wave_specs(count, duration_sec, preroll_sec)
 	wave.set_specs(specs, duration_sec, METEORITE_LATERAL_SPREAD_KM)
 	meteorite_waves.append(wave)
 	if _threat_alert != null:
 		_threat_alert.trigger()
+
+
+# Rotate `base` by a uniform random angle in [0, max_angle_rad] around
+# a uniform random axis perpendicular to it. The result is a unit vector
+# inside the spherical cap of half-angle `max_angle_rad` centered on
+# `base`. Uniform-in-angle (rather than uniform-in-solid-angle) is
+# intentional: the bias toward the cone's edge reads visually as a
+# "lumpy" cluster — wave-units pile near the rim of the patch — which
+# is the look the mission brief asks for.
+func _perturb_unit_vector(base: Vector3, max_angle_rad: float) -> Vector3:
+	var axis := _random_perpendicular_unit(base.normalized())
+	var angle := _rng.randf_range(0.0, max_angle_rad)
+	return base.normalized().rotated(axis, angle).normalized()
 
 
 # Build the full 20-spec mix for a single wave: pick the size-class
@@ -503,10 +658,14 @@ func _sample_mass_for_class(size_class: int) -> float:
 # to plot for them while the spawn-time geometry uses an independent
 # random plane per body (see _make_decaying_enemy).
 func _make_wave_spec(
-	mass: float, is_decaying: bool, duration_sec: float, preroll_sec: float
+	mass: float,
+	is_decaying: bool,
+	duration_sec: float,
+	preroll_sec: float,
+	lateral_spread_km: float = METEORITE_LATERAL_SPREAD_KM,
 ) -> Dictionary:
 	var ang := _rng.randf_range(0.0, TAU)
-	var dist := _rng.randf_range(0.0, METEORITE_LATERAL_SPREAD_KM)
+	var dist := _rng.randf_range(0.0, lateral_spread_km)
 	return {
 		"t": _rng.randf_range(0.0, duration_sec) + preroll_sec,
 		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
@@ -588,8 +747,15 @@ func has_active_waves() -> bool:
 # instantaneous storm (m) and the time-distributed wave (i) so both
 # spawn paths use the same physics setup.
 func _build_meteorite_wave_at_random_nexus() -> MeteoriteWave:
+	return _build_meteorite_wave_at_nexus(_random_unit_vector())
+
+
+# Build a meteorite wave whose entry direction is the supplied unit
+# vector. Tangent / altitude / velocity remain randomised — the caller
+# only locks the radial axis of the cluster, not its in-plane shape.
+func _build_meteorite_wave_at_nexus(r_hat: Vector3) -> MeteoriteWave:
 	var wave := MeteoriteWave.new()
-	wave.r_hat = _random_unit_vector()
+	wave.r_hat = r_hat.normalized()
 	wave.tangent = _random_perpendicular_unit(wave.r_hat)
 	wave.base_altitude = _rng.randf_range(
 		METEORITE_ALT_MIN_KM, METEORITE_ALT_MAX_KM

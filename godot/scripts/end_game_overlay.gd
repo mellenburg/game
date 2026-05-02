@@ -1,8 +1,11 @@
+class_name EndGameOverlay
 extends Control
 ## End-of-run summary overlay. Bound to the `end_game` action (Enter
-## by default). Pauses the simulation, shows a per-unit damage / kill
-## breakdown plus aggregate Earth-impact stats, and routes the user
-## back to the pre-game menu when acknowledged.
+## by default), and also openable programmatically via `show_summary`
+## when EarthSystem detects the mission has cleared. Pauses the
+## simulation, shows a per-unit damage / kill breakdown plus aggregate
+## Earth-impact stats, and routes the user back to the pre-game menu
+## when acknowledged.
 ##
 ## process_mode = ALWAYS so this node keeps ticking once paused —
 ## without it the Acknowledge input would never fire and the player
@@ -48,8 +51,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if visible:
 		return
 	if event.is_action_pressed("end_game"):
-		_show_summary()
+		show_summary()
 		get_viewport().set_input_as_handled()
+
+
+# Public entry point so the controller can pop the summary itself when
+# the mission clears (every wave fired and no enemies remain). Idempotent
+# — once visible the panel keeps its rendered state until acknowledged.
+func show_summary() -> void:
+	if visible:
+		return
+	_show_summary()
 
 
 func _show_summary() -> void:

@@ -29,6 +29,7 @@ const OrbitPreview = preload("res://scripts/menu/orbit_preview.gd")
 const SurfacePlacementMap = preload("res://scripts/menu/surface_placement_map.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const ResearchGraph = preload("res://scripts/menu/research_graph.gd")
+const ReconEditor = preload("res://scripts/menu/recon_editor.gd")
 
 const STAGE_SCENE_PATH := "res://scenes/main.tscn"
 
@@ -167,6 +168,10 @@ func _build_chrome() -> void:
 	surface.name = "Surface Ops"
 	_tabs.add_child(surface)
 
+	var recon := _build_recon_tab()
+	recon.name = "Recon"
+	_tabs.add_child(recon)
+
 	var research := _build_research_tab()
 	research.name = "Research"
 	_tabs.add_child(research)
@@ -209,12 +214,6 @@ func _build_topbar() -> PanelContainer:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(spacer)
-
-	var hint := Label.new()
-	hint.text = "Build units, schedule launches, then return to Campaign and LAUNCH."
-	hint.add_theme_color_override("font_color", COLOR_FG_DIM)
-	hint.add_theme_font_size_override("font_size", 11)
-	bar.add_child(hint)
 
 	var exit_btn := Button.new()
 	exit_btn.text = "EXIT"
@@ -1491,6 +1490,30 @@ static func _format_lat(lat: float) -> String:
 static func _format_lon(lon: float) -> String:
 	var hemi := "E" if lon >= 0.0 else "W"
 	return "%.1f° %s" % [absf(lon), hemi]
+
+
+# ---------------------------------------------------------------- Recon
+
+# Wraps the shared ReconEditor in a padded margin so the editor's
+# sections breathe inside the tab. The editor itself binds to
+# PlayerLoadout.recon_settings by default, so opening this tab and
+# editing here mutates the same Resource the in-game pause-menu
+# settings panel sees.
+func _build_recon_tab() -> Control:
+	var pad := MarginContainer.new()
+	pad.anchor_right = 1.0
+	pad.anchor_bottom = 1.0
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 12)
+	pad.add_theme_constant_override("margin_bottom", 12)
+
+	var editor := ReconEditor.new()
+	editor.bind_settings(PlayerLoadout.recon_settings)
+	editor.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	editor.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pad.add_child(editor)
+	return pad
 
 
 # ---------------------------------------------------------------- Research
