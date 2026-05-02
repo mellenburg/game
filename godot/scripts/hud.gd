@@ -16,49 +16,52 @@ extends Control
 const Satellite = preload("res://scripts/satellite.gd")
 const LosCheck = preload("res://scripts/los_check.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
+const UIStyle = preload("res://scripts/ui/ui_style.gd")
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
-const PLAYER_BG := Color(0.06, 0.25, 0.10, 0.65)
-const PLAYER_BG_SEL := Color(0.20, 0.65, 0.25, 0.90)
-# Roster box flash on hit. Red — a damage indicator, distinct from the
-# orange used on the 3D marker and BeamRenderer beam so the two
-# surfaces don't blur into the same visual signal.
-const BOX_HIT_FLASH := Color(0.95, 0.15, 0.15, 0.95)
+# Roster box flash on hit. Bad-status red from the shared palette so
+# the HUD's "you took damage" signal speaks the same colour vocabulary
+# as the rest of the UI's negative states.
+const BOX_HIT_FLASH := UIStyle.BAD
 # Player roster width is fixed so the boxes line up evenly along the
 # top strip. Height auto-sizes from the contained HP / energy /
 # weapon rows. Enemy boxes don't share this — they're area-scaled.
-const BOX_MIN_SIZE := Vector2(105, 0)
+const BOX_MIN_SIZE := Vector2(112, 0)
 
-# Bar row colors. The energy reservoir is blue; weapon recovery starts
-# orange ("recharging") and snaps to green when ready, so a glance
-# tells the player which lasers can fire.
-const BAR_BG := Color(0.04, 0.04, 0.06, 0.85)
-const BAR_ENERGY := Color(0.20, 0.50, 0.95, 0.90)
-const BAR_COOLDOWN := Color(0.95, 0.55, 0.10, 0.90)
-const BAR_READY := Color(0.25, 0.80, 0.30, 0.90)
-const BAR_ROW_HEIGHT: float = 13.0
-const BAR_FONT_SIZE: int = 9
+# Bar row colors. Energy is amber (the brand accent) so the player's
+# main reservoir reads as "their" resource; weapon recovery is the
+# warn / good split — orange while charging, green at READY.
+const BAR_BG := UIStyle.BAR_TRACK
+const BAR_ENERGY := UIStyle.ACCENT
+const BAR_COOLDOWN := UIStyle.WARN
+const BAR_READY := UIStyle.GOOD
+const BAR_ROW_HEIGHT: float = 14.0
+const BAR_FONT_SIZE: int = UIStyle.FONT_LABEL_XS
 
-# Fire-control readout — green to match the on-orbit range circle so
-# the two surfaces read as the same control surfaced twice. Sized
-# slightly smaller than the bar text since it's a single line of meta
-# rather than a per-tick gauge.
-const FC_TEXT_COLOR := Color(0.55, 0.95, 0.65, 1.0)
-const FC_FONT_SIZE: int = 10
+# Fire-control readout — info cyan from the shared palette, distinct
+# from the GOOD/WARN bar fills below it so the meta line doesn't
+# collide visually with the per-weapon bars.
+const FC_TEXT_COLOR := UIStyle.INFO
+const FC_FONT_SIZE: int = UIStyle.FONT_BODY_SM
 const FC_NODE_NAME: String = "FCStatus"
 
 # Targeting-mode readout. Always present on armed player ships (unlike
 # the FC line which only shows when fire control is on) — it's a
-# persistent gameplay setting, not a toggle-into-an-overlay state. Cyan
-# tint is distinct from the FC green so the two single-line meta
-# readouts don't blend visually.
-const TGT_TEXT_COLOR := Color(0.55, 0.85, 0.95, 1.0)
-const TGT_FONT_SIZE: int = 10
+# persistent gameplay setting, not a toggle-into-an-overlay state. Uses
+# the warm accent so it reads as "your active mode setting".
+const TGT_TEXT_COLOR := UIStyle.ACCENT
+const TGT_FONT_SIZE: int = UIStyle.FONT_BODY_SM
 const TGT_NODE_NAME: String = "TargetingStatus"
 
-const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
-const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
+# HP label colour for the player roster — bright fg_0 on the
+# selected/normal card, switching to a muted fg_2 wouldn't read at the
+# bar-row sizes we're using.
+const HP_TEXT_COLOR := UIStyle.FG_0
+const HP_FONT_SIZE: int = UIStyle.FONT_BODY
+
+const LOS_CLEAR := UIStyle.WARN                 # yellow-amber
+const LOS_BLOCKED := UIStyle.BAD                # red
 
 # Wall-clock duration of the hit pulse on the marker / roster box.
 # Wall-clock so the visual feedback survives compression at high
@@ -146,13 +149,20 @@ func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: in
 func _update_info_label(planning_mode: bool, time_factor: int, dt: int) -> void:
 	if info_label == null:
 		return
+	var fg2 := UIStyle.FG_2.to_html(false)
+	var fg0 := UIStyle.FG_0.to_html(false)
+	var accent := UIStyle.ACCENT.to_html(false)
 	var lines := PackedStringArray()
-	lines.append("[font_size=14]")
+	lines.append("[font_size=%d]" % UIStyle.FONT_BODY)
 	if planning_mode:
-		lines.append("[color=yellow]PLANNING MODE[/color]")
-	lines.append("Time Factor: %d" % time_factor)
+		lines.append("[color=#%s]PLANNING MODE[/color]" % accent)
+	lines.append(
+		"[color=#%s]TIME FACTOR[/color]  [color=#%s]%d[/color]" % [fg2, fg0, time_factor]
+	)
 	if planning_mode:
-		lines.append("Planning dt: %d" % dt)
+		lines.append(
+			"[color=#%s]PLANNING DT[/color]  [color=#%s]%d[/color]" % [fg2, fg0, dt]
+		)
 	lines.append("[/font_size]")
 	info_label.text = "\n".join(lines)
 
@@ -164,10 +174,16 @@ func _update_kill_stats(orbital_set: Node) -> void:
 	# needed; the HUD already polls orbital_set every tick anyway.
 	var shot: int = orbital_set.enemies_shot_down
 	var hit: int = orbital_set.meteorites_impacted
+	var fg2 := UIStyle.FG_2.to_html(false)
+	var fg0 := UIStyle.FG_0.to_html(false)
+	var good := UIStyle.GOOD.to_html(false)
+	var bad := UIStyle.BAD.to_html(false)
 	kill_stats.text = (
-		"[font_size=13][color=gray]Enemies eliminated[/color]\n"
-		+ "[color=#7fcf7f]Shot down:[/color] %d\n" % shot
-		+ "[color=#ff8c5a]Impacted:[/color] %d[/font_size]" % hit
+		"[font_size=%d][color=#%s]ENEMIES ELIMINATED[/color][/font_size]\n" % [UIStyle.FONT_LABEL_XS, fg2]
+		+ "[font_size=%d]" % UIStyle.FONT_BODY
+		+ "[color=#%s]SHOT DOWN[/color]  [color=#%s]%d[/color]\n" % [fg2, good, shot]
+		+ "[color=#%s]IMPACTED[/color]  [color=#%s]%d[/color]" % [fg2, bad, hit]
+		+ "[/font_size]"
 	)
 
 
@@ -266,15 +282,18 @@ func _render_player_roster(sats: Array[Satellite], selected: int) -> void:
 const ENEMY_HP_AREA_PER_PX: float = 16.0
 const ENEMY_BOX_SEPARATION: int = 6
 # Drawn behind the solid fill at full box dimensions, so any area the
-# fill no longer covers reads as "lost HP". Translucent so it doesn't
-# fight the overlapping LOS lines or the radar / impact map below.
-const ENEMY_LOST_HP_COLOR := Color(1.0, 0.3, 0.3, 0.30)
-# Subtype-tinted solid fill — matches the 3D marker color so a glance
-# at the HUD links each box back to a body in the orbital view.
-const ENEMY_FILL_SAT := Color(1.0, 0.35, 0.35, 0.95)
-const ENEMY_FILL_METEORITE := Color(1.0, 0.85, 0.40, 0.95)
-const ENEMY_FILL_DECAYING := Color(0.95, 0.45, 0.95, 0.95)
-const ENEMY_FILL_SELECTED := Color(0.20, 1.00, 0.20, 1.0)
+# fill no longer covers reads as "lost HP". A muted bad-status track —
+# translucent enough not to fight the overlapping LOS lines or the
+# radar / impact map below. Same hue as UIStyle.BAD at 30% alpha.
+const ENEMY_LOST_HP_COLOR := Color(1.0, 0.36, 0.36, 0.30)
+# Subtype-tinted solid fill mapped onto the shared status palette: hostile
+# satellites get BAD red, meteorites get WARN amber, decaying bodies get
+# INFO cyan. Selection borrows the brand ACCENT so picking a target reads
+# the same way it does on a player roster card.
+const ENEMY_FILL_SAT := UIStyle.BAD
+const ENEMY_FILL_METEORITE := UIStyle.WARN
+const ENEMY_FILL_DECAYING := UIStyle.INFO
+const ENEMY_FILL_SELECTED := UIStyle.ACCENT
 
 
 # Multi-row, area-proportional enemy strip. Boxes flow left-to-right
@@ -410,27 +429,21 @@ func _make_box() -> PanelContainer:
 	var box := PanelContainer.new()
 	box.custom_minimum_size = BOX_MIN_SIZE
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Per-box StyleBoxFlat so we can mutate bg_color in place rather than
-	# reallocating on every selection change.
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = PLAYER_BG
-	sb.set_corner_radius_all(4)
-	sb.content_margin_left = 6
-	sb.content_margin_right = 6
-	sb.content_margin_top = 4
-	sb.content_margin_bottom = 4
-	box.add_theme_stylebox_override("panel", sb)
+	# Per-box StyleBoxFlat so we can mutate bg_color / border_color in
+	# place rather than reallocating on every selection change.
+	box.add_theme_stylebox_override("panel", UIStyle.make_card_stylebox(false))
 
 	var rows := VBoxContainer.new()
 	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rows.add_theme_constant_override("separation", 2)
+	rows.add_theme_constant_override("separation", 3)
 	box.add_child(rows)
 
 	# Index 0 is the plain HP label. Bar rows for energy + each weapon
 	# are added on demand by _update_box so the per-team child count
 	# matches the actual satellite (an unarmed enemy gets just HP).
 	var hp := Label.new()
-	hp.add_theme_font_size_override("font_size", 11)
+	hp.add_theme_font_size_override("font_size", HP_FONT_SIZE)
+	hp.add_theme_color_override("font_color", HP_TEXT_COLOR)
 	hp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rows.add_child(hp)
 
@@ -510,9 +523,14 @@ func _update_box(
 	var sb := box.get_theme_stylebox("panel") as StyleBoxFlat
 	if sb != null:
 		if _is_hit_target(sat):
-			sb.bg_color = BOX_HIT_FLASH
+			sb.bg_color = Color(UIStyle.BAD.r, UIStyle.BAD.g, UIStyle.BAD.b, 0.45)
+			sb.border_color = UIStyle.BAD
+		elif is_selected:
+			sb.bg_color = UIStyle.ACCENT_SOFT
+			sb.border_color = UIStyle.ACCENT
 		else:
-			sb.bg_color = PLAYER_BG_SEL if is_selected else PLAYER_BG
+			sb.bg_color = UIStyle.BG_2
+			sb.border_color = UIStyle.LINE
 
 	var rows := box.get_child(0) as VBoxContainer
 	if rows == null:
@@ -524,7 +542,18 @@ func _update_box(
 	# unchanged — we re-append (or drop) them after the bars settle.
 	var hp_label := rows.get_child(0) as Label
 	if hp_label != null:
-		hp_label.text = "HP %d/%d" % [int(sat.hp), int(sat.max_hp)]
+		hp_label.text = "HP  %d / %d" % [int(sat.hp), int(sat.max_hp)]
+		# Tint the HP readout by remaining fraction so a glance at the
+		# roster strip surfaces wounded units even before the energy bar
+		# below registers a hit.
+		var max_hp := maxf(sat.max_hp, 1.0)
+		var frac := clampf(sat.hp / max_hp, 0.0, 1.0)
+		var hp_col: Color = UIStyle.GOOD
+		if frac < 0.34:
+			hp_col = UIStyle.BAD
+		elif frac < 0.67:
+			hp_col = UIStyle.WARN
+		hp_label.add_theme_color_override("font_color", hp_col)
 
 	var fc_label := rows.get_node_or_null(FC_NODE_NAME) as Label
 	if fc_label != null:
@@ -554,7 +583,7 @@ func _update_box(
 	if want_fc:
 		if fc_label == null:
 			fc_label = _make_fc_label()
-		fc_label.text = "FC ON  %d km" % int(round(sat.engagement_range_km))
+		fc_label.text = "FC ON  %d KM" % int(round(sat.engagement_range_km))
 		rows.add_child(fc_label)
 	elif fc_label != null:
 		fc_label.queue_free()
@@ -567,8 +596,8 @@ func _update_box(
 		if tgt_label == null:
 			tgt_label = _make_targeting_label()
 		tgt_label.text = (
-			"TGT MAX DANGER" if sat.targeting_mode == Satellite.TARGETING_MAX_DANGER
-			else "TGT MAX DAMAGE"
+			"TGT  MAX DANGER" if sat.targeting_mode == Satellite.TARGETING_MAX_DANGER
+			else "TGT  MAX DAMAGE"
 		)
 		rows.add_child(tgt_label)
 	elif tgt_label != null:
@@ -581,7 +610,7 @@ func _update_box(
 	if energy_row != null:
 		var pct := int(round(sat.energy * 100.0))
 		_update_bar_row(
-			energy_row, BAR_ENERGY, "Energy  %d%%" % pct, sat.energy
+			energy_row, BAR_ENERGY, "ENERGY  %d%%" % pct, sat.energy
 		)
 
 	for i in range(sat.weapons.size()):
@@ -597,13 +626,13 @@ func _update_box(
 		var text: String
 		var fill_color: Color
 		if w.overheated:
-			text = "Laser %d  OVERHEAT %d%%" % [i + 1, pct]
+			text = "L%d  OVERHEAT %d%%" % [i + 1, pct]
 			fill_color = BAR_COOLDOWN
 		elif prog >= 1.0:
-			text = "Laser %d  READY" % (i + 1)
+			text = "L%d  READY" % (i + 1)
 			fill_color = BAR_READY
 		else:
-			text = "Laser %d  %d%%" % [i + 1, pct]
+			text = "L%d  %d%%" % [i + 1, pct]
 			fill_color = BAR_COOLDOWN
 		_update_bar_row(row, fill_color, text, prog)
 

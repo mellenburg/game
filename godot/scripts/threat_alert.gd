@@ -9,16 +9,23 @@ extends Control
 ## times in quick succession just retriggers a fresh flash rather than
 ## stacking multiple overlays.
 
+const UIStyle = preload("res://scripts/ui/ui_style.gd")
+
 const ALERT_HOLD_SEC: float = 0.7        # full-alpha hold after trigger
 const ALERT_FADE_SEC: float = 0.9        # linear fade from hold-end to 0
 const PANEL_SIZE := Vector2(560.0, 180.0)
-const PANEL_COLOR := Color(0.85, 0.05, 0.05, 0.55)
-const TEXT_COLOR := Color(1.0, 0.97, 0.97, 1.0)
+# Translucent BAD-tinted fill in the GUI palette; the bordered Panel
+# (vs the prior raw ColorRect) carries the 1px BAD edge that ties it
+# to the rest of the chip / status language. Same hue as UIStyle.BAD
+# (#ff5c5c) at 18% alpha — inlined to keep the constant parse-time
+# foldable.
+const PANEL_COLOR := Color(1.0, 0.36, 0.36, 0.18)
+const TEXT_COLOR := UIStyle.BAD
 const TEXT_FONT_SIZE: int = 56
 const ALERT_TEXT: String = "THREAT\nDETECTED"
 
 var _t: float = INF  # > total → modulate.a = 0, hidden
-var _panel: ColorRect
+var _panel: Panel
 var _label: Label
 
 
@@ -29,8 +36,13 @@ func _ready() -> void:
 	# scene file.
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 
-	_panel = ColorRect.new()
-	_panel.color = PANEL_COLOR
+	_panel = Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = PANEL_COLOR
+	sb.set_corner_radius_all(0)
+	sb.set_border_width_all(1)
+	sb.border_color = UIStyle.BAD
+	_panel.add_theme_stylebox_override("panel", sb)
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_center_anchor(_panel, PANEL_SIZE)
 	add_child(_panel)

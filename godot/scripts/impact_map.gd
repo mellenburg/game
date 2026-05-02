@@ -13,6 +13,7 @@ extends Control
 ## basemap rather than under it.
 
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
+const UIStyle = preload("res://scripts/ui/ui_style.gd")
 
 # Inner Control that draws the impact markers and grid. Lives as a
 # child of ImpactMap, added AFTER the map TextureRect so Godot's
@@ -81,11 +82,14 @@ class _MarkerLayer extends Control:
 
 
 const MAP_SIZE := Vector2(420.0, 320.0)
-const PANEL_BG := Color(0.04, 0.04, 0.08, 0.85)
-const TITLE_COLOR := Color(0.85, 0.92, 1.0)
-const GRID_COLOR := Color(0.6, 0.7, 0.85, 0.18)
-const MARKER_OUTER := Color(1.0, 0.25, 0.05, 0.95)
-const MARKER_INNER := Color(1.0, 0.85, 0.4, 0.95)
+const TITLE_COLOR := UIStyle.FG_2
+# Same hue as UIStyle.ACCENT (#ffb454) at 20% alpha. Inlined as a
+# literal — GDScript's constant evaluator can reference another script's
+# Color constant directly, but constructing Color(.r, .g, .b, …) from
+# component access doesn't always survive the parse-time fold.
+const GRID_COLOR := Color(1.0, 0.706, 0.329, 0.20)
+const MARKER_OUTER := UIStyle.BAD
+const MARKER_INNER := UIStyle.WARN
 const MARKER_RADIUS: float = 4.0
 const LAT_CLAMP_DEG: float = 85.0
 
@@ -118,20 +122,24 @@ func _ready() -> void:
 	size = custom_minimum_size
 
 	_panel = Panel.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = PANEL_BG
-	sb.set_corner_radius_all(6)
+	var sb := UIStyle.make_panel_stylebox(false)
+	# Override content margins — this panel positions its title /
+	# texture / readout via offsets, not via stylebox padding.
+	sb.content_margin_left = 0
+	sb.content_margin_right = 0
+	sb.content_margin_top = 0
+	sb.content_margin_bottom = 0
 	_panel.add_theme_stylebox_override("panel", sb)
 	_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_panel)
 
 	_title = Label.new()
-	_title.text = "Meteorite impacts"
-	_title.add_theme_font_size_override("font_size", 12)
+	_title.text = "METEORITE IMPACTS"
+	_title.add_theme_font_size_override("font_size", UIStyle.FONT_LABEL_XS)
 	_title.add_theme_color_override("font_color", TITLE_COLOR)
-	_title.position = Vector2(PAD_LEFT, 4.0)
-	_title.size = Vector2(MAP_SIZE.x, 16.0)
+	_title.position = Vector2(PAD_LEFT, 6.0)
+	_title.size = Vector2(MAP_SIZE.x, 14.0)
 	_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_title)
 
@@ -206,22 +214,26 @@ func _process(_delta: float) -> void:
 func _update_readout() -> void:
 	if _readout == null or tracker == null:
 		return
+	var fg2 := UIStyle.FG_2.to_html(false)
+	var fg0 := UIStyle.FG_0.to_html(false)
+	var accent := UIStyle.ACCENT.to_html(false)
+	var good := UIStyle.GOOD.to_html(false)
 	if tracker.impacts.is_empty():
 		_readout.text = (
-			"[font_size=11][color=#9aa9b8]"
-			+ "No impacts recorded yet.[/color][/font_size]"
-		)
+			"[font_size=%d][color=#%s]NO IMPACTS RECORDED.[/color][/font_size]"
+		) % [UIStyle.FONT_LABEL_XS, fg2]
 		return
 	var latest: Dictionary = tracker.impacts[tracker.impacts.size() - 1]
 	var lat: float = latest["lat"]
 	var lon: float = latest["lon"]
 	var region: String = latest["region"]
 	_readout.text = (
-		"[font_size=11][color=#9aa9b8]Latest: [color=#ffd27a]"
-		+ region
-		+ "[/color]\n"
-		+ "%s  %s  ([color=#7fcf7f]%d[/color] total)[/color][/font_size]"
-	) % [_format_lat(lat), _format_lon(lon), tracker.impacts.size()]
+		"[font_size=%d][color=#%s]LATEST[/color]  [color=#%s]%s[/color][/font_size]\n"
+		+ "[font_size=%d][color=#%s]%s  %s[/color]  [color=#%s]%d total[/color][/font_size]"
+	) % [
+		UIStyle.FONT_LABEL_XS, fg2, accent, region.to_upper(),
+		UIStyle.FONT_BODY_SM, fg0, _format_lat(lat), _format_lon(lon), good, tracker.impacts.size(),
+	]
 
 
 static func _format_lat(lat: float) -> String:

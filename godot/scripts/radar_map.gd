@@ -19,6 +19,7 @@ extends Control
 ## for its impact markers.
 
 const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
+const UIStyle = preload("res://scripts/ui/ui_style.gd")
 
 
 # Inner Control that paints the grid + blips. Reads `waves` straight off
@@ -103,13 +104,14 @@ class _BlipLayer extends Control:
 
 
 const RADAR_SIZE := Vector2(420.0, 320.0)
-const PANEL_BG := Color(0.04, 0.04, 0.08, 0.85)
-const VIEW_BG := Color(0.02, 0.06, 0.04, 0.95)
-const TITLE_COLOR := Color(0.85, 0.92, 1.0)
-const GRID_COLOR := Color(0.6, 0.7, 0.85, 0.18)
-const AXIS_COLOR := Color(0.85, 0.92, 1.0, 0.35)
-const BLIP_OUTER := Color(1.0, 0.35, 0.35, 0.95)
-const BLIP_INNER := Color(1.0, 0.85, 0.4, 0.95)
+const VIEW_BG := UIStyle.BG_0
+const TITLE_COLOR := UIStyle.FG_2
+# Same hue as UIStyle.ACCENT (#ffb454), inlined as literal Color values
+# at the alphas used here. See impact_map.gd for the rationale.
+const GRID_COLOR := Color(1.0, 0.706, 0.329, 0.18)
+const AXIS_COLOR := Color(1.0, 0.706, 0.329, 0.45)
+const BLIP_OUTER := UIStyle.BAD
+const BLIP_INNER := UIStyle.WARN
 const BLIP_RADIUS: float = 3.0
 
 const PAD_LEFT: float = 8.0
@@ -142,20 +144,22 @@ func _ready() -> void:
 	size = custom_minimum_size
 
 	_panel = Panel.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = PANEL_BG
-	sb.set_corner_radius_all(6)
+	var sb := UIStyle.make_panel_stylebox(false)
+	sb.content_margin_left = 0
+	sb.content_margin_right = 0
+	sb.content_margin_top = 0
+	sb.content_margin_bottom = 0
 	_panel.add_theme_stylebox_override("panel", sb)
 	_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_panel)
 
 	_title = Label.new()
-	_title.text = "Wave radar"
-	_title.add_theme_font_size_override("font_size", 12)
+	_title.text = "WAVE RADAR"
+	_title.add_theme_font_size_override("font_size", UIStyle.FONT_LABEL_XS)
 	_title.add_theme_color_override("font_color", TITLE_COLOR)
-	_title.position = Vector2(PAD_LEFT, 4.0)
-	_title.size = Vector2(RADAR_SIZE.x, 16.0)
+	_title.position = Vector2(PAD_LEFT, 6.0)
+	_title.size = Vector2(RADAR_SIZE.x, 14.0)
 	_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_title)
 
@@ -206,14 +210,15 @@ func _update_readout() -> void:
 		pending_total += w.pending.size()
 		if w.duration_sec > max_duration:
 			max_duration = w.duration_sec
+	var fg2 := UIStyle.FG_2.to_html(false)
+	var accent := UIStyle.ACCENT.to_html(false)
+	var good := UIStyle.GOOD.to_html(false)
 	if pending_total == 0:
 		_readout.text = (
-			"[font_size=11][color=#9aa9b8]"
-			+ "No active wave. Press I to summon one."
-			+ "[/color][/font_size]"
-		)
+			"[font_size=%d][color=#%s]NO ACTIVE WAVE  ·  PRESS I[/color][/font_size]"
+		) % [UIStyle.FONT_LABEL_XS, fg2]
 		return
 	_readout.text = (
-		"[font_size=11][color=#9aa9b8]Pending: [color=#ffd27a]%d[/color]"
-		+ "  Window: [color=#7fcf7f]%.1fs[/color][/color][/font_size]"
-	) % [pending_total, max_duration]
+		"[font_size=%d][color=#%s]PENDING[/color]  [color=#%s]%d[/color]"
+		+ "    [color=#%s]WINDOW[/color]  [color=#%s]%.1fs[/color][/font_size]"
+	) % [UIStyle.FONT_BODY_SM, fg2, accent, pending_total, fg2, good, max_duration]
