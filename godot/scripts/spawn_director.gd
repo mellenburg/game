@@ -16,6 +16,7 @@ const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const UnitConfig = preload("res://scripts/unit_config.gd")
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -116,20 +117,24 @@ func setup(
 	_rng.randomize()
 
 
-# Spawn the starting fleet — three player satellites in 500 km circular
-# orbits with independent inclinations under the cap, random RAANs, and
-# true anomalies separated by a random gap so the formation fans out.
-# Selection is left to the caller so the standard "select index 0"
-# pattern in EarthSystem._ready stays in one place.
+# Spawn the starting fleet. When `configs` is non-empty the player set
+# up the loadout in the pre-game menu — honour those exact orbits and
+# weapon kinds. When empty (e.g. the scene was booted directly without
+# going through the menu, or a test harness instantiates SpawnDirector)
+# fall back to the legacy randomised three-ship spread so existing
+# entry points keep working.
 #
 # Loadout is differentiated per slot so the player has to think about
-# fleet composition rather than treating ships as identical: the first
-# two carry a single laser apiece (continuous-fire, no orbital cost),
-# the third carries a single railgun (impulse, recoil-shifts-orbit).
+# fleet composition rather than treating ships as identical; the
+# default fallback gives slots 0 and 1 a laser and slot 2 a railgun,
+# matching the composition the game shipped with before the menu.
 # Replaces Satellite._init's default [Laser, Laser, Railgun] mix on
 # the spawned units; the freshly-allocated weapon instances dropped
 # here are RefCounted and freed when the array is reassigned.
-func spawn_starting_fleet() -> void:
+func spawn_starting_fleet(configs: Array[UnitConfig] = []) -> void:
+	if not configs.is_empty():
+		_spawn_from_configs(configs)
+		return
 	var inc_max := deg_to_rad(STARTING_SAT_INC_MAX_DEG)
 	var gap_min := deg_to_rad(STARTING_SAT_NU_GAP_MIN_DEG)
 	var gap_max := deg_to_rad(STARTING_SAT_NU_GAP_MAX_DEG)
@@ -142,20 +147,51 @@ func spawn_starting_fleet() -> void:
 			_rng.randf_range(0.0, TAU),
 			nu,
 		)
-		sat.weapons = _starting_loadout_for(i)
+		sat.weapons = _default_loadout_for(i)
 		_satellite_container.add_child(sat)
 		_satellites.append(sat)
 		nu = fposmod(nu + _rng.randf_range(gap_min, gap_max), TAU)
 
 
-# Per-slot weapon loadout for the starting fleet. Slots 0 and 1 get a
-# laser, slot 2 gets a railgun. Returning a fresh array per call so
-# every ship gets independent weapon instances (cooldown / heat state
-# is per-weapon, not shared).
-func _starting_loadout_for(index: int) -> Array[Weapon]:
+# Materialise the player's configured fleet. Each UnitConfig carries
+# its own altitude / inclination / RAAN / true-anomaly and weapon kind,
+# so this loop just translates those into orbit elements + Weapon
+# instances and parents the resulting satellites under the container.
+func _spawn_from_configs(configs: Array[UnitConfig]) -> void:
+	for cfg in configs:
+		var sat := Satellite.new()
+		sat.orbit = EarthOrbit.make_circular(
+			cfg.altitude_km,
+			deg_to_rad(cfg.inclination_deg),
+			deg_to_rad(cfg.raan_deg),
+			deg_to_rad(cfg.true_anomaly_deg),
+		)
+		sat.weapons = _weapons_for_kind(cfg.weapon_kind)
+		_satellite_container.add_child(sat)
+		_satellites.append(sat)
+
+
+# Per-slot weapon loadout for the legacy randomised starting fleet.
+# Slots 0 and 1 get a laser, slot 2 gets a railgun. Returning a fresh
+# array per call so every ship gets independent weapon instances
+# (cooldown / heat state is per-weapon, not shared).
+func _default_loadout_for(index: int) -> Array[Weapon]:
 	if index >= 2:
 		return [RailgunWeapon.new()] as Array[Weapon]
 	return [LaserWeapon.new()] as Array[Weapon]
+
+
+# Translate a UnitConfig.WEAPON_* selection into a freshly-allocated
+# weapon array. Each call returns new Weapon instances so per-weapon
+# cooldown/heat state is never shared across satellites.
+func _weapons_for_kind(weapon_kind: int) -> Array[Weapon]:
+	match weapon_kind:
+		UnitConfig.WEAPON_RAILGUN:
+			return [RailgunWeapon.new()] as Array[Weapon]
+		UnitConfig.WEAPON_MIXED:
+			return [LaserWeapon.new(), RailgunWeapon.new()] as Array[Weapon]
+		_:
+			return [LaserWeapon.new()] as Array[Weapon]
 
 
 # Spawn a fixed batch of unarmed enemies in random circular orbits.

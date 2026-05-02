@@ -7,8 +7,15 @@ config_version=5
 [application]
 
 config/name="Orbit Game"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[autoload]
+
+; Persistent pre-game player choices (selected stage, per-unit weapon
+; loadout, per-unit initial orbit). Lives on /root so it survives the
+; menu->stage scene transition. Read by SpawnDirector at start.
+PlayerLoadout="*res://scripts/player_loadout.gd"
 
 [debug]
 
