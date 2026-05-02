@@ -25,6 +25,15 @@ const STATE_IDLE: int = 0
 const STATE_RUNNING: int = 1
 const STATE_COMPLETE: int = 2
 
+# Per-wave hard cap on total object count. The combat / propagator
+# pipeline starts dropping frames around a few hundred simultaneous
+# bodies on the GL Compatibility renderer, so any wave whose sampled
+# wave-unit object counts exceed this gets scaled down proportionally
+# at schedule-build time. Tuned for the Chromebook target; a stronger
+# desktop GPU could afford a higher cap, but the hard ceiling lives
+# here so the player's editor freedom doesn't lock the sim.
+const MAX_WAVE_OBJECT_COUNT: int = 250
+
 # Pre-built emission timeline. Each entry:
 #   t             : float, absolute mission elapsed time at which this
 #                   wave-unit fires.
@@ -82,6 +91,12 @@ func _build_schedule(
 			continue
 		var duration := w.sample_duration(rng)
 		var times := _resolve_wave_unit_times(n, duration, w.randomized, rng)
+		# Pre-sample per-wave-unit object counts so we can enforce the
+		# 250-body wave cap deterministically: SpawnDirector resamples
+		# from the same WaveUnitClass at spawn time would have no view
+		# of its siblings' counts. The schedule baking the count means
+		# the spawn site only has to honour what we hand it.
+		var counts := _sample_and_cap_wave_counts(settings, size_classes, rng)
 		# `times` is monotonic by construction (linspace for even,
 		# sorted draw for randomised) — first emission is index 0.
 		for i in range(n):
@@ -90,7 +105,32 @@ func _build_schedule(
 				"wave_id": wi,
 				"first_in_wave": i == 0,
 				"size_class": size_classes[i],
+				"object_count": counts[i],
 			})
+
+
+# Sample one object count per wave-unit from its class's range, then
+# scale every count down proportionally if their sum exceeds
+# MAX_WAVE_OBJECT_COUNT. Floor at 1 so a heavy scale-down never zero-
+# outs a wave-unit (zero objects would still trigger the spawn-call
+# overhead but render no threat). Returns a typed integer array.
+func _sample_and_cap_wave_counts(
+	settings: ReconSettings,
+	size_classes: Array[int],
+	rng: RandomNumberGenerator,
+) -> Array[int]:
+	var raw: Array[int] = []
+	var total := 0
+	for sc in size_classes:
+		var c: int = settings.class_for(sc).sample_count(rng)
+		raw.append(c)
+		total += c
+	if total <= MAX_WAVE_OBJECT_COUNT or total <= 0:
+		return raw
+	var scale: float = float(MAX_WAVE_OBJECT_COUNT) / float(total)
+	for i in range(raw.size()):
+		raw[i] = maxi(1, int(round(float(raw[i]) * scale)))
+	return raw
 
 
 # Build the size-class array for a wave (small_units of SMALL, etc.)

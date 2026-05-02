@@ -24,11 +24,28 @@ extends Resource
 ## inspector / save-shape flat.
 
 # Range bounds enforced by the editor. Floor at 1 because a wave-unit
-# with zero objects has no meaningful effect; cap at 200 so the spawn
-# burst can't accidentally lock the propagator. Tweak if balance work
-# wants larger bursts.
+# with zero objects has no meaningful effect; cap at 50 — above that
+# a single wave-unit's burst overwhelms the satellite container fast
+# enough that frame pacing suffers (and the per-wave 250-object cap
+# in Mission gates aggregate damage anyway).
 const COUNT_MIN: int = 1
-const COUNT_MAX: int = 200
+const COUNT_MAX: int = 50
+
+# Spatial spread of a wave-unit's objects, expressed as the arc
+# (degrees) along an equatorial slice of the sky over which they
+# scatter. 15° = a tight cluster (the legacy default); 180° = bodies
+# arrive from anywhere on the entry hemisphere. The minimum is
+# non-zero so even a "no spread" tuning still has visible variation;
+# all-zero spread would have every body in a wave-unit at one point.
+const ARC_MIN_DEG: float = 15.0
+const ARC_MAX_DEG: float = 180.0
+
+# Temporal spread, in seconds, over which a wave-unit's objects appear
+# in play. Independent of the 10 s preroll — that lead time is added
+# on top so the radar overlay has the same window to scroll incoming
+# blips into view regardless of how short the spawn burst itself is.
+const TIME_SPREAD_MIN_SEC: float = 1.0
+const TIME_SPREAD_MAX_SEC: float = 20.0
 
 @export var count_min: int = 20
 @export var count_max: int = 20
@@ -37,6 +54,8 @@ const COUNT_MAX: int = 200
 @export var size_small: float = 0.7
 @export var size_medium: float = 0.25
 @export var size_large: float = 0.05
+@export var location_arc_deg: float = 30.0
+@export var time_spread_sec: float = 10.0
 
 
 # Sample a concrete object count for one wave-unit instance. Range
@@ -132,6 +151,28 @@ func clamp_decaying_range() -> void:
 		decaying_ratio_max = tmp
 
 
+func clamp_location_arc() -> void:
+	location_arc_deg = clampf(location_arc_deg, ARC_MIN_DEG, ARC_MAX_DEG)
+
+
+func clamp_time_spread() -> void:
+	time_spread_sec = clampf(
+		time_spread_sec, TIME_SPREAD_MIN_SEC, TIME_SPREAD_MAX_SEC
+	)
+
+
+# Approximate lateral spread in km equivalent to the configured arc,
+# given the wave-unit's spawn altitude. SpawnDirector hands MeteoriteWave
+# this value so the existing tangent / bitangent body placement keeps
+# working unchanged. altitude * sin(arc/2) gives the chord half-length
+# the arc subtends; for arc=180° this maxes at the full altitude (so
+# bodies wrap across a full hemisphere's worth of sky), for arc=15° it
+# matches the legacy ~6500 km cluster radius.
+func lateral_spread_for_altitude(altitude_km: float) -> float:
+	var rad: float = deg_to_rad(location_arc_deg) * 0.5
+	return absf(altitude_km) * sin(rad)
+
+
 # Default factory for the three ship-class progression. Tunes are
 # chosen so a small wave-unit reads as "scattered fast impactors", a
 # medium as "mixed bag with some decaying threats", and a large as
@@ -140,13 +181,15 @@ func clamp_decaying_range() -> void:
 # unchanged before the player touches the editor.
 static func default_small() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
-	c.count_min = 18
-	c.count_max = 22
+	c.count_min = 15
+	c.count_max = 20
 	c.decaying_ratio_min = 0.10
 	c.decaying_ratio_max = 0.20
 	c.size_small = 0.80
 	c.size_medium = 0.15
 	c.size_large = 0.05
+	c.location_arc_deg = 25.0
+	c.time_spread_sec = 8.0
 	return c
 
 
@@ -159,18 +202,22 @@ static func default_medium() -> WaveUnitClass:
 	c.size_small = 0.45
 	c.size_medium = 0.40
 	c.size_large = 0.15
+	c.location_arc_deg = 60.0
+	c.time_spread_sec = 12.0
 	return c
 
 
 static func default_large() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
-	c.count_min = 28
-	c.count_max = 38
+	c.count_min = 35
+	c.count_max = 45
 	c.decaying_ratio_min = 0.30
 	c.decaying_ratio_max = 0.50
 	c.size_small = 0.20
 	c.size_medium = 0.40
 	c.size_large = 0.40
+	c.location_arc_deg = 120.0
+	c.time_spread_sec = 16.0
 	return c
 
 
@@ -183,4 +230,6 @@ func duplicate_class() -> WaveUnitClass:
 	c.size_small = size_small
 	c.size_medium = size_medium
 	c.size_large = size_large
+	c.location_arc_deg = location_arc_deg
+	c.time_spread_sec = time_spread_sec
 	return c

@@ -268,6 +268,81 @@ func test_current_wave_number_persists_after_drain() -> void:
 	assert_eq(m.current_wave_number(), 5)
 
 
+func test_emissions_carry_baked_object_count() -> void:
+	# Mission resolves WaveUnitClass.sample_count at schedule build so
+	# the per-wave 250-body cap can be enforced across siblings; every
+	# emission must carry a positive `object_count` for SpawnDirector
+	# to honour as an override.
+	var s := ReconSettings.default_settings()
+	var m := Mission.new()
+	m.start_from_settings(s, _seeded_rng())
+	var emissions := _drain(m, 200.0, 0.05)
+	assert_true(emissions.size() > 0)
+	for e: Dictionary in emissions:
+		var c := int(e.get("object_count", 0))
+		assert_true(c >= 1, "emission object_count should be >= 1, got %d" % c)
+		assert_true(c <= WaveUnitClass.COUNT_MAX,
+			"emission object_count %d exceeds class cap %d" % [c, WaveUnitClass.COUNT_MAX])
+
+
+func test_per_wave_object_total_capped_at_250() -> void:
+	# Build a synthetic wave whose default-sampled count would
+	# blow past 250 (e.g. 10 wave-units × ~40 each = ~400) and
+	# confirm the schedule scales each wave-unit down so the total
+	# stays at or under MAX_WAVE_OBJECT_COUNT.
+	var s := ReconSettings.new()
+	# Saturate the large class to its cap so the raw total is large.
+	s.large_class.count_min = 50
+	s.large_class.count_max = 50
+	var w := WaveComposition.new()
+	w.large_units = 10
+	w.duration_min = 5.0
+	w.duration_max = 5.0
+	w.delay_min = 0.0
+	w.delay_max = 0.0
+	s.waves = [w]
+
+	var m := Mission.new()
+	m.start_from_settings(s, _seeded_rng())
+	var emissions := m.tick(20.0)
+	assert_eq(emissions.size(), 10)
+	var total := 0
+	for e: Dictionary in emissions:
+		total += int(e.get("object_count", 0))
+	assert_true(total <= Mission.MAX_WAVE_OBJECT_COUNT,
+		"wave total %d should be capped at %d" % [
+			total, Mission.MAX_WAVE_OBJECT_COUNT
+		])
+	# After scaling, every wave-unit still carries at least one body
+	# (the scale floor is 1) so no emission silently zero-outs.
+	for e: Dictionary in emissions:
+		assert_true(int(e["object_count"]) >= 1)
+
+
+func test_per_wave_total_unchanged_when_already_under_cap() -> void:
+	# A wave whose raw sampled total fits inside MAX_WAVE_OBJECT_COUNT
+	# should pass through unscaled — only oversize waves get scaled.
+	var s := ReconSettings.new()
+	s.small_class.count_min = 10
+	s.small_class.count_max = 10
+	var w := WaveComposition.new()
+	w.small_units = 5
+	w.duration_min = 2.0
+	w.duration_max = 2.0
+	w.delay_min = 0.0
+	w.delay_max = 0.0
+	s.waves = [w]
+
+	var m := Mission.new()
+	m.start_from_settings(s, _seeded_rng())
+	var emissions := m.tick(20.0)
+	assert_eq(emissions.size(), 5)
+	# Each emission should still carry the original sampled count
+	# (10 each) — the wave's total of 50 is well under 250.
+	for e: Dictionary in emissions:
+		assert_eq(int(e["object_count"]), 10)
+
+
 func test_seeded_rng_produces_stable_timeline() -> void:
 	# Same seed → same emission timestamps and same size-class order
 	# across runs, even with randomised waves and shuffled classes.

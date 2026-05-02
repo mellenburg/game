@@ -350,7 +350,14 @@ func _tick_mission(delta: float) -> void:
 		var unit_class: WaveUnitClass = null
 		if _mission_settings != null:
 			unit_class = _mission_settings.class_for(size_class)
-		spawn_director.start_wave_unit_clustered(base, unit_class)
+		# Mission baked the per-wave-unit object count into the spec at
+		# schedule-build time so the per-wave 250-body cap can be
+		# enforced across siblings; pass it through as an override so
+		# SpawnDirector doesn't resample.
+		var count_override := int(emission.get("object_count", -1))
+		spawn_director.start_wave_unit_clustered(
+			base, unit_class, count_override
+		)
 
 
 # Once every wave has been handed to the spawn director, the in-flight

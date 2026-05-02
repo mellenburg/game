@@ -49,7 +49,12 @@ const DURATION_DEFAULT_SPREAD: float = 0.20
 const DELAY_DEFAULT_SPREAD: float = 0.10
 
 const COUNT_MIN_BOUND: float = 1.0
-const COUNT_MAX_BOUND: float = 200.0
+# Wave-unit class object-count cap: the engine starts dropping frames
+# as a single wave-unit's body count climbs past ~50 on the
+# Compatibility renderer, so the per-class slider tops out here.
+# Mission additionally enforces a per-wave 250-body cap across
+# siblings so the slider's top end is always reachable in isolation.
+const COUNT_MAX_BOUND: float = 50.0
 const RATIO_MIN_BOUND: float = 0.0
 const RATIO_MAX_BOUND: float = 1.0
 const DURATION_MIN_BOUND: float = 0.0
@@ -195,7 +200,10 @@ func _build_class_panel(title: String, c: WaveUnitClass) -> Control:
 	col.add_child(_field_label("Object size mix"))
 	var triangle := TrianglePicker.new()
 	triangle.set_weights(c.size_small, c.size_medium, c.size_large)
-	triangle.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# The triangle is intrinsically square (it self-clamps to a square
+	# render area), so we don't expand it vertically — letting it
+	# stretch in a tall column would just leave empty space above /
+	# below the rendered triangle.
 	triangle.weights_changed.connect(
 		func(s: float, m: float, l: float) -> void:
 			c.size_small = s
@@ -204,7 +212,67 @@ func _build_class_panel(title: String, c: WaveUnitClass) -> Control:
 	)
 	col.add_child(triangle)
 
+	col.add_child(_field_label("Location spread (arc°)"))
+	col.add_child(_single_value_slider(
+		c.location_arc_deg,
+		WaveUnitClass.ARC_MIN_DEG,
+		WaveUnitClass.ARC_MAX_DEG,
+		1.0, "%d°",
+		func(v: float) -> void:
+			c.location_arc_deg = v
+			c.clamp_location_arc(),
+	))
+
+	col.add_child(_field_label("Time spread (s)"))
+	col.add_child(_single_value_slider(
+		c.time_spread_sec,
+		WaveUnitClass.TIME_SPREAD_MIN_SEC,
+		WaveUnitClass.TIME_SPREAD_MAX_SEC,
+		0.5, "%.1f",
+		func(v: float) -> void:
+			c.time_spread_sec = v
+			c.clamp_time_spread(),
+	))
+
 	return panel
+
+
+# 1-D slider with a current-value readout below the bar. Used for the
+# per-wave-unit-class arc and time-spread fields, which are point
+# values rather than ranges. Built around HSlider + a Label so we
+# don't grow yet another custom Control for a one-handle case.
+func _single_value_slider(
+	initial: float,
+	min_bound: float,
+	max_bound: float,
+	step: float,
+	value_format: String,
+	on_change: Callable,
+) -> Control:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+
+	var slider := HSlider.new()
+	slider.min_value = min_bound
+	slider.max_value = max_bound
+	slider.step = step
+	slider.value = initial
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(slider)
+
+	var readout := Label.new()
+	readout.text = value_format % initial
+	readout.add_theme_color_override("font_color", COLOR_FG_FAINT)
+	readout.add_theme_font_size_override("font_size", 10)
+	readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(readout)
+
+	slider.value_changed.connect(
+		func(v: float) -> void:
+			readout.text = value_format % v
+			on_change.call(v)
+	)
+	return col
 
 
 # ============================================================

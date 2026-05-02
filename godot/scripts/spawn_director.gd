@@ -453,12 +453,18 @@ func sample_unit_vector() -> Vector3:
 
 
 # Begin a meteorite wave driven by a WaveUnitClass: object count, the
-# decaying-orbit ratio, and the per-object size mix all come from the
-# class's range / barycentric fields. Same nexus-clustering as
-# `start_meteorite_wave_clustered`; same threat-alert / radar-overlay
-# wiring. This is the entry point Mission emissions land on.
+# decaying-orbit ratio, the per-object size mix, the time spread, and
+# the location-arc spread all come from the class's range / barycentric
+# fields. `count_override` lets Mission pre-sample and cap object
+# counts (so the per-wave 250-body ceiling holds across siblings); a
+# negative value keeps the legacy behaviour of resampling from the
+# class's count range here. Preroll stays fixed at the class's lead-
+# time default — the radar overlay needs the 10 s scroll-in window
+# regardless of how short the spawn burst itself is.
 func start_wave_unit_clustered(
-	base_r_hat: Vector3, unit_class: WaveUnitClass
+	base_r_hat: Vector3,
+	unit_class: WaveUnitClass,
+	count_override: int = -1,
 ) -> void:
 	if unit_class == null:
 		start_meteorite_wave_clustered(base_r_hat)
@@ -466,19 +472,24 @@ func start_wave_unit_clustered(
 	var perturbed := _perturb_unit_vector(
 		base_r_hat, deg_to_rad(MISSION_NEXUS_CONE_HALF_ANGLE_DEG)
 	)
-	var count := unit_class.sample_count(_rng)
+	var count: int
+	if count_override >= 0:
+		count = count_override
+	else:
+		count = unit_class.sample_count(_rng)
 	var decaying_ratio := unit_class.sample_decaying_ratio(_rng)
 	var wave := _build_meteorite_wave_at_nexus(perturbed)
+	var spread_km := unit_class.lateral_spread_for_altitude(wave.base_altitude)
+	var duration_sec := unit_class.time_spread_sec
 	var specs := _sample_class_wave_specs(
 		count,
 		decaying_ratio,
 		unit_class,
-		METEORITE_WAVE_DURATION_SEC,
+		duration_sec,
 		METEORITE_WAVE_PREROLL_SEC,
+		spread_km,
 	)
-	wave.set_specs(
-		specs, METEORITE_WAVE_DURATION_SEC, METEORITE_LATERAL_SPREAD_KM
-	)
+	wave.set_specs(specs, duration_sec, spread_km)
 	meteorite_waves.append(wave)
 	if _threat_alert != null:
 		_threat_alert.trigger()
@@ -497,6 +508,7 @@ func _sample_class_wave_specs(
 	unit_class: WaveUnitClass,
 	duration_sec: float,
 	preroll_sec: float,
+	lateral_spread_km: float,
 ) -> Array[Dictionary]:
 	var specs: Array[Dictionary] = []
 	if count <= 0:
@@ -527,7 +539,8 @@ func _sample_class_wave_specs(
 		var size_class: int = sizes[i]
 		var mass := _sample_mass_for_class(size_class)
 		specs.append(_make_wave_spec(
-			mass, decaying_set.has(i), duration_sec, preroll_sec
+			mass, decaying_set.has(i), duration_sec, preroll_sec,
+			lateral_spread_km,
 		))
 	return specs
 
@@ -645,10 +658,14 @@ func _sample_mass_for_class(size_class: int) -> float:
 # to plot for them while the spawn-time geometry uses an independent
 # random plane per body (see _make_decaying_enemy).
 func _make_wave_spec(
-	mass: float, is_decaying: bool, duration_sec: float, preroll_sec: float
+	mass: float,
+	is_decaying: bool,
+	duration_sec: float,
+	preroll_sec: float,
+	lateral_spread_km: float = METEORITE_LATERAL_SPREAD_KM,
 ) -> Dictionary:
 	var ang := _rng.randf_range(0.0, TAU)
-	var dist := _rng.randf_range(0.0, METEORITE_LATERAL_SPREAD_KM)
+	var dist := _rng.randf_range(0.0, lateral_spread_km)
 	return {
 		"t": _rng.randf_range(0.0, duration_sec) + preroll_sec,
 		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),

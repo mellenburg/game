@@ -142,8 +142,59 @@ func test_duplicate_class_makes_independent_copy() -> void:
 	var c := WaveUnitClass.default_medium()
 	var d := c.duplicate_class()
 	d.count_min = 999
+	d.location_arc_deg = 1.0
+	d.time_spread_sec = 1.0
 	assert_true(c.count_min != d.count_min,
 		"mutation on duplicate must not bleed to source")
+	assert_true(c.location_arc_deg != d.location_arc_deg,
+		"location arc duplicate independence")
+	assert_true(c.time_spread_sec != d.time_spread_sec,
+		"time spread duplicate independence")
+
+
+func test_clamp_location_arc_keeps_within_band() -> void:
+	var c := WaveUnitClass.new()
+	c.location_arc_deg = 5.0
+	c.clamp_location_arc()
+	assert_close(c.location_arc_deg, WaveUnitClass.ARC_MIN_DEG, 1.0e-9)
+	c.location_arc_deg = 999.0
+	c.clamp_location_arc()
+	assert_close(c.location_arc_deg, WaveUnitClass.ARC_MAX_DEG, 1.0e-9)
+
+
+func test_clamp_time_spread_keeps_within_band() -> void:
+	var c := WaveUnitClass.new()
+	c.time_spread_sec = 0.1
+	c.clamp_time_spread()
+	assert_close(c.time_spread_sec, WaveUnitClass.TIME_SPREAD_MIN_SEC, 1.0e-9)
+	c.time_spread_sec = 999.0
+	c.clamp_time_spread()
+	assert_close(c.time_spread_sec, WaveUnitClass.TIME_SPREAD_MAX_SEC, 1.0e-9)
+
+
+func test_lateral_spread_for_altitude_scales_with_arc() -> void:
+	# Wider arc → larger lateral chord at the same altitude. The
+	# legacy 15° arc at the default 50000 km altitude reads ~6500 km
+	# (the number SpawnDirector's old constant landed on); 180° at
+	# the same altitude saturates at the altitude itself.
+	var c := WaveUnitClass.new()
+	c.location_arc_deg = 15.0
+	var narrow := c.lateral_spread_for_altitude(50000.0)
+	c.location_arc_deg = 180.0
+	var wide := c.lateral_spread_for_altitude(50000.0)
+	assert_true(wide > narrow,
+		"180° arc should yield a wider chord than 15° at same altitude")
+	assert_close(wide, 50000.0, 1.0e-3,
+		"180° arc saturates at altitude")
+	assert_true(narrow > 0.0,
+		"15° arc should still produce a positive chord")
+
+
+func test_count_max_capped_at_fifty() -> void:
+	# The editor enforces COUNT_MAX = 50 for performance reasons; the
+	# constant is the source of truth, so a regression here breaks the
+	# slider's top end without anyone noticing.
+	assert_eq(WaveUnitClass.COUNT_MAX, 50)
 
 
 # ---------- WaveComposition ----------
