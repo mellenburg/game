@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=16 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
@@ -11,6 +11,7 @@
 [ext_resource type="Script" path="res://scripts/range_circle.gd" id="9_range_circle"]
 [ext_resource type="Script" path="res://scripts/radar_map.gd" id="10_radar_map"]
 [ext_resource type="Script" path="res://scripts/threat_alert.gd" id="11_threat_alert"]
+[ext_resource type="Script" path="res://scripts/pause_menu.gd" id="12_pause_menu"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -199,3 +200,10 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("11_threat_alert")
+
+[node name="PauseMenu" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("12_pause_menu")
