@@ -11,6 +11,7 @@ const UnitPart = preload("res://scripts/unit_part.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const Propulsion = preload("res://scripts/propulsion.gd")
 
 var id: String = ""
 var name: String = "T-01"
@@ -23,6 +24,7 @@ var weapon_part_ids: Array[String] = []
 var radiator_part_ids: Array[String] = []
 var energy_storage_part_ids: Array[String] = []
 var reactor_part_ids: Array[String] = []
+var thruster_part_ids: Array[String] = []
 
 
 # Build a fresh unit on the default chassis with default-tier parts in
@@ -48,6 +50,7 @@ func set_chassis(new_chassis_id: String) -> void:
 		energy_storage_part_ids, UnitPart.KIND_ENERGY_STORAGE,
 	)
 	reactor_part_ids = _resize_part_ids(reactor_part_ids, UnitPart.KIND_REACTOR)
+	thruster_part_ids = _resize_part_ids(thruster_part_ids, UnitPart.KIND_THRUSTER)
 
 
 func _resize_part_ids(current: Array[String], kind: int) -> Array[String]:
@@ -72,6 +75,8 @@ func part_ids_for_kind(kind: int) -> Array[String]:
 			return energy_storage_part_ids
 		UnitPart.KIND_REACTOR:
 			return reactor_part_ids
+		UnitPart.KIND_THRUSTER:
+			return thruster_part_ids
 	return [] as Array[String]
 
 
@@ -94,6 +99,43 @@ func total_multiplier_for_kind(kind: int) -> float:
 	return total
 
 
+# Sum of thrust across every thruster slot, in newtons. Empty / unknown
+# parts contribute 0. SpawnDirector copies this onto Satellite.thrust_n.
+func total_thrust_n() -> float:
+	var total: float = 0.0
+	for part_id in thruster_part_ids:
+		total += UnitPart.get_by_id(part_id).thrust_n
+	return total
+
+
+# Sum of propellant-tank capacity across every thruster slot, in kg.
+# Drives the satellite's max_propellant_kg / starting propellant_kg.
+func total_propellant_capacity_kg() -> float:
+	var total: float = 0.0
+	for part_id in thruster_part_ids:
+		total += UnitPart.get_by_id(part_id).propellant_capacity_kg
+	return total
+
+
+# Capacity-weighted Isp across the unit's thruster slots. Mixing
+# thrusters of different Isp is unusual but well-defined: a stage
+# carrying a hydrolox + kerolox tank pair, burned in sequence, delivers
+# the same propellant-weighted average as if mass-weighted. Returns 0
+# (not NaN) when no thruster carries propellant — caller treats that
+# as "this unit has no usable propulsion" and skips the burn cost
+# gating entirely.
+func effective_isp_s() -> float:
+	var capacity_sum: float = 0.0
+	var weighted: float = 0.0
+	for part_id in thruster_part_ids:
+		var p := UnitPart.get_by_id(part_id)
+		capacity_sum += p.propellant_capacity_kg
+		weighted += p.propellant_capacity_kg * p.isp_s
+	if capacity_sum <= 0.0:
+		return 0.0
+	return weighted / capacity_sum
+
+
 # Predicted satellite stats for the unit's current chassis + parts,
 # returned as a Dictionary the Hangar tab's summary panel renders. The
 # numbers here are the spec SpawnDirector implements: weapon damage
@@ -104,7 +146,9 @@ func total_multiplier_for_kind(kind: int) -> float:
 #
 # Keys:
 #   "hp"               — initial / max hit points
-#   "mass_kg"          — unit mass (railgun recoil math)
+#   "mass_kg"          — wet mass: dry structure + onboard propellant
+#                        (railgun recoil math reads this)
+#   "dry_mass_kg"      — structural mass alone (Tsiolkovsky's m_f)
 #   "laser_count"      — number of laser slots filled
 #   "laser_dps_total"  — sum of laser damage_per_second at full pool
 #   "laser_max_range"  — laser engagement ceiling, km
@@ -117,6 +161,10 @@ func total_multiplier_for_kind(kind: int) -> float:
 #                            the unit has no radiator.
 #   "energy_storage"   — pool capacity (fraction units)
 #   "energy_production" — pool fill rate per simulated second
+#   "thrust_n"         — total thruster thrust in newtons
+#   "isp_s"            — capacity-weighted specific impulse in seconds
+#   "propellant_capacity_kg" — total propellant tank size, kg
+#   "delta_v_capacity_ms" — Δv pool the unit can spend in-game, m/s
 func summary_stats() -> Dictionary:
 	var radiator_mult := total_multiplier_for_kind(UnitPart.KIND_RADIATOR)
 	var storage_mult := total_multiplier_for_kind(UnitPart.KIND_ENERGY_STORAGE)
@@ -147,9 +195,25 @@ func summary_stats() -> Dictionary:
 		laser_cooldown = 1.0 / (LaserWeapon.COOL_PER_SEC * radiator_mult)
 		railgun_cooldown = 1.0 / (RailgunWeapon.COOL_PER_SEC * radiator_mult)
 
+	# Propulsion summary: thrust (N), Isp (s), propellant capacity (kg),
+	# and the resulting Δv pool (m/s) under Tsiolkovsky at the unit's
+	# wet mass (DEFAULT_DRY_MASS_KG + propellant capacity). The Δv
+	# number is the headline figure for the operator — same currency
+	# the launch budget and per-unit maneuvers spend, so the menu can
+	# render "this unit has 1200 m/s on tap" directly. Zero across all
+	# four when the thruster row is empty / unknown.
+	var thrust_n := total_thrust_n()
+	var isp_s := effective_isp_s()
+	var propellant_kg := total_propellant_capacity_kg()
+	var wet_mass_kg: float = Satellite.DEFAULT_DRY_MASS_KG + propellant_kg
+	var dv_capacity_ms := Propulsion.dv_capacity_ms(
+		propellant_kg, Satellite.DEFAULT_DRY_MASS_KG, isp_s
+	)
+
 	return {
 		"hp": Satellite.MAX_HP,
-		"mass_kg": Satellite.DEFAULT_MASS_KG,
+		"mass_kg": wet_mass_kg,
+		"dry_mass_kg": Satellite.DEFAULT_DRY_MASS_KG,
 		"laser_count": laser_count,
 		"laser_dps_total": laser_dps_total,
 		"laser_max_range": LaserWeapon.MAX_RANGE_KM,
@@ -159,6 +223,10 @@ func summary_stats() -> Dictionary:
 		"railgun_cooldown_sec": railgun_cooldown,
 		"energy_storage": Satellite.ENERGY_MAX * storage_mult,
 		"energy_production": Satellite.ENERGY_RATE_PER_SIM_SEC * reactor_mult,
+		"thrust_n": thrust_n,
+		"isp_s": isp_s,
+		"propellant_capacity_kg": propellant_kg,
+		"delta_v_capacity_ms": dv_capacity_ms,
 	}
 
 
@@ -173,6 +241,7 @@ func summary() -> String:
 		UnitPart.KIND_RADIATOR,
 		UnitPart.KIND_ENERGY_STORAGE,
 		UnitPart.KIND_REACTOR,
+		UnitPart.KIND_THRUSTER,
 	]:
 		for part_id in part_ids_for_kind(kind):
 			parts.append(UnitPart.get_by_id(part_id).label)

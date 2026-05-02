@@ -39,6 +39,12 @@ const BAR_BG := Color(0.04, 0.04, 0.06, 0.85)
 const BAR_ENERGY := Color(0.20, 0.50, 0.95, 0.90)
 const BAR_COOLDOWN := Color(0.95, 0.55, 0.10, 0.90)
 const BAR_READY := Color(0.25, 0.80, 0.30, 0.90)
+# Propellant — purple/magenta, distinct from the cyan engagement-range
+# tint and the blue energy fill so the operator can read remaining
+# delta-v at a glance without confusing it with the weapon pool. The
+# overlay text reports m/s so the number maps directly onto the
+# delta-v budget the menu enforces pre-game.
+const BAR_PROPELLANT := Color(0.65, 0.35, 0.85, 0.90)
 const BAR_ROW_HEIGHT: float = 13.0
 const BAR_FONT_SIZE: int = 9
 
@@ -612,9 +618,25 @@ func _update_box(
 	if rg_label != null:
 		rows.remove_child(rg_label)
 
-	var desired_bars := 0
-	if not sat.weapons.is_empty():
-		desired_bars = 1 + sat.weapons.size()
+	# Bars below the name + HP rows, in display order:
+	#   [energy] [propellant] [weapon 0..N]
+	# Energy is gated on the unit being armed; propellant on the unit
+	# being a player orbital ship with a non-zero tank (surface
+	# installations and enemies skip it — they don't burn propellant
+	# in the maneuver branch). Each gate maps to a flag so the
+	# rendering loop below can compute its slot index without a tangle
+	# of conditional offsets.
+	var has_energy_bar := not sat.weapons.is_empty()
+	var has_propellant_bar := (
+		sat.team == Satellite.TEAM_PLAYER
+		and not sat.is_surface
+		and sat.max_propellant_kg > 0.0
+	)
+	var desired_bars := sat.weapons.size()
+	if has_energy_bar:
+		desired_bars += 1
+	if has_propellant_bar:
+		desired_bars += 1
 	# Two fixed rows above the bars (name + HP) — subtract both from
 	# the current child count so the bar-resize loop targets only the
 	# bar rows.
@@ -676,15 +698,38 @@ func _update_box(
 	if desired_bars == 0:
 		return
 
-	# Bar rows live at index 2..; row 2 is the shared energy reservoir,
-	# rows 3..3+N are per-weapon bars. Indexing is offset by the two
-	# fixed text rows (name + HP) above the bar strip.
-	var energy_row := rows.get_child(2) as Control
-	if energy_row != null:
-		var pct := int(round(sat.energy * 100.0))
-		_update_bar_row(
-			energy_row, BAR_ENERGY, "Energy  %d%%" % pct, sat.energy
-		)
+	# Bar rows live at index 2..; the slot order matches the flags
+	# set above (energy → propellant → weapons). Track a running
+	# index so any combination of present/absent bars indexes
+	# correctly without a tangle of conditional offsets.
+	var bar_idx := 2
+	if has_energy_bar:
+		var energy_row := rows.get_child(bar_idx) as Control
+		if energy_row != null:
+			var pct := int(round(sat.energy * 100.0))
+			_update_bar_row(
+				energy_row, BAR_ENERGY, "Energy  %d%%" % pct, sat.energy
+			)
+		bar_idx += 1
+	if has_propellant_bar:
+		var prop_row := rows.get_child(bar_idx) as Control
+		if prop_row != null:
+			var dv_ms: float = sat.delta_v_remaining_ms()
+			# Fraction is propellant remaining vs. tank capacity — the
+			# bar drains as the unit burns, even though the m/s
+			# readout overlaid on it is non-linear in propellant (the
+			# rocket equation's logarithm). Players see "tank empties"
+			# and "delta-v shrinks" simultaneously, which is the
+			# correct shared mental model.
+			var frac: float = (
+				sat.propellant_kg / sat.max_propellant_kg
+				if sat.max_propellant_kg > 0.0 else 0.0
+			)
+			_update_bar_row(
+				prop_row, BAR_PROPELLANT,
+				"Δv  %d m/s" % int(round(dv_ms)), frac,
+			)
+		bar_idx += 1
 
 	# Per-type counter so multiple lasers number 1, 2, 3 while a single
 	# railgun reads as just "Railgun" (no index). Keeps the bar text
@@ -696,7 +741,7 @@ func _update_box(
 		per_type_total[n] = int(per_type_total.get(n, 0)) + 1
 	for i in range(sat.weapons.size()):
 		var w: Weapon = sat.weapons[i]
-		var row := rows.get_child(3 + i) as Control
+		var row := rows.get_child(bar_idx + i) as Control
 		if row == null:
 			continue
 		var prog := w.ready_progress()

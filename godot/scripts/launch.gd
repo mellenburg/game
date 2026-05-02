@@ -9,6 +9,8 @@ extends RefCounted
 ## the menu so the operator can assign one, but discarded by
 ## PlayerLoadout.purge_unassigned_launches() before the run begins.
 
+const Propulsion = preload("res://scripts/propulsion.gd")
+
 # Bounds for the orbit sliders. Match what the menu's pre-existing
 # Orbital Ops tab shipped with so the operator's mental model carries
 # over from the previous build.
@@ -45,3 +47,26 @@ static func make(idx: int) -> Launch:
 
 func has_unit() -> bool:
 	return unit_id != ""
+
+
+# Δv (m/s) needed to place a unit on this launch's configured orbit,
+# measured against the free equatorial-LEO baseline. Used by
+# PlayerLoadout to compute each launch's propellant draw against the
+# pre-game budget. Zero for a launch parked at exactly
+# Propulsion.BASELINE_LEO_ALT_KM and zero inclination.
+func setup_dv_ms() -> float:
+	return Propulsion.launch_setup_dv_ms(
+		altitude_km, deg_to_rad(inclination_deg)
+	)
+
+
+# Propellant cost (kg) to fly this launch with a stage of the given
+# wet mass. Rocket-equation-weighted: heavier units debit more from
+# the budget for the same target orbit, lighter units less. Caller
+# supplies the wet mass (dry + onboard propellant); the launch budget
+# itself is paid against REF_LAUNCH_ISP_S — the booster's Isp,
+# distinct from the unit's onboard thrusters.
+func propellant_cost_kg(unit_wet_mass_kg: float) -> float:
+	return Propulsion.propellant_for_dv_kg(
+		setup_dv_ms(), unit_wet_mass_kg, Propulsion.REF_LAUNCH_ISP_S
+	)

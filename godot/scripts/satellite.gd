@@ -11,6 +11,7 @@ const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
+const Propulsion = preload("res://scripts/propulsion.gd")
 
 const TEAM_PLAYER: int = 0
 const TEAM_ENEMY: int = 1
@@ -49,9 +50,23 @@ const MAX_HP: float = 100.0
 # railgun's momentum-transfer math: the impulse delivered to shooter
 # (recoil) and target (push) is fixed in (kg·km/s) and divided by the
 # unit's mass to yield the resulting Δv. Player satellites and unarmed
-# enemy sats default to this value; meteorite / decaying spawners set
-# their own mass via spawn_director.
+# enemy sats default to a wet mass of DEFAULT_DRY_MASS_KG +
+# DEFAULT_PROPELLANT_KG, which sums to this value; meteorite / decaying
+# spawners set their own mass via spawn_director.
 const DEFAULT_MASS_KG: float = 1000.0
+# Dry-mass / propellant split for the default unit. Sums to
+# DEFAULT_MASS_KG so railgun recoil math (which reads `mass`)
+# preserves its existing balance for a fully-fueled unit. As the unit
+# burns propellant, `mass` drops toward DEFAULT_DRY_MASS_KG, which is
+# physically correct (lighter rockets recoil more).
+const DEFAULT_DRY_MASS_KG: float = 700.0
+const DEFAULT_PROPELLANT_KG: float = 300.0
+# Specific impulse and thrust of the default thruster part — kept in
+# sync with UnitPart.make_thruster's "thruster_default" entry so a unit
+# spawned through the legacy fallback path (no UnitConfig) and one
+# spawned via the menu loadout end up with identical propulsion.
+const DEFAULT_ISP_S: float = 300.0
+const DEFAULT_THRUST_N: float = 20000.0
 # Default operator-set cap on the shooter's post-recoil orbital radius.
 # 50 000 km matches the design spec: large enough that a few shots
 # barely shift orbit, small enough that a long railgun engagement
@@ -103,10 +118,29 @@ var damage_dealt: float = 0.0
 # brings the target to 0 HP. Surface units and orbital ships share the
 # same counter — both count as "kills" for the unit summary.
 var kills: int = 0
-# Per-instance mass (kg). Used by the railgun's momentum-transfer math
-# only; orbital propagation is mass-independent. Spawners override for
-# heavier (decaying-orbit) or fragile (meteorite) bodies.
+# Per-instance mass (kg). Tracks the unit's *wet* mass — dry structure
+# plus current propellant — and is updated downward as burns drain
+# propellant_kg. Used by the railgun's momentum-transfer math (a lighter
+# stage recoils more, which is physically correct) and by Tsiolkovsky
+# when computing per-burn propellant cost. Spawners override for
+# heavier (decaying-orbit) or fragile (meteorite) bodies, which never
+# enter the propellant-aware maneuver branch and so don't track
+# dry/propellant separately.
 var mass: float = DEFAULT_MASS_KG
+# Dry mass and onboard propellant. Player thrust debits propellant_kg
+# per burn via Tsiolkovsky; once it hits zero the maneuver branch
+# clamps the requested Δv down to whatever the remaining tank can
+# deliver (often zero). Non-player bodies keep these at their defaults
+# but never use them — only the did_maneuver path reads propellant_kg.
+var dry_mass_kg: float = DEFAULT_DRY_MASS_KG
+var propellant_kg: float = DEFAULT_PROPELLANT_KG
+var max_propellant_kg: float = DEFAULT_PROPELLANT_KG
+# Onboard thruster facets. isp_s feeds Tsiolkovsky; thrust_n is the
+# instantaneous force the unit can apply, surfaced on the HUD and
+# reserved for future TWR-gated abilities (surface launch, fast
+# intercept). Defaults match UnitPart.make_thruster's "thruster_default".
+var isp_s: float = DEFAULT_ISP_S
+var thrust_n: float = DEFAULT_THRUST_N
 var alive: bool = true
 # Sub-orbital trajectory (a meteorite) — its periapsis is below Earth's
 # surface by construction, so it impacts ground in finite time. Used to
@@ -391,6 +425,14 @@ func get_current_maneuver() -> Vector3:
 	return DELTA_V_MAGNITUDE * raw_maneuver
 
 
+## Delta-v (m/s) the unit can still spend, given current propellant,
+## dry mass, and Isp. Read by the HUD; the maneuver branch in
+## advance_time consults the same helper to clamp burns when the tank
+## runs low.
+func delta_v_remaining_ms() -> float:
+	return Propulsion.dv_capacity_ms(propellant_kg, dry_mass_kg, isp_s)
+
+
 ## Apply damage. Returns true if this hit took the satellite to 0 HP.
 ## Only kills once — repeated calls on a dead satellite are no-ops, so
 ## stray late shots from concurrent attackers don't double-fire the
@@ -437,9 +479,34 @@ func advance_time(delta_time: float) -> void:
 		# cache before stepping — the new velocity makes the prior
 		# prediction stale.
 		invalidate_impact_cache()
-		ok = orbit.relative_maneuver(
-			get_current_maneuver(), delta_time, SAFE_PERIAPSIS_KM
-		)
+		# Charge propellant for the requested burn via Tsiolkovsky. If
+		# the tank can't cover the full Δv (raw_maneuver is per-tick so
+		# at high time_factor a held key can run a unit dry quickly),
+		# scale the applied burn down to whatever the remaining
+		# propellant can deliver and let the rest of the tick be free
+		# propagation. Burns at 0 km/s (idle thrust input) skip the
+		# whole gauntlet — the maneuver vector is already zero so
+		# relative_maneuver is a no-op against the orbit.
+		var requested := get_current_maneuver()
+		var dv_kms := requested.length()
+		var applied := requested
+		if dv_kms > 0.0:
+			# Convert to m/s for the Tsiolkovsky helpers, clamp against
+			# the tank's remaining capacity, then scale the directional
+			# burn vector back down. Orbital math stays in km/s.
+			var requested_ms := dv_kms * 1000.0
+			var have_ms := delta_v_remaining_ms()
+			var applied_ms := minf(requested_ms, have_ms)
+			if applied_ms <= 0.0:
+				applied = Vector3.ZERO
+			else:
+				applied = requested * (applied_ms / requested_ms)
+				var burned := Propulsion.propellant_for_dv_kg(
+					applied_ms, mass, isp_s
+				)
+				propellant_kg = maxf(propellant_kg - burned, 0.0)
+				mass = dry_mass_kg + propellant_kg
+		ok = orbit.relative_maneuver(applied, delta_time, SAFE_PERIAPSIS_KM)
 	else:
 		# Free propagation leaves the orbit shape (and therefore the
 		# absolute impact time) unchanged, so the cache stays valid
@@ -583,6 +650,11 @@ func clone_orbit_from(other: Satellite) -> void:
 	fire_control_active = other.fire_control_active
 	targeting_mode = other.targeting_mode
 	mass = other.mass
+	dry_mass_kg = other.dry_mass_kg
+	propellant_kg = other.propellant_kg
+	max_propellant_kg = other.max_propellant_kg
+	isp_s = other.isp_s
+	thrust_n = other.thrust_n
 	max_orbital_radius_km = other.max_orbital_radius_km
 	railgun_enabled = other.railgun_enabled
 	# Mirror the cache so the planning preview's HUD ranking matches

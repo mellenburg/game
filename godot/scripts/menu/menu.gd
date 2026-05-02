@@ -56,6 +56,7 @@ const KINDS: Array[int] = [
 	UnitPart.KIND_RADIATOR,
 	UnitPart.KIND_ENERGY_STORAGE,
 	UnitPart.KIND_REACTOR,
+	UnitPart.KIND_THRUSTER,
 ]
 
 var _tabs: TabContainer
