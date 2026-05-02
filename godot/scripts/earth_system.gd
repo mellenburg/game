@@ -67,6 +67,17 @@ var planning_selected: int = 0
 # whether the cause was a weapon hit or a sub-orbital impact.
 var enemies_shot_down: int = 0
 var meteorites_impacted: int = 0
+# Sum of HP each impacting body still carried at ground contact —
+# i.e. the damage total Earth ate. Counted from the dead-sat sweep so
+# every impact flows through one place. Surfaced on the end-of-run
+# summary alongside per-unit damage / kills.
+var total_impact_hp: float = 0.0
+# Snapshots of player satellites that died during the run. Each entry
+# is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
+# the moment of death so the end-of-run summary can credit a unit
+# whose satellite never survived to the final tick. Live satellites
+# are read directly from real_satellites at summary time.
+var dead_player_stats: Array[Dictionary] = []
 
 var _time_factor_accum: float = 0.0
 var _planning_dt_accum: float = 0.0
@@ -328,7 +339,21 @@ func _remove_dead_satellites() -> void:
 				enemies_shot_down += 1
 			elif sat.is_meteorite or sat.is_decaying:
 				meteorites_impacted += 1
+				# HP at the moment of impact is the un-reduced threat
+				# Earth absorbed. Tally it before the satellite is
+				# freed so the end-of-run summary can show "total HP
+				# of impactors", not just a count.
+				total_impact_hp += maxf(sat.hp, 0.0)
 				_record_meteorite_impact(sat)
+		elif sat.team == Satellite.TEAM_PLAYER and sat.unit_name != "":
+			# Snapshot the dying player unit's tallies so the summary
+			# still credits its damage / kills even though the live
+			# Satellite is about to be freed.
+			dead_player_stats.append({
+				"unit_name": sat.unit_name,
+				"damage_dealt": sat.damage_dealt,
+				"kills": sat.kills,
+			})
 		# Mirror removal in planning so indices stay aligned.
 		if i < planning_satellites.size():
 			var plan_sat: Satellite = planning_satellites[i]
@@ -349,6 +374,40 @@ func _remove_dead_satellites() -> void:
 	# Picking a fresh selection above can leave the new ship un-highlighted.
 	if not real_satellites[selected_ship].selected:
 		real_satellites[selected_ship].select()
+
+
+# Build the end-of-run report. Combines live player-satellite tallies
+# (read directly from each Satellite) with the dead_player_stats
+# snapshots captured in _remove_dead_satellites, so a unit whose ship
+# was lost mid-run still gets credit for what it did. The end-game
+# overlay renders this dictionary directly; storing it as a struct
+# rather than a formatted string keeps the formatting concern in the
+# overlay where it belongs.
+func end_game_summary() -> Dictionary:
+	var per_unit: Array[Dictionary] = []
+	for sat in real_satellites:
+		if sat.team != Satellite.TEAM_PLAYER:
+			continue
+		if sat.unit_name == "":
+			continue
+		per_unit.append({
+			"unit_name": sat.unit_name,
+			"damage_dealt": sat.damage_dealt,
+			"kills": sat.kills,
+			"alive": sat.alive,
+		})
+	for dead in dead_player_stats:
+		per_unit.append({
+			"unit_name": String(dead.get("unit_name", "")),
+			"damage_dealt": float(dead.get("damage_dealt", 0.0)),
+			"kills": int(dead.get("kills", 0)),
+			"alive": false,
+		})
+	return {
+		"per_unit": per_unit,
+		"total_impacts": meteorites_impacted,
+		"total_impact_hp": total_impact_hp,
+	}
 
 
 func _process_continuous_input(delta: float) -> void:

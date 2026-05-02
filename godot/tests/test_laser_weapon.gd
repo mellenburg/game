@@ -38,7 +38,7 @@ class FakeSat extends RefCounted:
 	func _init() -> void:
 		orbit = FakeOrbit.new()
 
-	func take_damage(amount: float) -> bool:
+	func take_damage(amount: float, _attacker = null) -> bool:
 		hp = maxf(hp - amount, 0.0)
 		if hp <= 0.0:
 			alive = false

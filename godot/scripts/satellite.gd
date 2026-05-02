@@ -82,11 +82,27 @@ var did_maneuver: bool = false
 var orbit_alive: bool = true
 
 var team: int = TEAM_PLAYER
+# Operator-facing display name. Set by SpawnDirector at spawn time
+# (mirroring the Hangar's UnitConfig.name); the HUD roster renders this
+# in the unit box and the end-of-run summary keys per-unit stats by
+# it. Empty string for unnamed bodies (enemies, meteorites, decaying
+# threats) so the HUD knows to skip the name row.
+var unit_name: String = ""
 # Per-instance HP cap. Defaults to MAX_HP for player / standard enemy
 # satellites; threat-spawning paths (meteorite, decaying-orbit body)
 # override it with their own cap and seed `hp` to the same value.
 var max_hp: float = MAX_HP
 var hp: float = MAX_HP
+# Cumulative damage this satellite has dealt across the run. Updated
+# when an attacker's weapon successfully fires — take_damage attributes
+# the actual applied amount to the attacker passed in. The end-of-run
+# summary reads this directly.
+var damage_dealt: float = 0.0
+# Number of enemies this satellite has finished off (dealt the killing
+# blow against). Incremented by take_damage when the attacker's hit
+# brings the target to 0 HP. Surface units and orbital ships share the
+# same counter — both count as "kills" for the unit summary.
+var kills: int = 0
 # Per-instance mass (kg). Used by the railgun's momentum-transfer math
 # only; orbital propagation is mass-independent. Spawners override for
 # heavier (decaying-orbit) or fragile (meteorite) bodies.
@@ -379,12 +395,24 @@ func get_current_maneuver() -> Vector3:
 ## Only kills once — repeated calls on a dead satellite are no-ops, so
 ## stray late shots from concurrent attackers don't double-fire the
 ## death transition.
-func take_damage(amount: float) -> bool:
+##
+## When `attacker` is non-null, the actual applied damage (capped at
+## current HP so overkill doesn't inflate the counter) is added to
+## `attacker.damage_dealt`, and on a finishing blow `attacker.kills`
+## is bumped. The end-of-run summary reads both counters directly off
+## each player satellite, so per-shot crediting here is the single
+## source of truth.
+func take_damage(amount: float, attacker: Satellite = null) -> bool:
 	if not alive or amount <= 0.0:
 		return false
+	var applied: float = minf(amount, hp)
 	hp = maxf(hp - amount, 0.0)
+	if attacker != null:
+		attacker.damage_dealt += applied
 	if hp <= 0.0:
 		alive = false
+		if attacker != null:
+			attacker.kills += 1
 		_hide_visuals()
 		return true
 	return false
@@ -534,8 +562,11 @@ func clone_orbit_from(other: Satellite) -> void:
 	selected = other.selected
 	orbit_alive = other.orbit_alive
 	team = other.team
+	unit_name = other.unit_name
 	max_hp = other.max_hp
 	hp = other.hp
+	damage_dealt = other.damage_dealt
+	kills = other.kills
 	alive = other.alive
 	is_meteorite = other.is_meteorite
 	is_decaying = other.is_decaying

@@ -206,7 +206,7 @@ func fire(attacker, target, sim_delta: float) -> bool:
 		target.orbit_alive = false
 	target.invalidate_impact_cache()
 
-	target.take_damage(damage_per_shot())
+	target.take_damage(damage_per_shot(), attacker)
 	attacker.energy = maxf(attacker.energy - ENERGY_PER_SHOT, 0.0)
 	# Latch cooldown: ready falls to 0, overheated locks out can_fire
 	# until ready climbs back to 1.0 via base Weapon.tick(). Mirrors

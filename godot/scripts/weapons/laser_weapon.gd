@@ -191,7 +191,7 @@ func fire(attacker, target, sim_delta: float) -> bool:
 		return false
 	var distance: float = (target.orbit.r - attacker.orbit.r).length()
 	var dmg_scale: float = range_factor(distance)
-	target.take_damage(damage_per_second() * dt * dmg_scale)
+	target.take_damage(damage_per_second() * dt * dmg_scale, attacker)
 	attacker.energy = maxf(attacker.energy - ENERGY_PER_SEC * dt, 0.0)
 	ready_fraction = clampf(ready_fraction - HEAT_PER_SEC * dt, 0.0, 1.0)
 	if ready_fraction <= 0.0:

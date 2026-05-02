@@ -67,6 +67,14 @@ const RG_TEXT_COLOR := Color(0.95, 0.65, 0.30, 1.0)
 const RG_FONT_SIZE: int = 10
 const RG_NODE_NAME: String = "RailgunStatus"
 
+# Unit name header — the operator-facing string set in the Hangar
+# editor (e.g. "T-01", "ARTEMIS"). Drawn at the top of every player
+# roster box so a glance maps an in-game unit back to the row the
+# operator built.
+const NAME_NODE_NAME: String = "UnitName"
+const NAME_TEXT_COLOR := Color(1.0, 0.706, 0.329, 1.0)  # accent
+const NAME_FONT_SIZE: int = 11
+
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 
@@ -467,9 +475,18 @@ func _make_box() -> PanelContainer:
 	rows.add_theme_constant_override("separation", 2)
 	box.add_child(rows)
 
-	# Index 0 is the plain HP label. Bar rows for energy + each weapon
-	# are added on demand by _update_box so the per-team child count
-	# matches the actual satellite (an unarmed enemy gets just HP).
+	# Index 0 is the unit-name header (operator-set string from the
+	# Hangar editor) and index 1 is the plain HP label. Bar rows for
+	# energy + each weapon are added on demand by _update_box so the
+	# per-team child count matches the actual satellite (an unarmed
+	# enemy gets just name + HP).
+	var name_label := Label.new()
+	name_label.name = NAME_NODE_NAME
+	name_label.add_theme_font_size_override("font_size", NAME_FONT_SIZE)
+	name_label.add_theme_color_override("font_color", NAME_TEXT_COLOR)
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rows.add_child(name_label)
+
 	var hp := Label.new()
 	hp.add_theme_font_size_override("font_size", 11)
 	hp.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -568,11 +585,20 @@ func _update_box(
 	if rows == null:
 		return
 
-	# Index 0 is the HP label; bar rows follow; an optional FC status
-	# label and targeting-mode label tail the box. Detach both meta
-	# labels first so the bar-resize loop's child-count math stays
-	# unchanged — we re-append (or drop) them after the bars settle.
-	var hp_label := rows.get_child(0) as Label
+	# Index 0 is the unit-name header, index 1 the HP label; bar rows
+	# follow; an optional FC status label and targeting-mode label tail
+	# the box. Detach all three meta labels first so the bar-resize
+	# loop's child-count math stays clean — we re-append (or drop)
+	# them after the bars settle.
+	var name_label := rows.get_node_or_null(NAME_NODE_NAME) as Label
+	if name_label != null:
+		# Empty unit_name (legacy / unnamed) collapses the row by hiding
+		# the label so the box doesn't carry a blank line.
+		var has_name := sat.unit_name != ""
+		name_label.visible = has_name
+		if has_name:
+			name_label.text = sat.unit_name
+	var hp_label := rows.get_child(1) as Label
 	if hp_label != null:
 		hp_label.text = "HP %d/%d" % [int(sat.hp), int(sat.max_hp)]
 
@@ -589,7 +615,10 @@ func _update_box(
 	var desired_bars := 0
 	if not sat.weapons.is_empty():
 		desired_bars = 1 + sat.weapons.size()
-	var current_bars := rows.get_child_count() - 1
+	# Two fixed rows above the bars (name + HP) — subtract both from
+	# the current child count so the bar-resize loop targets only the
+	# bar rows.
+	var current_bars := rows.get_child_count() - 2
 	while current_bars < desired_bars:
 		rows.add_child(_make_bar_row())
 		current_bars += 1
@@ -647,7 +676,10 @@ func _update_box(
 	if desired_bars == 0:
 		return
 
-	var energy_row := rows.get_child(1) as Control
+	# Bar rows live at index 2..; row 2 is the shared energy reservoir,
+	# rows 3..3+N are per-weapon bars. Indexing is offset by the two
+	# fixed text rows (name + HP) above the bar strip.
+	var energy_row := rows.get_child(2) as Control
 	if energy_row != null:
 		var pct := int(round(sat.energy * 100.0))
 		_update_bar_row(
@@ -664,7 +696,7 @@ func _update_box(
 		per_type_total[n] = int(per_type_total.get(n, 0)) + 1
 	for i in range(sat.weapons.size()):
 		var w: Weapon = sat.weapons[i]
-		var row := rows.get_child(2 + i) as Control
+		var row := rows.get_child(3 + i) as Control
 		if row == null:
 			continue
 		var prog := w.ready_progress()

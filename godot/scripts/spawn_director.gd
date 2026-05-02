@@ -147,6 +147,7 @@ func spawn_starting_fleet(
 	var nu := _rng.randf_range(0.0, TAU)
 	for i in range(STARTING_SAT_COUNT):
 		var sat := Satellite.new()
+		sat.unit_name = "T-%02d" % (i + 1)
 		sat.orbit = EarthOrbit.make_circular(
 			STARTING_SAT_ALT_KM,
 			_rng.randf_range(0.0, inc_max),
@@ -208,6 +209,7 @@ func _apply_unit_to_satellite(sat: Satellite, unit: UnitConfig) -> void:
 	var radiator_mult := unit.total_multiplier_for_kind(UnitPart.KIND_RADIATOR)
 	var storage_mult := unit.total_multiplier_for_kind(UnitPart.KIND_ENERGY_STORAGE)
 	var reactor_mult := unit.total_multiplier_for_kind(UnitPart.KIND_REACTOR)
+	sat.unit_name = unit.name
 	sat.energy_max = Satellite.ENERGY_MAX * storage_mult
 	sat.energy_rate_per_sim_sec = Satellite.ENERGY_RATE_PER_SIM_SEC * reactor_mult
 	sat.weapons = _build_weapons(unit, radiator_mult)
@@ -269,6 +271,7 @@ func spawn_surface_units(
 		var sat := Satellite.new()
 		sat.team = Satellite.TEAM_PLAYER
 		sat.is_surface = true
+		sat.unit_name = cfg.name
 		sat.surface_lat_deg = cfg.lat_deg
 		sat.surface_lon_deg = cfg.lon_deg
 		sat.max_hp = cfg.max_hp
