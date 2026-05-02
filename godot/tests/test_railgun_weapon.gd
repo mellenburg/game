@@ -137,7 +137,11 @@ func test_recoil_and_target_push_conserve_momentum() -> void:
 	var dv_a: Vector3 = attacker.orbit.v - v_a_before
 	var dv_t: Vector3 = target.orbit.v - v_t_before
 	var p_total: Vector3 = dv_a * attacker.mass + dv_t * target.mass
-	assert_close(p_total.length(), 0.0, 1.0e-6)
+	# Tolerance is 1e-3 (kg·km/s) rather than 1e-6 because the
+	# components in play are ~200 kg·km/s, and 32-bit Vector3
+	# precision on values that size leaves noise around 1e-5 per
+	# component — comfortably below 1e-3, comfortably above 1e-6.
+	assert_close(p_total.length(), 0.0, 1.0e-3)
 	# Target's Δv should be 2× attacker's (mass ratio inverse), and
 	# anti-parallel to the attacker's recoil (Newton's third law).
 	assert_close(dv_t.length(), 2.0 * dv_a.length(), 1.0e-6)
