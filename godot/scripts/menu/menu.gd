@@ -675,6 +675,32 @@ func _rebuild_unit_summary() -> void:
 		"Production", "%.5f /s" % float(stats["energy_production"])
 	))
 
+	# Propulsion section. Skipped when the unit carries no thruster
+	# (capacity 0 ⇒ nothing to render). Δv capacity is the headline:
+	# the m/s pool the unit can spend on in-game maneuvers, computed
+	# from Tsiolkovsky at the unit's wet mass and Isp. Thrust is the
+	# instantaneous force the unit can apply (reserved for future
+	# TWR-gated abilities); Isp and propellant mass are the inputs
+	# that determine the Δv pool.
+	if float(stats["propellant_capacity_kg"]) > 0.0:
+		_hangar_summary.add_child(_summary_section("PROPULSION"))
+		_hangar_summary.add_child(_summary_row(
+			"Δv capacity",
+			"%d m/s" % int(round(float(stats["delta_v_capacity_ms"]))),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Thrust", "%.1f kN" % (float(stats["thrust_n"]) / 1000.0)
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Isp", "%.0f s" % float(stats["isp_s"])
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Propellant", "%.0f kg" % float(stats["propellant_capacity_kg"])
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Dry mass", "%.0f kg" % float(stats["dry_mass_kg"])
+		))
+
 
 # Single key/value row in the summary panel. Right-aligned value so the
 # numeric column reads as a table.
