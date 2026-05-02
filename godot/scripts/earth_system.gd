@@ -113,6 +113,11 @@ var mission: Mission = null
 # trigger the overlay once. Without this, the post-clear tick would
 # call show_summary() every frame.
 var _mission_summary_shown: bool = false
+# Per-wave base entry directions. Filled the first time the mission
+# emits a wave-unit for a given wave_id; reused for every subsequent
+# wave-unit in that wave so the cluster lands inside one solid-angle
+# patch. Indexed by int wave_id, value is a unit Vector3.
+var _mission_wave_bases: Dictionary = {}
 
 @onready var earth: Earth = $Earth as Earth
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
@@ -300,27 +305,25 @@ func _process(delta: float) -> void:
 	hud.draw_target_lines(self, camera)
 
 
-# Drain any waves whose start threshold elapsed this tick and hand each
-# off to the spawn director. Keyed off real-time delta to match the
-# existing wave-spawn cadence — pausing the sim (time_factor=0) doesn't
-# pause the mission clock, and the fully-spawned wave bodies still ride
-# the same _process tick_waves loop downstream.
+# Drain any wave-unit emissions whose start threshold elapsed this
+# tick and hand each off to the spawn director as one full meteorite
+# wave. Wave-units sharing a wave_id reuse the same per-wave base
+# entry direction (sampled fresh on the first emission of each wave),
+# so the cluster of bursts lands inside one solid-angle patch rather
+# than scattering across the sky. Keyed off real-time delta to match
+# the existing wave-spawn cadence — pausing the sim (time_factor=0)
+# doesn't pause the mission clock, and the fully-spawned wave bodies
+# still ride the same _process tick_waves loop downstream.
 func _tick_mission(delta: float) -> void:
 	if mission == null:
 		return
 	var ready: Array[Dictionary] = mission.tick(delta)
-	for wave_def: Dictionary in ready:
-		var count := int(wave_def.get("count", 0))
-		var randomized := bool(wave_def.get("randomized", false))
-		if randomized:
-			spawn_director.start_mission_wave(
-				count, 0.0, true,
-				float(wave_def.get("random_duration", 0.0)),
-			)
-		else:
-			spawn_director.start_mission_wave(
-				count, float(wave_def.get("spacing", 1.0)), false, 0.0,
-			)
+	for emission: Dictionary in ready:
+		var wave_id := int(emission.get("wave_id", -1))
+		if not _mission_wave_bases.has(wave_id):
+			_mission_wave_bases[wave_id] = spawn_director.sample_unit_vector()
+		var base: Vector3 = _mission_wave_bases[wave_id]
+		spawn_director.start_meteorite_wave_clustered(base)
 
 
 # Once every wave has been handed to the spawn director, the in-flight
