@@ -86,23 +86,57 @@ static func inclination_change_dv_ms(
 	return 2.0 * v_kms * sin(0.5 * absf(delta_inc_rad)) * 1000.0
 
 
-# Total Δv (m/s) the launch budget owes for placing a unit at
-# (target_alt_km, target_inc_rad), measured against the free
-# equatorial-LEO baseline. Inclination is paid at the baseline orbital
-# speed (the more expensive choice — combining plane change with the
-# Hohmann apogee burn would be cheaper but adds a layer of physics the
-# player doesn't need to reason about); altitude differential via
-# Hohmann. The two costs sum: a polar GEO launch pays plane-change at
-# LEO speed *plus* the LEO→GEO transfer.
+# Total Δv (m/s) the launch budget owes for placing a unit on an orbit
+# with the given perigee altitude, eccentricity, and inclination,
+# measured against the free equatorial-LEO baseline. The cost
+# decomposes into three independent terms that simply sum:
+#
+#   1. Plane change at baseline LEO speed (worst-case, conservative —
+#      combining inclination with the Hohmann apogee burn would be
+#      cheaper but adds physics the player doesn't need to reason
+#      about up-front).
+#   2. Hohmann from baseline circular LEO to *circular* at the target
+#      perigee. Returns 0 when target_perigee = baseline.
+#   3. Apogee-raise burn at perigee: cost to lift apogee from the
+#      circular state at r_p up to r_a = r_p · (1+e)/(1-e). Falls out
+#      of vis-viva: Δv = sqrt(μ(2/r_p - 1/a)) - sqrt(μ/r_p) where a is
+#      the elliptical orbit's semi-major axis. Zero for e=0, grows
+#      monotonically with eccentricity.
+#
+# Eccentricity is clamped to [0, 0.99) — at e≥1 the orbit is parabolic
+# / hyperbolic (escape), which is out of scope for "place a unit in a
+# bound orbit". Caller (Launch / menu) bounds it via ECC_MIN/MAX.
 static func launch_setup_dv_ms(
-	target_alt_km: float, target_inc_rad: float
+	target_perigee_alt_km: float,
+	target_eccentricity: float,
+	target_inc_rad: float,
 ) -> float:
 	var r_base := EarthOrbit.EARTH_RADIUS_KM + BASELINE_LEO_ALT_KM
-	var r_target := EarthOrbit.EARTH_RADIUS_KM + target_alt_km
+	var r_p := EarthOrbit.EARTH_RADIUS_KM + target_perigee_alt_km
 	var v_base := circular_speed_kms(r_base)
 	var inc_dv := inclination_change_dv_ms(target_inc_rad, v_base)
-	var alt_dv := hohmann_dv_ms(r_base, r_target)
-	return inc_dv + alt_dv
+	var alt_dv := hohmann_dv_ms(r_base, r_p)
+	var ecc_dv := apogee_raise_dv_ms(r_p, target_eccentricity)
+	return inc_dv + alt_dv + ecc_dv
+
+
+# Δv (m/s) of an at-perigee burn that turns a circular orbit at r_p
+# into an elliptical orbit of eccentricity `ecc` (so r_a = r_p (1+e)
+# / (1-e)). Falls out of vis-viva at perigee:
+#   v_circ_p = sqrt(μ/r_p),   v_peri_ellipse = sqrt(μ(2/r_p - 1/a))
+# with a = (r_p + r_a) / 2 = r_p / (1 - e). Returns 0 for e ≤ 0;
+# clamps eccentricity strictly below 1 so the bound-orbit assumption
+# holds (caller's range gate enforces this too).
+static func apogee_raise_dv_ms(r_p_km: float, ecc: float) -> float:
+	if r_p_km <= 0.0 or ecc <= 0.0:
+		return 0.0
+	var e := minf(ecc, 0.999)
+	var a := r_p_km / (1.0 - e)
+	var v_circ := sqrt(EarthOrbit.MU / r_p_km)
+	var v_peri := sqrt(EarthOrbit.MU * (2.0 / r_p_km - 1.0 / a))
+	# km/s -> m/s. Always positive: at perigee the elliptical orbit is
+	# faster than the circular one of the same radius, so v_peri > v_circ.
+	return (v_peri - v_circ) * 1000.0
 
 
 # Tsiolkovsky propellant cost: kg of propellant burned to deliver

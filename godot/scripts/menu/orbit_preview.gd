@@ -46,15 +46,16 @@ func _draw() -> void:
 	if span <= 0.0:
 		return
 
-	# World scale: pick the largest (Earth radius + altitude) across
-	# the configured launches so the most distant orbit just fits in
-	# the control's bounds. Min ceiling so an empty roster still renders
-	# at a sensible scale.
+	# World scale: pick the largest apogee across the configured
+	# launches so even a highly eccentric orbit fits inside the control.
+	# Apogee = perigee · (1+e)/(1-e); collapses to perigee for ecc==0
+	# so circular orbits scale identically to the pre-eccentricity
+	# build. Min ceiling so an empty roster still renders sensibly.
 	var max_world_km: float = EarthOrbit.EARTH_RADIUS_KM
 	for launch: Launch in PlayerLoadout.launches:
 		max_world_km = maxf(
 			max_world_km,
-			EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km,
+			EarthOrbit.EARTH_RADIUS_KM + launch.apogee_altitude_km(),
 		)
 	max_world_km *= 1.10  # 10% padding so labels don't crop on the rim
 	var px_per_km: float = span / max_world_km
@@ -90,77 +91,91 @@ func _draw() -> void:
 		_draw_label(launch, center, px_per_km, color)
 
 
-# Project the launch's circular orbit onto the screen-plane:
-#   r(θ) in 3D = R3z(Ω) · R1x(i) · [cos θ, sin θ, 0] · a
-# Then drop the z component to render the on-plane footprint. RAAN
-# rotates the line of nodes; inclination tilts the plane so the orbit
-# foreshortens into an ellipse from the top-down view.
+# Project the launch's orbit (circular or elliptical) onto the screen
+# plane. Position at true anomaly θ in the perifocal frame:
+#   r(θ) = p / (1 + e·cos θ),   p = r_p · (1 + e)
+#   x_pqw = r·cos θ,  y_pqw = r·sin θ
+# Then rotate by argp in-plane, tilt by inc, and rotate by RAAN around
+# z; we drop the z component for the top-down view. For e==0 and
+# argp==0 this collapses to the prior circular projection bit-for-bit.
 func _draw_orbit(
 	launch: Launch, center: Vector2, px_per_km: float, color: Color
 ) -> void:
-	var a_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
+	var p_km: float = r_p_km * (1.0 + e)
 	var i_rad: float = deg_to_rad(launch.inclination_deg)
 	var raan_rad: float = deg_to_rad(launch.raan_deg)
+	var argp_rad: float = deg_to_rad(launch.argp_deg)
 	var cos_raan: float = cos(raan_rad)
 	var sin_raan: float = sin(raan_rad)
 	var cos_i: float = cos(i_rad)
+	var cos_w: float = cos(argp_rad)
+	var sin_w: float = sin(argp_rad)
 
-	const SEGMENTS: int = 64
+	const SEGMENTS: int = 96
 	var points := PackedVector2Array()
 	points.resize(SEGMENTS + 1)
 	for k in range(SEGMENTS + 1):
 		var theta: float = (TAU * float(k)) / float(SEGMENTS)
-		var x_perifocal: float = cos(theta) * a_km
-		var y_perifocal: float = sin(theta) * a_km
-		var x: float = (
-			x_perifocal * cos_raan
-			- y_perifocal * cos_i * sin_raan
-		)
-		var y: float = (
-			x_perifocal * sin_raan
-			+ y_perifocal * cos_i * cos_raan
-		)
+		var r_at: float = p_km / (1.0 + e * cos(theta))
+		# Perifocal frame: perigee along +x_pqw.
+		var px: float = r_at * cos(theta)
+		var py: float = r_at * sin(theta)
+		# Rotate by argp inside the orbital plane (line of nodes
+		# perpendicular to perigee for non-zero argp).
+		var qx: float = px * cos_w - py * sin_w
+		var qy: float = px * sin_w + py * cos_w
+		# Tilt by inclination (foreshorten the y-axis) and rotate by
+		# RAAN around the z-axis. Z component is dropped for the
+		# top-down projection.
+		var x: float = qx * cos_raan - qy * cos_i * sin_raan
+		var y: float = qx * sin_raan + qy * cos_i * cos_raan
 		points[k] = center + Vector2(x, -y) * px_per_km
 	draw_polyline(points, color, 1.6, true)
 
-	# Spawn marker at the configured true anomaly
+	# Spawn marker at the configured true anomaly. Same projection
+	# pipeline; just one sample.
 	var nu_rad: float = deg_to_rad(launch.true_anomaly_deg)
-	var x_perifocal_nu: float = cos(nu_rad) * a_km
-	var y_perifocal_nu: float = sin(nu_rad) * a_km
-	var marker_x: float = (
-		x_perifocal_nu * cos_raan
-		- y_perifocal_nu * cos_i * sin_raan
-	)
-	var marker_y: float = (
-		x_perifocal_nu * sin_raan
-		+ y_perifocal_nu * cos_i * cos_raan
-	)
+	var r_nu: float = p_km / (1.0 + e * cos(nu_rad))
+	var px_nu: float = r_nu * cos(nu_rad)
+	var py_nu: float = r_nu * sin(nu_rad)
+	var qx_nu: float = px_nu * cos_w - py_nu * sin_w
+	var qy_nu: float = px_nu * sin_w + py_nu * cos_w
+	var marker_x: float = qx_nu * cos_raan - qy_nu * cos_i * sin_raan
+	var marker_y: float = qx_nu * sin_raan + qy_nu * cos_i * cos_raan
 	var marker_pos: Vector2 = (
 		center + Vector2(marker_x, -marker_y) * px_per_km
 	)
 	draw_circle(marker_pos, 4.0, color)
 
 
-# Draw the launch's name to the right of its spawn marker.
+# Draw the launch's name to the right of its spawn marker. Same
+# projection pipeline as the spawn marker in _draw_orbit so the label
+# tracks the dot exactly even for eccentric / argp-rotated orbits.
 func _draw_label(
 	launch: Launch,
 	center: Vector2,
 	px_per_km: float,
 	color: Color,
 ) -> void:
-	var a_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
+	var p_km: float = r_p_km * (1.0 + e)
 	var i_rad: float = deg_to_rad(launch.inclination_deg)
 	var raan_rad: float = deg_to_rad(launch.raan_deg)
+	var argp_rad: float = deg_to_rad(launch.argp_deg)
 	var nu_rad: float = deg_to_rad(launch.true_anomaly_deg)
-	var x_perifocal: float = cos(nu_rad) * a_km
-	var y_perifocal: float = sin(nu_rad) * a_km
+	var r_nu: float = p_km / (1.0 + e * cos(nu_rad))
+	var px_nu: float = r_nu * cos(nu_rad)
+	var py_nu: float = r_nu * sin(nu_rad)
+	var qx: float = px_nu * cos(argp_rad) - py_nu * sin(argp_rad)
+	var qy: float = px_nu * sin(argp_rad) + py_nu * cos(argp_rad)
 	var x: float = (
-		x_perifocal * cos(raan_rad)
-		- y_perifocal * cos(i_rad) * sin(raan_rad)
+		qx * cos(raan_rad) - qy * cos(i_rad) * sin(raan_rad)
 	)
 	var y: float = (
-		x_perifocal * sin(raan_rad)
-		+ y_perifocal * cos(i_rad) * cos(raan_rad)
+		qx * sin(raan_rad) + qy * cos(i_rad) * cos(raan_rad)
 	)
 	var marker_pos: Vector2 = center + Vector2(x, -y) * px_per_km
 	var font := get_theme_default_font()

@@ -27,6 +27,7 @@ const Launch = preload("res://scripts/launch.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const OrbitPreview = preload("res://scripts/menu/orbit_preview.gd")
 const SurfacePlacementMap = preload("res://scripts/menu/surface_placement_map.gd")
+const Satellite = preload("res://scripts/satellite.gd")
 
 const STAGE_SCENE_PATH := "res://scenes/main.tscn"
 
@@ -75,6 +76,19 @@ var _selected_unit_id: String = ""
 # Orbital Ops state
 var _launches_root: VBoxContainer
 var _orbit_preview: OrbitPreview
+# Budget panel widgets — built once in _build_orbital_ops_tab, mutated
+# by _refresh_launch_budget after every slider / picker change so the
+# operator sees the running total update live.
+var _budget_label: Label
+var _budget_bar_fill: ColorRect
+# Per-launch readouts that update live as their sliders / picker
+# change, indexed by the launch's slot in PlayerLoadout.launches.
+# Repopulated on every _rebuild_launch_rows so they line up with the
+# rebuilt PanelContainer children. The slider callbacks index into
+# these arrays to refresh just the affected row's labels rather than
+# rebuilding the whole list (which would yank slider focus mid-drag).
+var _launch_cost_labels: Array[Label] = []
+var _launch_apogee_labels: Array[Label] = []
 var _previous_tab_index: int = 0
 
 # Surface Ops state
@@ -356,7 +370,20 @@ func _refresh_stage_brief() -> void:
 		_stage_brief_summary.text = String(stage.get("summary", ""))
 	_launch_button.disabled = not PlayerLoadout.can_launch()
 	if _launch_button.disabled:
-		_launch_button.text = "LAUNCH (assign at least one launch)"
+		# Distinguish "no launches assigned" from "over budget" so the
+		# operator knows which knob to turn. Budget gate beats the
+		# assignment gate on the message — if launches are assigned and
+		# the only failing condition is budget, the over-budget hint is
+		# the actionable one.
+		var over_budget: bool = (
+			PlayerLoadout.has_assigned_launches()
+			and PlayerLoadout.total_launch_propellant_used_kg()
+				> PlayerLoadout.LAUNCH_PROPELLANT_BUDGET_KG
+		)
+		if over_budget:
+			_launch_button.text = "LAUNCH (over propellant budget)"
+		else:
+			_launch_button.text = "LAUNCH (assign at least one launch)"
 		_launch_button.add_theme_color_override("font_color", COLOR_FG_FAINT)
 	else:
 		_launch_button.text = "LAUNCH ▶"
@@ -836,6 +863,13 @@ func _build_orbital_ops_tab() -> Control:
 	add_btn.pressed.connect(_on_add_launch_pressed)
 	actions.add_child(add_btn)
 
+	# Budget panel sits below the actions row so the running total of
+	# propellant draw across every assigned launch is always visible
+	# while the operator drags sliders. Pre-built once; the bar fill
+	# and the numeric label are mutated in _refresh_launch_budget()
+	# after each slider / picker / add / remove event.
+	left[1].add_child(_build_launch_budget_panel())
+
 	# Centre: 2D top-down preview that redraws when sliders change.
 	var center := _section("Equatorial Preview", 0)
 	hbox.add_child(center[0])
@@ -854,10 +888,137 @@ func _rebuild_launch_rows() -> void:
 	for child in _launches_root.get_children():
 		_launches_root.remove_child(child)
 		child.queue_free()
+	# Per-row label arrays are reset to match the new PanelContainer
+	# children one-for-one as _build_launch_row appends to both.
+	_launch_cost_labels.clear()
+	_launch_apogee_labels.clear()
 	for i in range(PlayerLoadout.launches.size()):
 		_launches_root.add_child(_build_launch_row(i))
 	if _orbit_preview != null:
 		_orbit_preview.refresh()
+	_refresh_launch_budget()
+
+
+# Refresh just the per-launch cost / apogee labels — invoked from the
+# slider callbacks so dragging an altitude / inclination / eccentricity
+# slider doesn't tear down the row (which would steal focus from the
+# slider the operator is currently holding).
+func _refresh_launch_row_readouts(launch_index: int) -> void:
+	if launch_index < 0 or launch_index >= PlayerLoadout.launches.size():
+		return
+	var launch: Launch = PlayerLoadout.launches[launch_index]
+	if launch_index < _launch_cost_labels.size():
+		var cost_label := _launch_cost_labels[launch_index]
+		if cost_label != null:
+			cost_label.text = _format_launch_cost(launch)
+	if launch_index < _launch_apogee_labels.size():
+		var apo_label := _launch_apogee_labels[launch_index]
+		if apo_label != null:
+			apo_label.text = "Apogee  %d km" % int(round(launch.apogee_altitude_km()))
+
+
+# Build the launch's cost summary line: "Δv 850 m/s · 145 kg". Costs
+# are zero for an unassigned launch (the unit's wet mass is unknown
+# until a unit is picked); we still surface the Δv so the operator
+# can see the orbit's setup cost before assigning. Returns the
+# pre-formatted string so both the row builder and the live updater
+# share one source of truth for the layout.
+func _format_launch_cost(launch: Launch) -> String:
+	var dv_ms: float = launch.setup_dv_ms()
+	var prop_kg: float = 0.0
+	if launch.has_unit():
+		var unit: UnitConfig = PlayerLoadout.unit_for_id(launch.unit_id)
+		if unit != null:
+			var wet_mass: float = (
+				Satellite.DEFAULT_DRY_MASS_KG + unit.total_propellant_capacity_kg()
+			)
+			prop_kg = launch.propellant_cost_kg(wet_mass)
+	if launch.has_unit():
+		return "Δv %d m/s  ·  %d kg" % [
+			int(round(dv_ms)), int(round(prop_kg)),
+		]
+	return "Δv %d m/s  ·  — kg" % int(round(dv_ms))
+
+
+# Build the propellant-budget panel that lives below the "+ Add Launch"
+# button: a labelled progress bar that drains as the cumulative draw
+# climbs and turns red the moment the configured launches exceed the
+# pre-game capacity. The widgets are stashed on the menu so
+# _refresh_launch_budget can mutate them in place — slider drags would
+# otherwise rebuild the whole panel and yank focus.
+func _build_launch_budget_panel() -> Control:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _flat_stylebox(COLOR_PANEL_DIM))
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 8)
+	pad.add_theme_constant_override("margin_bottom", 10)
+	panel.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	pad.add_child(col)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 8)
+	col.add_child(header)
+
+	var title := Label.new()
+	title.text = "Launch Budget"
+	title.add_theme_color_override("font_color", COLOR_ACCENT)
+	title.add_theme_font_size_override("font_size", 12)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+
+	_budget_label = Label.new()
+	_budget_label.add_theme_font_size_override("font_size", 11)
+	_budget_label.add_theme_color_override("font_color", COLOR_FG)
+	header.add_child(_budget_label)
+
+	# Bar: fixed 8 px tall strip with a dark background and a fill rect
+	# whose anchor_right tracks the used/total ratio. ColorRect-on-
+	# ColorRect is cheaper than a StyleBox for this — no per-resize
+	# allocations during slider drags.
+	var bar_bg := ColorRect.new()
+	bar_bg.color = COLOR_PANEL
+	bar_bg.custom_minimum_size = Vector2(0, 8)
+	bar_bg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(bar_bg)
+
+	_budget_bar_fill = ColorRect.new()
+	_budget_bar_fill.anchor_left = 0.0
+	_budget_bar_fill.anchor_right = 0.0
+	_budget_bar_fill.anchor_top = 0.0
+	_budget_bar_fill.anchor_bottom = 1.0
+	_budget_bar_fill.color = COLOR_OK
+	bar_bg.add_child(_budget_bar_fill)
+
+	return panel
+
+
+# Refresh the budget panel from PlayerLoadout's running totals. Called
+# after every slider / picker / add / remove that affects a launch's
+# cost. Cheap (one fold over assigned launches) and the panel widgets
+# are reused so this never reallocates.
+func _refresh_launch_budget() -> void:
+	if _budget_label == null or _budget_bar_fill == null:
+		return
+	var used: float = PlayerLoadout.total_launch_propellant_used_kg()
+	var total: float = PlayerLoadout.LAUNCH_PROPELLANT_BUDGET_KG
+	_budget_label.text = "%d / %d kg" % [int(round(used)), int(round(total))]
+	# Bar fills proportionally up to 1.0; over-budget pegs the fill at
+	# the right edge and flips the bar (and label) red so the operator
+	# sees the cause of a disabled LAUNCH button at a glance.
+	var frac: float = clampf(used / total, 0.0, 1.0) if total > 0.0 else 0.0
+	_budget_bar_fill.anchor_right = frac
+	if used > total:
+		_budget_bar_fill.color = COLOR_WARN
+		_budget_label.add_theme_color_override("font_color", COLOR_WARN)
+	else:
+		_budget_bar_fill.color = COLOR_OK
+		_budget_label.add_theme_color_override("font_color", COLOR_FG)
 
 
 func _on_add_launch_pressed() -> void:
@@ -942,25 +1103,62 @@ func _build_launch_row(index: int) -> Control:
 	remove_btn.pressed.connect(_on_remove_launch_pressed.bind(index))
 	head.add_child(remove_btn)
 
+	# Sub-header line with this launch's setup Δv and propellant draw.
+	# Stashed in _launch_cost_labels so slider drags can update just
+	# this one label rather than rebuilding the row.
+	var cost_label := Label.new()
+	cost_label.text = _format_launch_cost(launch)
+	cost_label.add_theme_color_override("font_color", COLOR_FG_DIM)
+	cost_label.add_theme_font_size_override("font_size", 11)
+	col.add_child(cost_label)
+	_launch_cost_labels.append(cost_label)
+
 	col.add_child(_orbit_slider_row(
-		"Altitude (km)", launch.altitude_km,
+		"Perigee (km)", launch.altitude_km,
 		Launch.ALT_MIN_KM, Launch.ALT_MAX_KM, 10.0,
-		index, "altitude_km",
+		index, "altitude_km", 0,
 	))
+	# Eccentricity uses a fractional step so the operator can dial in
+	# small e values; readout shows two decimals.
+	col.add_child(_orbit_slider_row(
+		"Eccentricity", launch.eccentricity,
+		Launch.ECC_MIN, Launch.ECC_MAX, 0.01,
+		index, "eccentricity", 2,
+	))
+	# Apogee is derived (perigee × (1+e)/(1-e)), not edited directly.
+	# The label updates from _refresh_launch_row_readouts on every
+	# perigee / eccentricity slider drag.
+	var apogee_row := HBoxContainer.new()
+	apogee_row.add_theme_constant_override("separation", 8)
+	var apogee_lbl := Label.new()
+	apogee_lbl.text = "Apogee"
+	apogee_lbl.custom_minimum_size = Vector2(140, 0)
+	apogee_lbl.add_theme_color_override("font_color", COLOR_FG_DIM)
+	apogee_lbl.add_theme_font_size_override("font_size", 11)
+	apogee_row.add_child(apogee_lbl)
+	var apogee_value := Label.new()
+	apogee_value.text = "%d km" % int(round(launch.apogee_altitude_km()))
+	apogee_value.add_theme_color_override("font_color", COLOR_FG)
+	apogee_value.add_theme_font_size_override("font_size", 11)
+	apogee_value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	apogee_row.add_child(apogee_value)
+	col.add_child(apogee_row)
+	_launch_apogee_labels.append(apogee_value)
+
 	col.add_child(_orbit_slider_row(
 		"Inclination (°)", launch.inclination_deg,
 		Launch.INC_MIN_DEG, Launch.INC_MAX_DEG, 1.0,
-		index, "inclination_deg",
+		index, "inclination_deg", 0,
 	))
 	col.add_child(_orbit_slider_row(
 		"RAAN (°)", launch.raan_deg,
 		Launch.RAAN_MIN_DEG, Launch.RAAN_MAX_DEG, 1.0,
-		index, "raan_deg",
+		index, "raan_deg", 0,
 	))
 	col.add_child(_orbit_slider_row(
 		"True Anomaly (°)", launch.true_anomaly_deg,
 		Launch.NU_MIN_DEG, Launch.NU_MAX_DEG, 1.0,
-		index, "true_anomaly_deg",
+		index, "true_anomaly_deg", 0,
 	))
 	return row
 
@@ -986,6 +1184,7 @@ func _orbit_slider_row(
 	step: float,
 	launch_index: int,
 	field: String,
+	decimals: int,
 ) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -1007,7 +1206,10 @@ func _orbit_slider_row(
 	row.add_child(slider)
 
 	var readout := Label.new()
-	readout.text = "%.0f" % value
+	# Format string is built from `decimals` so eccentricity (2 dp) and
+	# the angle / altitude sliders (0 dp) share the same row builder.
+	var fmt: String = "%%.%df" % decimals
+	readout.text = fmt % value
 	readout.custom_minimum_size = Vector2(60, 0)
 	readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	readout.add_theme_color_override("font_color", COLOR_FG)
@@ -1016,21 +1218,34 @@ func _orbit_slider_row(
 
 	slider.value_changed.connect(
 		func(new_value: float) -> void:
-			_on_orbit_field_changed(launch_index, field, new_value, readout)
+			_on_orbit_field_changed(launch_index, field, new_value, readout, fmt)
 	)
 	return row
 
 
 func _on_orbit_field_changed(
-	launch_index: int, field: String, new_value: float, readout: Label
+	launch_index: int,
+	field: String,
+	new_value: float,
+	readout: Label,
+	fmt: String,
 ) -> void:
 	if launch_index < 0 or launch_index >= PlayerLoadout.launches.size():
 		return
 	var launch: Launch = PlayerLoadout.launches[launch_index]
 	launch.set(field, new_value)
-	readout.text = "%.0f" % new_value
+	readout.text = fmt % new_value
 	if _orbit_preview != null:
 		_orbit_preview.refresh()
+	# Updating perigee, eccentricity, or inclination changes the
+	# launch's setup Δv (and therefore its propellant draw); refresh
+	# the per-row readouts and the global budget panel so the operator
+	# sees the consequence of the drag in real time. RAAN / true
+	# anomaly don't affect cost but the cheap refresh is harmless.
+	_refresh_launch_row_readouts(launch_index)
+	_refresh_launch_budget()
+	# Re-evaluate the LAUNCH gate — going over budget disables it.
+	_refresh_stage_brief()
 
 
 # ---------------------------------------------------------------- Surface Ops

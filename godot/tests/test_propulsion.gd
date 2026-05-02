@@ -81,20 +81,24 @@ func test_hohmann_symmetric() -> void:
 
 
 func test_baseline_equatorial_leo_launch_is_free() -> void:
-	# A launch at exactly the baseline orbit costs zero — equatorial
-	# LEO is the "free" reference state for the launch budget.
+	# A launch at exactly the baseline orbit (perigee = baseline,
+	# circular, equatorial) costs zero — that's the "free" reference
+	# state for the launch budget.
 	assert_close(
-		Propulsion.launch_setup_dv_ms(Propulsion.BASELINE_LEO_ALT_KM, 0.0),
+		Propulsion.launch_setup_dv_ms(
+			Propulsion.BASELINE_LEO_ALT_KM, 0.0, 0.0
+		),
 		0.0,
 	)
 
 
 func test_polar_leo_costs_only_inclination() -> void:
-	# Polar at the baseline altitude pays only the plane-change
-	# component (Hohmann to the same radius is zero). Cross-checks
-	# that launch_setup_dv_ms decomposes correctly.
+	# Polar at the baseline altitude with zero eccentricity pays only
+	# the plane-change component (Hohmann to the same radius is zero,
+	# apogee-raise at e=0 is zero). Cross-checks that
+	# launch_setup_dv_ms decomposes correctly.
 	var pure_inc := Propulsion.launch_setup_dv_ms(
-		Propulsion.BASELINE_LEO_ALT_KM, deg_to_rad(90.0)
+		Propulsion.BASELINE_LEO_ALT_KM, 0.0, deg_to_rad(90.0)
 	)
 	var v_base := Propulsion.circular_speed_kms(
 		EarthOrbit.EARTH_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
@@ -105,13 +109,59 @@ func test_polar_leo_costs_only_inclination() -> void:
 	assert_close(pure_inc, expected)
 
 
+func test_eccentric_orbit_costs_extra_apogee_burn() -> void:
+	# Equatorial perigee=baseline, eccentricity 0.3 ⇒ pays only the
+	# apogee-raise burn at perigee (Hohmann to same r_p is zero, plane
+	# change is zero). The cost should equal the analytic
+	# v_perigee_ellipse - v_circ_at_baseline.
+	var dv := Propulsion.launch_setup_dv_ms(
+		Propulsion.BASELINE_LEO_ALT_KM, 0.3, 0.0
+	)
+	var r_p := EarthOrbit.EARTH_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
+	var a := r_p / (1.0 - 0.3)
+	var v_circ := sqrt(EarthOrbit.MU / r_p) * 1000.0
+	var v_peri := sqrt(EarthOrbit.MU * (2.0 / r_p - 1.0 / a)) * 1000.0
+	assert_close(dv, v_peri - v_circ, 1.0e-3)
+
+
+func test_eccentricity_monotonically_increases_cost() -> void:
+	# More eccentric orbit should always cost more. Sample a few
+	# values; pin the monotonic relationship rather than specific
+	# numbers (less brittle to constant tweaks). Typed Array[float]
+	# so the loop variable resolves cleanly under strict warnings.
+	var prev := -1.0
+	var values: Array[float] = [0.0, 0.1, 0.3, 0.5, 0.7]
+	for e in values:
+		var dv := Propulsion.launch_setup_dv_ms(
+			Propulsion.BASELINE_LEO_ALT_KM, e, 0.0
+		)
+		assert_true(dv >= prev, "ecc=%f: %f < prev %f" % [e, dv, prev])
+		prev = dv
+
+
+func test_zero_eccentricity_matches_circular_baseline() -> void:
+	# Cost at e=0 must equal the pure-Hohmann + plane-change number,
+	# i.e. the apogee-raise contribution must drop out cleanly.
+	var alt := 2000.0
+	var inc := deg_to_rad(20.0)
+	var dv_e0 := Propulsion.launch_setup_dv_ms(alt, 0.0, inc)
+	var r_b := EarthOrbit.EARTH_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
+	var r_t := EarthOrbit.EARTH_RADIUS_KM + alt
+	var v_b := Propulsion.circular_speed_kms(r_b)
+	var expected := (
+		Propulsion.inclination_change_dv_ms(inc, v_b)
+		+ Propulsion.hohmann_dv_ms(r_b, r_t)
+	)
+	assert_close(dv_e0, expected, 1.0e-6)
+
+
 func test_launch_propellant_scales_with_unit_mass() -> void:
 	# Same orbit, two stages of different wet mass: heavier stage
 	# debits more propellant. Specifically the rocket equation is
 	# linear in wet mass, so doubling the stage doubles the cost
 	# (within rounding).
 	var setup_dv := Propulsion.launch_setup_dv_ms(
-		Propulsion.BASELINE_LEO_ALT_KM, deg_to_rad(30.0)
+		Propulsion.BASELINE_LEO_ALT_KM, 0.0, deg_to_rad(30.0)
 	)
 	var light := Propulsion.propellant_for_dv_kg(
 		setup_dv, 1000.0, Propulsion.REF_LAUNCH_ISP_S
@@ -193,10 +243,11 @@ func test_launch_setup_dv_helpers() -> void:
 	var l := Launch.new()
 	l.altitude_km = 1000.0
 	l.inclination_deg = 30.0
+	l.eccentricity = 0.2
 	var dv := l.setup_dv_ms()
 	assert_close(
 		dv,
-		Propulsion.launch_setup_dv_ms(1000.0, deg_to_rad(30.0)),
+		Propulsion.launch_setup_dv_ms(1000.0, 0.2, deg_to_rad(30.0)),
 	)
 	var cost := l.propellant_cost_kg(1500.0)
 	assert_close(
@@ -205,3 +256,51 @@ func test_launch_setup_dv_helpers() -> void:
 			dv, 1500.0, Propulsion.REF_LAUNCH_ISP_S
 		),
 	)
+
+
+func test_launch_apogee_altitude_tracks_eccentricity() -> void:
+	# r_a = r_p · (1+e)/(1-e). For perigee=500 km altitude and e=0.5,
+	# apogee should be (R+500)·1.5/0.5 - R ≈ 21115 km. Lock the
+	# formula, not the specific number; it's worth catching either
+	# direction of typo.
+	var l := Launch.new()
+	l.altitude_km = 500.0
+	l.eccentricity = 0.5
+	var r_p := EarthOrbit.EARTH_RADIUS_KM + 500.0
+	var expected := r_p * 1.5 / 0.5 - EarthOrbit.EARTH_RADIUS_KM
+	assert_close(l.apogee_altitude_km(), expected, 1.0e-6)
+	# At e=0, apogee equals perigee.
+	l.eccentricity = 0.0
+	assert_close(l.apogee_altitude_km(), 500.0, 1.0e-6)
+
+
+func test_make_elliptical_at_zero_ecc_matches_make_circular() -> void:
+	# The new factory must be a strict generalisation of the existing
+	# circular one — passing ecc=0, argp=0 has to land identical state
+	# vectors so the SpawnDirector's switch from make_circular to
+	# make_elliptical doesn't perturb existing pre-eccentricity saves.
+	var alt := 800.0
+	var inc := deg_to_rad(45.0)
+	var raan := deg_to_rad(20.0)
+	var nu := deg_to_rad(60.0)
+	var circ := EarthOrbit.make_circular(alt, inc, raan, nu)
+	var ellip := EarthOrbit.make_elliptical(alt, 0.0, inc, raan, 0.0, nu)
+	assert_vec_close(ellip.r, circ.r, 1.0e-6)
+	assert_vec_close(ellip.v, circ.v, 1.0e-9)
+
+
+func test_make_elliptical_perigee_at_nu_zero() -> void:
+	# At true anomaly 0 the body sits at perigee — orbit's r_p should
+	# equal the input perigee radius, and r_a should match
+	# r_p · (1+e)/(1-e). Sanity-checks the conic algebra inside
+	# make_elliptical without a full sweep.
+	var perigee_alt := 600.0
+	var e := 0.4
+	var o := EarthOrbit.make_elliptical(
+		perigee_alt, e, 0.0, 0.0, 0.0, 0.0
+	)
+	var r_p := EarthOrbit.EARTH_RADIUS_KM + perigee_alt
+	var r_a := r_p * (1.0 + e) / (1.0 - e)
+	assert_close(o.r_p, r_p, 1.0e-3)
+	assert_close(o.r_a, r_a, 1.0e-3)
+	assert_close(o.ecc, e, 1.0e-6)

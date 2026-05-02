@@ -177,10 +177,17 @@ func _spawn_from_launches(
 		if unit == null:
 			continue
 		var sat := Satellite.new()
-		sat.orbit = EarthOrbit.make_circular(
+		# Eccentricity-aware: the legacy menu only exposed circular
+		# orbits, but the Launch struct now carries `eccentricity` and
+		# `argp_deg` so the spawner builds an ellipse when the operator
+		# dials them up. Passing ecc=0 / argp=0 reproduces make_circular
+		# exactly, which is what every pre-eccentricity save resolves to.
+		sat.orbit = EarthOrbit.make_elliptical(
 			launch.altitude_km,
+			launch.eccentricity,
 			deg_to_rad(launch.inclination_deg),
 			deg_to_rad(launch.raan_deg),
+			deg_to_rad(launch.argp_deg),
 			deg_to_rad(launch.true_anomaly_deg),
 		)
 		_apply_unit_to_satellite(sat, unit)

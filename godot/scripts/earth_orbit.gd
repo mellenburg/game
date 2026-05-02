@@ -154,6 +154,58 @@ func relative_maneuver(
 	return maneuver(dv_eci, t, min_periapsis_km)
 
 
+## Build an elliptical orbit from classical elements. `perigee_alt_km`
+## is the perigee altitude above the surface (lowest point), `ecc` the
+## eccentricity (0 ⇒ circular, < 1 for a bound orbit). `inc`, `raan`,
+## `argp`, `nu` are inclination, right ascension of the ascending
+## node, argument of perigee, and true anomaly — all in radians.
+## Cross-checked against make_circular by passing ecc=0, argp=0:
+## degenerates to the same state vector.
+static func make_elliptical(
+	perigee_alt_km: float,
+	ecc: float,
+	inc: float,
+	raan: float,
+	argp: float,
+	nu: float,
+) -> EarthOrbit:
+	# Clamp eccentricity strictly below 1 — a parabolic / hyperbolic
+	# orbit is unbound and outside the menu's "place a unit in a
+	# starting orbit" contract. The menu's slider gate enforces the
+	# cap too; this is the pure-math safety net.
+	var e: float = clampf(ecc, 0.0, 0.999)
+	var r_p: float = EARTH_RADIUS_KM + perigee_alt_km
+	var a: float = r_p / (1.0 - e)
+	var p: float = a * (1.0 - e * e)
+	# r at the requested true anomaly via the conic identity.
+	var r_at: float = p / (1.0 + e * cos(nu))
+	var v_circ: float = sqrt(MU / p)
+	# Perifocal frame (perigee along +x_pqw, semi-latus along +y_pqw):
+	#   r_pqw = (r_at·cos ν, r_at·sin ν, 0)
+	#   v_pqw = sqrt(μ/p) · (-sin ν, e + cos ν, 0)
+	var pos_pqw := Vector3(r_at * cos(nu), r_at * sin(nu), 0.0)
+	var vel_pqw := Vector3(-v_circ * sin(nu), v_circ * (e + cos(nu)), 0.0)
+	# 3-1-3 rotation into ECI: R3(raan) · R1(inc) · R3(argp). Carried
+	# out as two basis vectors rather than constructing a Basis so we
+	# preserve the float64 mantissa on the multiplications.
+	var co := cos(raan); var so := sin(raan)
+	var ci := cos(inc); var si := sin(inc)
+	var cw := cos(argp); var sw := sin(argp)
+	var pqw_x := Vector3(
+		co * cw - so * sw * ci,
+		so * cw + co * sw * ci,
+		sw * si,
+	)
+	var pqw_y := Vector3(
+		-co * sw - so * cw * ci,
+		-so * sw + co * cw * ci,
+		cw * si,
+	)
+	var pos := pqw_x * pos_pqw.x + pqw_y * pos_pqw.y
+	var vel := pqw_x * vel_pqw.x + pqw_y * vel_pqw.y
+	return EarthOrbit.new(pos, vel)
+
+
 ## Build a circular orbit at altitude `alt_km` above the surface with
 ## the given inclination, RAAN, and true anomaly (all in radians).
 ## Argument of periapsis is degenerate for a circle, so true anomaly is
