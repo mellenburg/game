@@ -276,17 +276,21 @@ func test_launch_apogee_altitude_tracks_eccentricity() -> void:
 
 func test_make_elliptical_at_zero_ecc_matches_make_circular() -> void:
 	# The new factory must be a strict generalisation of the existing
-	# circular one — passing ecc=0, argp=0 has to land identical state
-	# vectors so the SpawnDirector's switch from make_circular to
-	# make_elliptical doesn't perturb existing pre-eccentricity saves.
+	# circular one — passing ecc=0, argp=0 has to land the same orbit
+	# (within float roundoff from the different operation order) so
+	# the SpawnDirector's switch from make_circular to make_elliptical
+	# doesn't perturb existing pre-eccentricity saves. Tolerance
+	# loose enough to absorb the ordering-of-operations differences in
+	# the rotation pipeline; tight enough that any actual algebraic
+	# bug fails loud.
 	var alt := 800.0
 	var inc := deg_to_rad(45.0)
 	var raan := deg_to_rad(20.0)
 	var nu := deg_to_rad(60.0)
 	var circ := EarthOrbit.make_circular(alt, inc, raan, nu)
 	var ellip := EarthOrbit.make_elliptical(alt, 0.0, inc, raan, 0.0, nu)
-	assert_vec_close(ellip.r, circ.r, 1.0e-6)
-	assert_vec_close(ellip.v, circ.v, 1.0e-9)
+	assert_vec_close(ellip.r, circ.r, 1.0e-3)
+	assert_vec_close(ellip.v, circ.v, 1.0e-6)
 
 
 func test_make_elliptical_perigee_at_nu_zero() -> void:
@@ -294,6 +298,12 @@ func test_make_elliptical_perigee_at_nu_zero() -> void:
 	# equal the input perigee radius, and r_a should match
 	# r_p · (1+e)/(1-e). Sanity-checks the conic algebra inside
 	# make_elliptical without a full sweep.
+	#
+	# Tolerance is metres-scale, not the 1e-6 km the pure-math helpers
+	# get: EarthOrbit stores state in Vector3 whose components are
+	# 32-bit even though GDScript `float` is 64-bit, so r_a at ~16000
+	# km loses ≈2 mm to float32 quantisation through _recompute_elements.
+	# Same calibration as test_earth_orbit's classical-element tests.
 	var perigee_alt := 600.0
 	var e := 0.4
 	var o := EarthOrbit.make_elliptical(
@@ -301,6 +311,6 @@ func test_make_elliptical_perigee_at_nu_zero() -> void:
 	)
 	var r_p := EarthOrbit.EARTH_RADIUS_KM + perigee_alt
 	var r_a := r_p * (1.0 + e) / (1.0 - e)
-	assert_close(o.r_p, r_p, 1.0e-3)
-	assert_close(o.r_a, r_a, 1.0e-3)
+	assert_close(o.r_p, r_p, 1.0e-2)
+	assert_close(o.r_a, r_a, 1.0e-2)
 	assert_close(o.ecc, e, 1.0e-6)
