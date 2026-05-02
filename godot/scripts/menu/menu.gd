@@ -17,7 +17,9 @@ extends Control
 ## for every row.
 
 const UnitConfig = preload("res://scripts/unit_config.gd")
+const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const OrbitPreview = preload("res://scripts/menu/orbit_preview.gd")
+const SurfacePlacementMap = preload("res://scripts/menu/surface_placement_map.gd")
 
 const STAGE_SCENE_PATH := "res://scenes/main.tscn"
 
@@ -45,6 +47,9 @@ var _launch_button: Button
 var _hangar_root: VBoxContainer
 var _orbital_root: VBoxContainer
 var _orbit_preview: OrbitPreview
+var _surface_root: VBoxContainer
+var _surface_placement: SurfacePlacementMap
+var _surface_count_label: Label
 
 
 func _ready() -> void:
@@ -95,6 +100,10 @@ func _build_chrome() -> void:
 	var orbital := _build_orbital_ops_tab()
 	orbital.name = "Orbital Ops"
 	_tabs.add_child(orbital)
+
+	var surface := _build_surface_ops_tab()
+	surface.name = "Surface Ops"
+	_tabs.add_child(surface)
 
 	var research := _build_research_tab()
 	research.name = "Research"
@@ -600,6 +609,154 @@ func _on_orbit_field_changed(
 	readout.text = "%.0f" % new_value
 	if _orbit_preview != null:
 		_orbit_preview.refresh()
+
+
+# ---------------------------------------------------------------- Surface Ops
+
+# Tab layout: left column shows the list of placed surface units (with
+# a remove button per row), centre column is a click-to-place world
+# map, right column carries notes. The placement map's `placed` signal
+# is wired straight to PlayerLoadout.add_surface_unit so the menu
+# state stays the single source of truth — clicking the map mutates
+# PlayerLoadout.surface_units, which is what the spawner reads on
+# Launch.
+func _build_surface_ops_tab() -> Control:
+	var hbox := _padded_hbox()
+	var pad: Control = hbox.get_parent() as Control
+
+	# Left column: placed-unit list.
+	var left := _section("Placed Installations", 320)
+	hbox.add_child(left[0])
+
+	_surface_count_label = Label.new()
+	_surface_count_label.add_theme_color_override("font_color", COLOR_FG_DIM)
+	_surface_count_label.add_theme_font_size_override("font_size", 11)
+	left[1].add_child(_surface_count_label)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left[1].add_child(scroll)
+
+	_surface_root = VBoxContainer.new()
+	_surface_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_surface_root.add_theme_constant_override("separation", 6)
+	scroll.add_child(_surface_root)
+
+	# Centre column: click-to-place equirectangular world map.
+	var center := _section("Surface Map · Click to Place", 0)
+	hbox.add_child(center[0])
+	_surface_placement = SurfacePlacementMap.new()
+	_surface_placement.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_surface_placement.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_surface_placement.placed.connect(_on_surface_placed)
+	center[1].add_child(_surface_placement)
+
+	# Right column: explanatory notes.
+	var right := _section("Surface Ops Notes", SIDE_PANEL_WIDTH)
+	hbox.add_child(right[0])
+	var notes := Label.new()
+	notes.text = (
+		"Click the world map to drop a fixed surface installation at\n"
+		+ "that lat / lon. Each unit defends the ground around it with\n"
+		+ "a laser turret, draws from its own energy reservoir, and\n"
+		+ "rotates with Earth's daily spin.\n\n"
+		+ "• Place as many as you like — there's no fleet cap here.\n"
+		+ "• Surface installations don't accept thrust input; they just\n"
+		+ "  fire when a hostile body crosses their engagement envelope.\n"
+		+ "• Their positions are reflected on the in-game minimap as\n"
+		+ "  green squares so you can correlate fire with ground cover.\n\n"
+		+ "Use the Remove button on a row to drop an installation before\n"
+		+ "Launch — once the stage is running the placement is locked in."
+	)
+	notes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	notes.add_theme_color_override("font_color", COLOR_FG_DIM)
+	notes.add_theme_font_size_override("font_size", 12)
+	right[1].add_child(notes)
+
+	_refresh_surface_list()
+	return pad
+
+
+func _on_surface_placed(lat_deg: float, lon_deg: float) -> void:
+	PlayerLoadout.add_surface_unit(lat_deg, lon_deg)
+	_refresh_surface_list()
+	if _surface_placement != null:
+		_surface_placement.refresh()
+
+
+# Rebuild the per-unit row list from PlayerLoadout.surface_units.
+# Cheap brute-force replace — surface unit count is small (single
+# digits in expected play) so reusing rows isn't worth the bookkeeping
+# the orbital roster pays for.
+func _refresh_surface_list() -> void:
+	if _surface_root == null:
+		return
+	for child in _surface_root.get_children():
+		_surface_root.remove_child(child)
+		child.queue_free()
+	var configs: Array[SurfaceUnitConfig] = PlayerLoadout.surface_units
+	if _surface_count_label != null:
+		_surface_count_label.text = (
+			"%d installation(s) placed" % configs.size()
+		)
+	for i in range(configs.size()):
+		_surface_root.add_child(_build_surface_row(i, configs[i]))
+
+
+func _build_surface_row(index: int, cfg: SurfaceUnitConfig) -> Control:
+	var row := PanelContainer.new()
+	row.add_theme_stylebox_override("panel", _flat_stylebox(COLOR_PANEL_DIM))
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 10)
+	pad.add_theme_constant_override("margin_right", 10)
+	pad.add_theme_constant_override("margin_top", 8)
+	pad.add_theme_constant_override("margin_bottom", 8)
+	row.add_child(pad)
+
+	var inner := HBoxContainer.new()
+	inner.add_theme_constant_override("separation", 8)
+	pad.add_child(inner)
+
+	var name_label := Label.new()
+	name_label.text = cfg.name
+	name_label.custom_minimum_size = Vector2(50, 0)
+	name_label.add_theme_color_override("font_color", COLOR_ACCENT)
+	name_label.add_theme_font_size_override("font_size", 13)
+	inner.add_child(name_label)
+
+	var coords := Label.new()
+	coords.text = "%s  %s" % [_format_lat(cfg.lat_deg), _format_lon(cfg.lon_deg)]
+	coords.add_theme_color_override("font_color", COLOR_FG_DIM)
+	coords.add_theme_font_size_override("font_size", 11)
+	coords.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inner.add_child(coords)
+
+	var remove := Button.new()
+	remove.text = "Remove"
+	remove.add_theme_font_size_override("font_size", 11)
+	remove.custom_minimum_size = Vector2(72, 0)
+	remove.pressed.connect(_on_surface_remove_pressed.bind(index))
+	inner.add_child(remove)
+
+	return row
+
+
+func _on_surface_remove_pressed(index: int) -> void:
+	PlayerLoadout.remove_surface_unit(index)
+	_refresh_surface_list()
+	if _surface_placement != null:
+		_surface_placement.refresh()
+
+
+static func _format_lat(lat: float) -> String:
+	var hemi := "N" if lat >= 0.0 else "S"
+	return "%.1f° %s" % [absf(lat), hemi]
+
+
+static func _format_lon(lon: float) -> String:
+	var hemi := "E" if lon >= 0.0 else "W"
+	return "%.1f° %s" % [absf(lon), hemi]
 
 
 # ---------------------------------------------------------------- Research

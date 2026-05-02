@@ -10,6 +10,7 @@ const OrbitalPath = preload("res://scripts/orbital_path.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const SurfacePosition = preload("res://scripts/surface_position.gd")
 
 const TEAM_PLAYER: int = 0
 const TEAM_ENEMY: int = 1
@@ -24,6 +25,24 @@ const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_METEORITE := Color(1.0, 0.85, 0.4)
 const COLOR_DECAYING := Color(0.95, 0.45, 0.95)
 const COLOR_HIT := Color(1.0, 0.25, 0.05)
+# Surface installations: yellow-green tint, distinct from the orbital
+# blue + selected green so a glance at the 3D view (or the in-game HUD
+# roster) tells the player which units are anchored to the ground.
+const COLOR_SURFACE := Color(0.85, 1.0, 0.30)
+# Antenna offset above the Earth radius, in km. A few-km cushion keeps
+# the LOS check (which fails closed when start.length²==EARTH_RADIUS²
+# due to a degenerate quadratic) from refusing every shot a surface
+# unit could legitimately make. Same scale as SAFE_PERIAPSIS_KM's 1 km
+# margin — small enough to read as "on the ground", large enough that
+# the LOS-vs-sphere math has clear room to work in.
+const SURFACE_UNIT_ALTITUDE_KM: float = 5.0
+# Finite-difference epsilon (in earth_phase radians) for surface-unit
+# velocity sampling. 1e-4 rad ≈ 1.4 s of sidereal rotation — small
+# enough that the difference is a faithful tangent, large enough that
+# 32-bit Vector3 component precision in (pos_next - pos) doesn't
+# collapse the result to zero.
+const SURFACE_PHASE_EPS: float = 1.0e-4
+const SURFACE_SIDEREAL_DAY_SEC: float = 86164.0
 
 const MAX_HP: float = 100.0
 # Default unit mass (kg). Distinct from hit points — used by the
@@ -80,6 +99,16 @@ var is_meteorite: bool = false
 # render dispatch (full ellipse while r_p ≥ R, truncated trajectory
 # once r_p dips below the surface).
 var is_decaying: bool = false
+# Surface installation: anchored to a point on Earth's surface, rotating
+# with the planet's daily phase rather than following Keplerian motion.
+# EarthSystem detects the flag in _physics_process and skips advance_time
+# in favour of update_surface_position(earth_phase) — orbit.r is
+# rewritten each tick from (lat, lon) so combat / LOS / range queries
+# (which all read attacker.orbit.r) keep working without any additional
+# special-casing in the weapon strategies.
+var is_surface: bool = false
+var surface_lat_deg: float = 0.0
+var surface_lon_deg: float = 0.0
 # Shared energy reservoir, drained by every weapon's fire(). Charges
 # at ENERGY_RATE_PER_SIM_SEC per simulated second so time_factor
 # scales it the same as everything else.
@@ -421,8 +450,12 @@ func render_orbit(show_path: bool) -> void:
 	if not orbit_alive or not alive:
 		path_visual.visible = false
 		return
-	path_visual.visible = show_path
-	if not show_path:
+	# Surface installations don't follow a Keplerian arc — they ride
+	# Earth's daily rotation. Drawing an "orbit" here would be both
+	# meaningless and (because orbit.v is just the surface tangential
+	# speed) numerically ill-conditioned, so we hide the path entirely.
+	if is_surface:
+		path_visual.visible = false
 		return
 	path_visual.color = COLOR_SELECTED if selected else _base_color()
 	# Meteorites get the truncated-trajectory renderer: the same line
@@ -493,6 +526,9 @@ func clone_orbit_from(other: Satellite) -> void:
 	alive = other.alive
 	is_meteorite = other.is_meteorite
 	is_decaying = other.is_decaying
+	is_surface = other.is_surface
+	surface_lat_deg = other.surface_lat_deg
+	surface_lon_deg = other.surface_lon_deg
 	# Mirror armed-vs-unarmed so the planning HUD doesn't show an
 	# energy bar for an enemy preview (clones get fresh weapons in
 	# _init that we'd otherwise leave dangling).
@@ -526,7 +562,40 @@ func _base_color() -> Color:
 		return COLOR_METEORITE
 	if is_decaying:
 		return COLOR_DECAYING
+	if is_surface:
+		return COLOR_SURFACE
 	return COLOR_ENEMY if team == TEAM_ENEMY else COLOR_PLAYER
+
+
+## Recompute orbit.r for a surface installation at the given Earth
+## phase. Called from EarthSystem._physics_process for every is_surface
+## sat in lieu of advance_time — the body never propagates, it just
+## rides the planet's daily rotation. orbit.v is set to the local
+## tangential velocity so any code path that reads it (currently the
+## railgun's safety check, which we still expect to refuse fire) sees
+## a kinematically consistent state rather than a static-snapshot zero.
+func update_surface_position(earth_phase: float) -> void:
+	if not is_surface:
+		return
+	var radius := EarthOrbit.EARTH_RADIUS_KM + SURFACE_UNIT_ALTITUDE_KM
+	var pos := SurfacePosition.latlon_to_eci(
+		surface_lat_deg, surface_lon_deg, earth_phase, radius
+	)
+	# Sample velocity by finite-difference across a small phase delta —
+	# avoids re-deriving the analytical tangent in the AXIAL_TILT * daily
+	# * POLE_ALIGN frame. dt = phase / (TAU / sidereal_day).
+	var pos_next := SurfacePosition.latlon_to_eci(
+		surface_lat_deg, surface_lon_deg,
+		earth_phase + SURFACE_PHASE_EPS, radius,
+	)
+	var dt: float = SURFACE_PHASE_EPS * SURFACE_SIDEREAL_DAY_SEC / TAU
+	orbit.r = pos
+	orbit.v = (pos_next - pos) / dt
+	orbit.norm_r = pos.length()
+	orbit.norm_v = orbit.v.length()
+	if not is_inside_tree():
+		return
+	_sync_marker_position()
 
 
 func _apply_color() -> void:

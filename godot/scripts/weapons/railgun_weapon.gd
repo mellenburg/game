@@ -64,6 +64,13 @@ func can_fire(attacker) -> bool:
 		return false
 	if not attacker.railgun_enabled:
 		return false
+	# Surface installations are mechanically anchored to Earth — applying
+	# a recoil Δv to a static structure has no clean physical analogue,
+	# and fire() would mutate orbit.v in a state the next physics tick
+	# overwrites from update_surface_position anyway. Refuse outright so
+	# the shot never leaves the barrel.
+	if attacker.is_surface:
+		return false
 	# Single-shot: must be fully cool. Locked out for the entire window
 	# so partial cools don't drip fractional shots.
 	if ready_fraction < 1.0:

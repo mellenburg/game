@@ -13,8 +13,8 @@ const EARTH_RADIUS_KM: float = EarthOrbit.EARTH_RADIUS_KM
 
 # Minimal stand-in for Satellite — exposes only the fields the railgun
 # reads (orbit, team, alive, orbit_alive, energy, hp, mass,
-# max_orbital_radius_km, railgun_enabled). RefCounted so we don't leak
-# across tests.
+# max_orbital_radius_km, railgun_enabled, is_surface). RefCounted so
+# we don't leak across tests.
 class FakeSat extends RefCounted:
 	var orbit: EarthOrbit
 	var team: int = 0
@@ -25,6 +25,9 @@ class FakeSat extends RefCounted:
 	var mass: float = 1000.0
 	var max_orbital_radius_km: float = 50000.0
 	var railgun_enabled: bool = true
+	# Railgun.can_fire refuses surface-anchored attackers; default false
+	# matches the orbital path the existing tests exercise.
+	var is_surface: bool = false
 
 	func take_damage(amount: float) -> bool:
 		hp = maxf(hp - amount, 0.0)
@@ -86,6 +89,16 @@ func test_cannot_fire_with_low_energy() -> void:
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = RailgunWeapon.ENERGY_PER_SHOT * 0.5
+	assert_false(w.can_fire(attacker))
+
+
+func test_cannot_fire_from_surface_unit() -> void:
+	# Surface installations are mechanically anchored and can't absorb
+	# the recoil sensibly — the railgun refuses to fire from them
+	# regardless of energy / cooldown / safety geometry.
+	var w := RailgunWeapon.new()
+	var attacker := _make_player()
+	attacker.is_surface = true
 	assert_false(w.can_fire(attacker))
 
 
