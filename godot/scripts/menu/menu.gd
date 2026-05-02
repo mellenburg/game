@@ -215,12 +215,6 @@ func _build_topbar() -> PanelContainer:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(spacer)
 
-	var hint := Label.new()
-	hint.text = "Build units, schedule launches, then return to Campaign and LAUNCH."
-	hint.add_theme_color_override("font_color", COLOR_FG_DIM)
-	hint.add_theme_font_size_override("font_size", 11)
-	bar.add_child(hint)
-
 	var exit_btn := Button.new()
 	exit_btn.text = "EXIT"
 	exit_btn.add_theme_font_size_override("font_size", 12)

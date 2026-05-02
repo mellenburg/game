@@ -139,9 +139,9 @@ func _build_classes_section() -> Control:
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(row)
 
-	row.add_child(_build_class_panel("Alpha", _settings.alpha_class))
-	row.add_child(_build_class_panel("Beta", _settings.beta_class))
-	row.add_child(_build_class_panel("Gamma", _settings.gamma_class))
+	row.add_child(_build_class_panel("α", _settings.alpha_class))
+	row.add_child(_build_class_panel("β", _settings.beta_class))
+	row.add_child(_build_class_panel("γ", _settings.gamma_class))
 	return panel
 
 
@@ -163,9 +163,13 @@ func _build_class_panel(title: String, c: WaveUnitClass) -> Control:
 	pad.add_child(col)
 
 	var name_lbl := Label.new()
-	name_lbl.text = title.to_upper()
+	# Greek glyphs already read as a class identifier — capitalising
+	# them would map most fonts' Α / Β to Latin A / B and undo the
+	# disambiguation we picked them for. Slightly bumped font size
+	# instead so the single-letter title still anchors the column.
+	name_lbl.text = title
 	name_lbl.add_theme_color_override("font_color", COLOR_FG)
-	name_lbl.add_theme_font_size_override("font_size", 12)
+	name_lbl.add_theme_font_size_override("font_size", 18)
 	col.add_child(name_lbl)
 
 	col.add_child(_field_label("Object count"))
@@ -322,16 +326,6 @@ func _build_waves_section() -> Control:
 	reset_btn.pressed.connect(_on_reset_pressed)
 	header_row.add_child(reset_btn)
 
-	var note := Label.new()
-	note.text = (
-		"Edits apply to the next launch. Mid-mission changes won't reroll "
-		+ "the running schedule."
-	)
-	note.add_theme_color_override("font_color", COLOR_FG_DIM)
-	note.add_theme_font_size_override("font_size", 11)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(note)
-
 	# Waves list lives inside a scroll container so a long campaign
 	# doesn't push the per-class panels off-screen on small viewports.
 	var scroll := ScrollContainer.new()
@@ -382,11 +376,11 @@ func _build_wave_row(idx: int) -> Control:
 	idx_label.custom_minimum_size = Vector2(36, 0)
 	hbox.add_child(idx_label)
 
-	hbox.add_child(_unit_count_column("Alpha", w.alpha_units,
+	hbox.add_child(_unit_count_column("α", w.alpha_units,
 		func(v: int) -> void: w.alpha_units = v))
-	hbox.add_child(_unit_count_column("Beta", w.beta_units,
+	hbox.add_child(_unit_count_column("β", w.beta_units,
 		func(v: int) -> void: w.beta_units = v))
-	hbox.add_child(_unit_count_column("Gamma", w.gamma_units,
+	hbox.add_child(_unit_count_column("γ", w.gamma_units,
 		func(v: int) -> void: w.gamma_units = v))
 
 	hbox.add_child(_wave_range_column("Duration (s)",

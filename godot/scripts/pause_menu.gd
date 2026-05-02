@@ -181,13 +181,6 @@ func _build_settings_panel() -> PanelContainer:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(title)
 
-	var sub := Label.new()
-	sub.text = "Wave & wave-unit settings — applied to the next launch."
-	sub.add_theme_color_override("font_color", COLOR_FG_DIM)
-	sub.add_theme_font_size_override("font_size", 11)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(sub)
-
 	col.add_child(_hr())
 
 	var editor := ReconEditor.new()
