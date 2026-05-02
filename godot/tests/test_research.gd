@@ -12,11 +12,14 @@ const ResearchScript = preload("res://scripts/research.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
 
 
-# Helper: produce a fresh Research node with reset() applied. The Node
-# isn't added to a tree — Research only relies on dictionary state, so
-# bare instantiation is enough.
-func _make_research() -> Node:
-	var r: Node = ResearchScript.new()
+# Helper: produce a fresh Research instance with reset() applied. The
+# script isn't added to a tree — Research only relies on dictionary
+# state, so bare instantiation is enough. Typed via the preloaded
+# script class so member access (e.g. r.research_points) resolves
+# concretely instead of through Variant — strict warnings flag the
+# latter as an error.
+func _make_research() -> ResearchScript:
+	var r: ResearchScript = ResearchScript.new()
 	r.reset()
 	return r
 
