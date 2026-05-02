@@ -22,6 +22,19 @@ extends RefCounted
 ##                  bitangent), in km. Magnitude <= lateral_spread_km.
 ##   alt_offset   : float, altitude jitter in km, signed
 ##   vel_jitter   : Vector3, per-axis velocity jitter in km/s
+##   mass         : float, body mass in kg. Drives HP (10 kg = 1 HP),
+##                  3D marker scale (mass^(1/3)), and radar blip size
+##                  (mass^(2/3)). Defaults to Satellite.DEFAULT_MASS_KG
+##                  when populate() is called without a mass band.
+##   is_decaying  : bool, true if this spec should spawn as a decaying-
+##                  orbit body (highly eccentric, perigee burns) rather
+##                  than a sub-orbital meteorite. Decaying specs use
+##                  their own random orbital plane and ignore the wave's
+##                  shared nexus (r_hat / tangent / base_velocity); the
+##                  lateral / alt / vel jitter fields are still sampled
+##                  so the radar blip preview has a position to render.
+
+const DEFAULT_BODY_MASS_KG: float = 1000.0
 
 var pending: Array[Dictionary] = []
 var r_hat: Vector3 = Vector3.ZERO
@@ -69,7 +82,23 @@ func populate(
 				rng.randf_range(-vel_jitter, vel_jitter),
 				rng.randf_range(-vel_jitter, vel_jitter),
 			),
+			"mass": DEFAULT_BODY_MASS_KG,
+			"is_decaying": false,
 		})
+
+
+## Replace the queue with a pre-built list of specs. Used by the mixed
+## wave path (size classes + decaying-orbit subset), where SpawnDirector
+## composes the mass/decaying mix up front and just hands the wave the
+## finished list. `duration` and `lateral_spread` are stored so the
+## radar overlay can normalise blip positions without reaching back into
+## the spawn director's constants.
+func set_specs(
+	specs: Array[Dictionary], duration: float, lateral_spread: float
+) -> void:
+	pending = specs
+	duration_sec = duration
+	lateral_spread_km = lateral_spread
 
 
 ## Decrement every pending timer by `delta`; return the specs that

@@ -69,7 +69,43 @@ const METEORITE_PERIAPSIS_TARGET_KM: float = (
 const METEORITE_LATERAL_SPREAD_KM: float = 6000.0
 const METEORITE_ALT_JITTER_KM: float = 3000.0
 const METEORITE_VELOCITY_JITTER: float = 0.8
-const METEORITE_HP: float = 25.0
+
+# Mass-to-HP conversion: 10 kg = 1 HP (i.e. 0.1 HP per kg). Used to
+# derive max_hp from a body's spawned mass for both wave meteorites and
+# wave-borne decaying-orbit threats so a single dial governs both
+# difficulty (HP) and physical scale (3D marker + radar blip).
+const HP_PER_KG: float = 0.1
+
+# Size-class mass bands, in kg. The bands are non-overlapping at the
+# class boundaries (small max == medium min) so a body's class is a
+# function of where its mass was sampled, never an independent label.
+const SMALL_MASS_MIN_KG: float = 100.0
+const SMALL_MASS_MAX_KG: float = 500.0
+const MEDIUM_MASS_MIN_KG: float = 500.0
+const MEDIUM_MASS_MAX_KG: float = 1000.0
+const LARGE_MASS_MIN_KG: float = 1000.0
+const LARGE_MASS_MAX_KG: float = 10000.0
+
+const SIZE_SMALL: int = 0
+const SIZE_MEDIUM: int = 1
+const SIZE_LARGE: int = 2
+
+# Per-class count bands within a single 20-body wave. The constraint
+# that the three counts sum to METEORITE_WAVE_COUNT means the medium
+# count is bracketed by the residual after picking large; see
+# _sample_size_class_counts for the derivation.
+const WAVE_SMALL_COUNT_MIN: int = 8
+const WAVE_SMALL_COUNT_MAX: int = 16
+const WAVE_MEDIUM_COUNT_MIN: int = 2
+const WAVE_MEDIUM_COUNT_MAX: int = 5
+const WAVE_LARGE_COUNT_MIN: int = 0
+const WAVE_LARGE_COUNT_MAX: int = 3
+
+# Of the medium / large bodies in a wave, this many become decaying-
+# orbit threats (highly eccentric, perigee-burn spiral) rather than
+# sub-orbital meteorites. Small bodies are always plain meteorites.
+const WAVE_DECAYING_COUNT_MIN: int = 4
+const WAVE_DECAYING_COUNT_MAX: int = 8
 
 # Wave mode: 20 meteorites from a single shared nexus, arrival times
 # distributed uniformly across a 10-second wall-clock window so the
@@ -94,7 +130,13 @@ const DECAYING_PERIGEE_ALT_KM: float = 500.0
 # already heading inbound, so the very first observed motion is
 # "falling toward Earth" — sets the spiral-in narrative immediately.
 const DECAYING_INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
-const DECAYING_HP: float = 200.0
+# Default mass (kg) for a standalone decaying-orbit spawn — i.e. the
+# legacy single-body "add decaying enemy" entry point that the player
+# triggers outside of a wave. Sits at the medium / large boundary so
+# the body reads as a meaningful threat without overshooting into the
+# heaviest large-class band the wave path can produce. Wave-borne
+# decaying threats sample their own mass from the medium / large band.
+const DECAYING_DEFAULT_MASS_KG: float = 1000.0
 
 # Active meteorite waves. Each carries its own nexus + queue of pending
 # spawn delays; ticked from the controller's _process so the spawn
@@ -335,29 +377,141 @@ func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
 		_satellites.append(sat)
 
 
-# Begin a 10-second wave: N meteorites all sharing one random nexus,
-# their individual spawn delays drawn uniformly across the window so
-# arrivals are spread out rather than bursty. Multiple waves can overlap
-# (the player presses "i" again before the previous wave finishes) —
-# each is a separate entry in meteorite_waves with its own nexus.
+# Begin a 10-second wave: 20 meteorites all sharing one random sub-
+# orbital nexus, individual spawn delays drawn uniformly across the
+# window so arrivals are spread out rather than bursty. Each body's
+# size class (small / medium / large) and mass are sampled up front
+# per _sample_wave_specs; 4-8 of the medium / large slots are flipped
+# to decaying-orbit threats, which spawn on their own random elliptical
+# planes when their timer expires (the wave nexus only governs the
+# sub-orbital meteorite path). Multiple waves can overlap; each gets
+# its own MeteoriteWave entry.
 func start_meteorite_wave(
 	count: int = METEORITE_WAVE_COUNT,
 	duration_sec: float = METEORITE_WAVE_DURATION_SEC,
 	preroll_sec: float = METEORITE_WAVE_PREROLL_SEC,
 ) -> void:
 	var wave := _build_meteorite_wave_at_random_nexus()
-	wave.populate(
-		_rng,
-		count,
-		duration_sec,
-		METEORITE_LATERAL_SPREAD_KM,
-		METEORITE_ALT_JITTER_KM,
-		METEORITE_VELOCITY_JITTER,
-		preroll_sec,
-	)
+	var specs := _sample_wave_specs(count, duration_sec, preroll_sec)
+	wave.set_specs(specs, duration_sec, METEORITE_LATERAL_SPREAD_KM)
 	meteorite_waves.append(wave)
 	if _threat_alert != null:
 		_threat_alert.trigger()
+
+
+# Build the full 20-spec mix for a single wave: pick the size-class
+# count distribution, allocate decaying-orbit slots from the medium /
+# large indices, then sample per-body fields (timer, lateral, mass).
+# Returns a typed array of pending dicts ready to drop into
+# MeteoriteWave.set_specs.
+func _sample_wave_specs(
+	count: int, duration_sec: float, preroll_sec: float
+) -> Array[Dictionary]:
+	var counts := _sample_size_class_counts(count)
+	var n_small: int = counts["small"]
+	var n_medium: int = counts["medium"]
+	var n_large: int = counts["large"]
+	var sizes: Array[int] = []
+	for _i in range(n_small):
+		sizes.append(SIZE_SMALL)
+	for _i in range(n_medium):
+		sizes.append(SIZE_MEDIUM)
+	for _i in range(n_large):
+		sizes.append(SIZE_LARGE)
+	_shuffle_int_array(sizes)
+
+	# Flag a random subset of the medium / large indices as decaying.
+	# Small bodies are always plain meteorites (per the design), so the
+	# decaying picks are restricted to the heavier slots.
+	var heavy_indices: Array[int] = []
+	for i in range(sizes.size()):
+		if sizes[i] != SIZE_SMALL:
+			heavy_indices.append(i)
+	_shuffle_int_array(heavy_indices)
+	var d_max := mini(WAVE_DECAYING_COUNT_MAX, heavy_indices.size())
+	var d_min := mini(WAVE_DECAYING_COUNT_MIN, heavy_indices.size())
+	var d_count := _rng.randi_range(d_min, d_max)
+	var decaying_set := {}
+	for i in range(d_count):
+		decaying_set[heavy_indices[i]] = true
+
+	var specs: Array[Dictionary] = []
+	for i in range(sizes.size()):
+		var size_class: int = sizes[i]
+		var mass := _sample_mass_for_class(size_class)
+		specs.append(_make_wave_spec(
+			mass, decaying_set.has(i), duration_sec, preroll_sec
+		))
+	return specs
+
+
+# Pick a (small, medium, large) triple summing to `total`, with each
+# count constrained to its WAVE_*_COUNT_MIN/MAX band. Derivation:
+#   small = total - medium - large
+#   small ∈ [SMIN, SMAX]
+#     ⇒ medium + large ∈ [total - SMAX, total - SMIN]
+# Pick large first inside its own band, then medium inside the
+# residual band intersected with its own. With the design constants
+# (8..16 / 2..5 / 0..3 / total=20) this always has a non-empty
+# medium range; the maxi/mini are belt-and-braces in case the bands
+# are retuned later.
+func _sample_size_class_counts(total: int) -> Dictionary:
+	var large := _rng.randi_range(WAVE_LARGE_COUNT_MIN, WAVE_LARGE_COUNT_MAX)
+	var med_min := maxi(WAVE_MEDIUM_COUNT_MIN, total - WAVE_SMALL_COUNT_MAX - large)
+	var med_max := mini(WAVE_MEDIUM_COUNT_MAX, total - WAVE_SMALL_COUNT_MIN - large)
+	if med_max < med_min:
+		med_max = med_min
+	var medium := _rng.randi_range(med_min, med_max)
+	var small := total - medium - large
+	return {"small": small, "medium": medium, "large": large}
+
+
+func _sample_mass_for_class(size_class: int) -> float:
+	match size_class:
+		SIZE_SMALL:
+			return _rng.randf_range(SMALL_MASS_MIN_KG, SMALL_MASS_MAX_KG)
+		SIZE_MEDIUM:
+			return _rng.randf_range(MEDIUM_MASS_MIN_KG, MEDIUM_MASS_MAX_KG)
+		_:
+			return _rng.randf_range(LARGE_MASS_MIN_KG, LARGE_MASS_MAX_KG)
+
+
+# Build a single pending spec. Lateral / altitude / velocity jitter are
+# sampled the same way as the legacy populate() path so the meteorite
+# branch keeps producing the same kind of cluster spread; decaying
+# specs get the same fields just so the radar overlay has a position
+# to plot for them while the spawn-time geometry uses an independent
+# random plane per body (see _make_decaying_enemy).
+func _make_wave_spec(
+	mass: float, is_decaying: bool, duration_sec: float, preroll_sec: float
+) -> Dictionary:
+	var ang := _rng.randf_range(0.0, TAU)
+	var dist := _rng.randf_range(0.0, METEORITE_LATERAL_SPREAD_KM)
+	return {
+		"t": _rng.randf_range(0.0, duration_sec) + preroll_sec,
+		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
+		"alt_offset": _rng.randf_range(
+			-METEORITE_ALT_JITTER_KM, METEORITE_ALT_JITTER_KM
+		),
+		"vel_jitter": Vector3(
+			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
+			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
+			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
+		),
+		"mass": mass,
+		"is_decaying": is_decaying,
+	}
+
+
+# Fisher-Yates shuffle driven by the spawn director's seeded RNG so
+# wave layouts are reproducible from the same seed. Array.shuffle()
+# uses Godot's process-global RNG, which would defeat that property.
+func _shuffle_int_array(arr: Array[int]) -> void:
+	for i in range(arr.size() - 1, 0, -1):
+		var j := _rng.randi_range(0, i)
+		var tmp: int = arr[i]
+		arr[i] = arr[j]
+		arr[j] = tmp
 
 
 # Spawn a single decaying-orbit enemy. Highly eccentric, spawned just
@@ -366,7 +520,7 @@ func start_meteorite_wave(
 # orbit spirals inward), and eventually one of those kicks pushes the
 # trailing apsis below the surface — body impacts on its next descent.
 func add_decaying_enemy() -> void:
-	var sat := _make_decaying_enemy()
+	var sat := _make_decaying_enemy(DECAYING_DEFAULT_MASS_KG)
 	_satellite_container.add_child(sat)
 	_satellites.append(sat)
 
@@ -381,13 +535,22 @@ func tick_waves(delta: float) -> void:
 		var wave := meteorite_waves[i]
 		var ready_specs: Array[Dictionary] = wave.tick(delta)
 		for spec: Dictionary in ready_specs:
-			var sat := _make_meteorite(
-				wave.r_hat,
-				wave.tangent,
-				wave.base_altitude,
-				wave.base_velocity,
-				spec,
-			)
+			var mass: float = spec.get("mass", Satellite.DEFAULT_MASS_KG)
+			var sat: Satellite
+			if spec.get("is_decaying", false):
+				# Decaying-orbit threats live on their own random
+				# elliptical plane; the wave's shared sub-orbital nexus
+				# doesn't apply to them. Lateral / vel-jitter from the
+				# spec is only consumed by the radar preview.
+				sat = _make_decaying_enemy(mass)
+			else:
+				sat = _make_meteorite(
+					wave.r_hat,
+					wave.tangent,
+					wave.base_altitude,
+					wave.base_velocity,
+					spec,
+				)
 			_satellite_container.add_child(sat)
 			_satellites.append(sat)
 		if wave.is_complete():
@@ -434,8 +597,14 @@ func _make_meteorite(
 	sat.team = Satellite.TEAM_ENEMY
 	sat.weapons.clear()
 	sat.is_meteorite = true
-	sat.max_hp = METEORITE_HP
-	sat.hp = METEORITE_HP
+	# Mass drives both HP (10 kg = 1 HP) and the visual scale (3D
+	# marker, radar blip), keeping difficulty and physical size on a
+	# single dial. Specs from the legacy storm path don't carry mass;
+	# fall back to the satellite's default to keep that branch working.
+	var mass: float = spec.get("mass", Satellite.DEFAULT_MASS_KG)
+	sat.mass = mass
+	sat.max_hp = mass * HP_PER_KG
+	sat.hp = sat.max_hp
 
 	# Lateral offset uses the in-plane basis (tangent + bitangent); the
 	# bitangent is just r_hat × tangent so the offset stays in the plane
@@ -462,7 +631,10 @@ func _make_meteorite(
 # which (unlike the time-distributed wave) has no pre-populated queue
 # to draw from. Mirrors the per-body sampling done in
 # MeteoriteWave.populate so both spawn paths produce the same kind of
-# spread for the same lateral / altitude / velocity bands.
+# spread for the same lateral / altitude / velocity bands. Storm bodies
+# fall in the small mass class — the storm is the cheap-and-cheerful
+# threat; the wave path is where heavier meteorites and decaying-orbit
+# bodies show up.
 func _sample_meteorite_spec(
 	lateral_spread: float,
 	altitude_jitter: float,
@@ -479,16 +651,21 @@ func _sample_meteorite_spec(
 			_rng.randf_range(-vel_jitter, vel_jitter),
 			_rng.randf_range(-vel_jitter, vel_jitter),
 		),
+		"mass": _sample_mass_for_class(SIZE_SMALL),
+		"is_decaying": false,
 	}
 
 
-func _make_decaying_enemy() -> Satellite:
+func _make_decaying_enemy(mass: float) -> Satellite:
 	var sat := Satellite.new()
 	sat.team = Satellite.TEAM_ENEMY
 	sat.weapons.clear()
 	sat.is_decaying = true
-	sat.max_hp = DECAYING_HP
-	sat.hp = DECAYING_HP
+	# Mass-driven HP keeps the spiral-in threat consistent with the rest
+	# of the wave: a heavier body soaks more shots before going down.
+	sat.mass = mass
+	sat.max_hp = mass * HP_PER_KG
+	sat.hp = sat.max_hp
 
 	var r_p := EarthOrbit.EARTH_RADIUS_KM + DECAYING_PERIGEE_ALT_KM
 	var r_a := EarthOrbit.EARTH_RADIUS_KM + DECAYING_APOGEE_ALT_KM

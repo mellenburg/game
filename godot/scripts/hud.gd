@@ -3,8 +3,9 @@ extends Control
 ## Roster + targeting overlay. Player units render as green-tinted
 ## panels along the top-left and surface HP / energy / cooldown rows.
 ## Enemies render along the bottom-left as area-proportional squares —
-## edge length scales with sqrt(max_hp) so a meteorite (25 HP) is small,
-## a sat (100 HP) is medium, a decaying body (200 HP) is large. The
+## edge length scales with sqrt(max_hp) so a small meteorite (~10-50 HP)
+## is small, a sat (100 HP) is medium, a heavy decaying body or a
+## large meteorite (up to 1000 HP) is large. The
 ## solid fill shrinks bottom-up as HP drops, revealing a translucent
 ## red layer that marks the original footprint. Rows wrap upward once
 ## adding the next box would push them past half the viewport width.

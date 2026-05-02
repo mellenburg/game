@@ -16,6 +16,13 @@ const TEAM_PLAYER: int = 0
 const TEAM_ENEMY: int = 1
 
 const SCENE_SCALE: float = 1.0 / 1000.0
+# Base side length (in scene units) of the cube marker used for a
+# DEFAULT_MASS_KG body. Heavier bodies scale this by mass^(1/3) so the
+# rendered volume tracks mass linearly; lighter bodies shrink the same
+# way. Sized to match the historical 0.15-cube look at the default
+# 1000 kg reference.
+const MARKER_BASE_SIZE: float = 0.15
+const MARKER_REFERENCE_MASS_KG: float = 1000.0
 const DEFAULT_R := Vector3(-6045.0, -3490.0, 2500.0)
 const DEFAULT_V := Vector3(-3.56, 6.618, 2.533)
 const DELTA_V_MAGNITUDE: float = 0.050
@@ -235,7 +242,7 @@ func tick_combat(sim_delta: float) -> void:
 func _ready() -> void:
 	_marker = MeshInstance3D.new()
 	var box := BoxMesh.new()
-	box.size = Vector3(0.15, 0.15, 0.15)
+	box.size = _marker_box_size()
 	_marker.mesh = box
 
 	_marker_mat = StandardMaterial3D.new()
@@ -594,6 +601,7 @@ func clone_orbit_from(other: Satellite) -> void:
 		weapons.clear()
 	if is_inside_tree():
 		_apply_color()
+		_apply_marker_size()
 		_sync_marker_position()
 
 
@@ -601,6 +609,32 @@ func _sync_marker_position() -> void:
 	if _marker == null:
 		return
 	_marker.position = orbit.r * SCENE_SCALE
+
+
+# Mesh side length (uniform cube) derived from mass^(1/3) so the
+# rendered volume tracks mass linearly. A default 1000 kg unit yields
+# the historical 0.15-unit cube; smaller / larger bodies scale around
+# that reference. maxf(mass, 1.0) is a paranoia floor so a zero or
+# negative mass — should one slip through — doesn't collapse the cube
+# to a point.
+func _marker_box_size() -> Vector3:
+	var side := MARKER_BASE_SIZE * pow(
+		maxf(mass, 1.0) / MARKER_REFERENCE_MASS_KG, 1.0 / 3.0
+	)
+	return Vector3(side, side, side)
+
+
+# Re-derive and apply the cube size from the current mass. Called from
+# clone_orbit_from after the planning satellite copies real-side mass,
+# since the BoxMesh was already sized at _ready under the planning
+# clone's default mass.
+func _apply_marker_size() -> void:
+	if _marker == null:
+		return
+	var box := _marker.mesh as BoxMesh
+	if box == null:
+		return
+	box.size = _marker_box_size()
 
 
 func _base_color() -> Color:
