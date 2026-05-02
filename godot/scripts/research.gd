@@ -19,9 +19,9 @@ const UnitPart = preload("res://scripts/unit_part.gd")
 
 # Starting research point pool. Generous on purpose: while the rest of
 # the gameplay loop (waves, salvage, mission rewards) isn't wired up,
-# 1000 lets the operator unlock the entire current tree and exercise
-# every gated UI path during playtesting.
-const STARTING_POINTS: int = 1000
+# 6000 lets the operator unlock the entire current tree (≈5450 RP)
+# with headroom and exercise every gated UI path during playtesting.
+const STARTING_POINTS: int = 6000
 
 # Component chains. Each entry has a category label (drives the
 # Research tab's column header), a `stat_template` used to render the
