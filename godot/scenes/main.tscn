@@ -85,13 +85,22 @@ mouse_filter = 2
 bbcode_enabled = true
 scroll_active = false
 
-[node name="PlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD"]
+[node name="PlayerRosters" type="VBoxContainer" parent="CanvasLayer/HUD"]
 layout_mode = 1
 anchors_preset = 0
 offset_left = 10.0
 offset_top = 10.0
 offset_right = 1190.0
-offset_bottom = 100.0
+offset_bottom = 240.0
+mouse_filter = 2
+theme_override_constants/separation = 8
+
+[node name="PlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD/PlayerRosters"]
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="SurfacePlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD/PlayerRosters"]
+visible = false
 mouse_filter = 2
 theme_override_constants/separation = 6
 

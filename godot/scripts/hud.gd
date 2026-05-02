@@ -78,7 +78,12 @@ const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 const HIT_DURATION: float = 0.25
 
 @onready var info_label: RichTextLabel = $InfoLabel as RichTextLabel
-@onready var player_roster: HBoxContainer = $PlayerRoster as HBoxContainer
+@onready var player_roster: HBoxContainer = (
+	$PlayerRosters/PlayerRoster as HBoxContainer
+)
+@onready var surface_player_roster: HBoxContainer = (
+	$PlayerRosters/SurfacePlayerRoster as HBoxContainer
+)
 @onready var enemy_roster: VBoxContainer = $EnemyRoster as VBoxContainer
 @onready var target_container: Control = $TargetContainer as Control
 @onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
@@ -190,9 +195,16 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 		else orbital_set.selected_ship
 	)
 
-	var players: Array[Satellite] = []
+	# Player units are partitioned into orbital and surface so the two
+	# rosters render as separate rows in the top-left strip — orbital
+	# ships above, ground installations below. The selection index
+	# tracks separately for each subset so the green tint follows the
+	# satellite into whichever row holds it.
+	var orbital_players: Array[Satellite] = []
+	var surface_players: Array[Satellite] = []
 	var enemies: Array[Satellite] = []
-	var player_selected_in_roster: int = -1
+	var orbital_selected_in_roster: int = -1
+	var surface_selected_in_roster: int = -1
 	var selected_enemy: Satellite = null
 
 	for i in range(satellites.size()):
@@ -203,10 +215,14 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 			if i == selected_idx:
 				selected_enemy = sat
 			enemies.append(sat)
+		elif sat.is_surface:
+			if i == selected_idx:
+				surface_selected_in_roster = surface_players.size()
+			surface_players.append(sat)
 		else:
 			if i == selected_idx:
-				player_selected_in_roster = players.size()
-			players.append(sat)
+				orbital_selected_in_roster = orbital_players.size()
+			orbital_players.append(sat)
 
 	var current_sim_time: float = orbital_set.sim_time
 	enemies = _sort_enemies_by_impact_urgency(enemies, current_sim_time)
@@ -216,7 +232,16 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 	if selected_enemy != null:
 		enemy_selected_in_roster = enemies.find(selected_enemy)
 
-	_render_player_roster(players, player_selected_in_roster)
+	_render_player_roster_into(
+		player_roster, orbital_players, orbital_selected_in_roster
+	)
+	if surface_player_roster != null:
+		_render_player_roster_into(
+			surface_player_roster, surface_players, surface_selected_in_roster
+		)
+		# Hide the surface row entirely when nothing's placed so the HUD
+		# doesn't reserve dead space for an empty container.
+		surface_player_roster.visible = not surface_players.is_empty()
 	_render_enemy_roster(enemies, enemy_selected_in_roster)
 
 
@@ -257,15 +282,21 @@ func _sort_enemies_by_impact_urgency(
 	return sorted
 
 
-func _render_player_roster(sats: Array[Satellite], selected: int) -> void:
-	while player_roster.get_child_count() < sats.size():
-		player_roster.add_child(_make_box())
-	while player_roster.get_child_count() > sats.size():
-		var stale := player_roster.get_child(player_roster.get_child_count() - 1)
-		player_roster.remove_child(stale)
+# Generic renderer that fills any HBoxContainer with one player-style
+# box per sat. Both the orbital and surface rosters share this idiom so
+# the per-row UI (selection tint, weapon bars, FC / TGT / RG meta lines)
+# stays consistent across both strips.
+func _render_player_roster_into(
+	host: HBoxContainer, sats: Array[Satellite], selected: int
+) -> void:
+	while host.get_child_count() < sats.size():
+		host.add_child(_make_box())
+	while host.get_child_count() > sats.size():
+		var stale := host.get_child(host.get_child_count() - 1)
+		host.remove_child(stale)
 		stale.queue_free()
 	for i in range(sats.size()):
-		var box := player_roster.get_child(i) as PanelContainer
+		var box := host.get_child(i) as PanelContainer
 		_update_box(box, sats[i], i == selected)
 
 
