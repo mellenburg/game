@@ -28,6 +28,7 @@ const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const OrbitPreview = preload("res://scripts/menu/orbit_preview.gd")
 const SurfacePlacementMap = preload("res://scripts/menu/surface_placement_map.gd")
 const Satellite = preload("res://scripts/satellite.gd")
+const ResearchGraph = preload("res://scripts/menu/research_graph.gd")
 
 const STAGE_SCENE_PATH := "res://scenes/main.tscn"
 
@@ -90,11 +91,26 @@ var _budget_bar_fill: ColorRect
 var _launch_cost_labels: Array[Label] = []
 var _launch_apogee_labels: Array[Label] = []
 var _previous_tab_index: int = 0
+var _add_launch_btn: Button
+var _launch_capacity_label: Label
 
 # Surface Ops state
 var _surface_root: VBoxContainer
 var _surface_placement: SurfacePlacementMap
 var _surface_count_label: Label
+
+# Research state
+var _research_points_label: Label
+var _research_graph: ResearchGraph
+var _research_detail_title: Label
+var _research_detail_category: Label
+var _research_detail_status: Label
+var _research_detail_cost: Label
+var _research_detail_stats: Label
+var _research_detail_prereq: Label
+var _research_detail_flavor: Label
+var _research_detail_button: Button
+var _research_selected_id: String = ""
 
 
 func _ready() -> void:
@@ -801,13 +817,23 @@ func _build_slot_row(
 	label.add_theme_font_size_override("font_size", 11)
 	row.add_child(label)
 
+	# Locked tiers are still listed in the dropdown so the operator can
+	# see what's coming next, but their entries are disabled and tagged
+	# "(locked)" — clearer than hiding them entirely. The currently
+	# selected part always remains pickable even if research has since
+	# been reset, so an existing unit can never trap the editor in an
+	# unselectable state.
 	var picker := OptionButton.new()
 	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var current_id: String = unit.part_ids_for_kind(kind)[slot_index]
 	for i in range(available.size()):
 		var p: UnitPart = available[i]
-		picker.add_item(p.label)
+		var unlocked := Research.is_part_unlocked(p.id) or p.id == current_id
+		var item_label := p.label if unlocked else "%s (locked)" % p.label
+		picker.add_item(item_label)
 		picker.set_item_metadata(i, p.id)
+		if not unlocked:
+			picker.set_item_disabled(i, true)
 		if p.id == current_id:
 			picker.select(i)
 	picker.item_selected.connect(
@@ -883,11 +909,18 @@ func _build_orbital_ops_tab() -> Control:
 	actions.add_theme_constant_override("separation", 8)
 	left[1].add_child(actions)
 
-	var add_btn := Button.new()
-	add_btn.text = "+ Add Launch"
-	add_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_btn.pressed.connect(_on_add_launch_pressed)
-	actions.add_child(add_btn)
+	_add_launch_btn = Button.new()
+	_add_launch_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_launch_btn.pressed.connect(_on_add_launch_pressed)
+	actions.add_child(_add_launch_btn)
+
+	# Capacity readout sits next to the add button so the operator
+	# always sees the current cap. Updated alongside the rows in
+	# _rebuild_launch_rows().
+	_launch_capacity_label = Label.new()
+	_launch_capacity_label.add_theme_color_override("font_color", COLOR_FG_DIM)
+	_launch_capacity_label.add_theme_font_size_override("font_size", 11)
+	actions.add_child(_launch_capacity_label)
 
 	# Budget panel sits below the actions row so the running total of
 	# propellant draw across every assigned launch is always visible
@@ -923,6 +956,24 @@ func _rebuild_launch_rows() -> void:
 	if _orbit_preview != null:
 		_orbit_preview.refresh()
 	_refresh_launch_budget()
+	_refresh_launch_capacity_chrome()
+
+
+# Update the "+ Add Launch" button + the X / Y capacity counter.
+# Driven by Research's launch_capacity gate — independent from the
+# per-launch propellant budget refresh below.
+func _refresh_launch_capacity_chrome() -> void:
+	if _add_launch_btn == null or _launch_capacity_label == null:
+		return
+	var cap := Research.launch_capacity()
+	var used := PlayerLoadout.launches.size()
+	_launch_capacity_label.text = "%d / %d" % [used, cap]
+	var can_add := PlayerLoadout.can_add_launch()
+	_add_launch_btn.disabled = not can_add
+	if can_add:
+		_add_launch_btn.text = "+ Add Launch"
+	else:
+		_add_launch_btn.text = "Cap reached — research more"
 
 
 # Refresh just the per-launch cost / apogee labels — invoked from the
@@ -1048,7 +1099,13 @@ func _refresh_launch_budget() -> void:
 
 
 func _on_add_launch_pressed() -> void:
-	PlayerLoadout.add_launch()
+	# add_launch returns null when the operator's at the research cap;
+	# the button gate makes that path unreachable in normal use, but
+	# guard anyway in case the cap drops between the button repaint and
+	# the click.
+	if PlayerLoadout.add_launch() == null:
+		_refresh_launch_capacity_chrome()
+		return
 	_rebuild_launch_rows()
 	_refresh_stage_brief()
 
@@ -1349,7 +1406,12 @@ func _build_surface_ops_tab() -> Control:
 
 
 func _on_surface_placed(lat_deg: float, lon_deg: float) -> void:
-	PlayerLoadout.add_surface_unit(lat_deg, lon_deg)
+	# A click on the map at the research-gated cap is a no-op rather
+	# than an error — the count label below already tells the operator
+	# why nothing happened ("X / Y stations placed").
+	if PlayerLoadout.add_surface_unit(lat_deg, lon_deg) == null:
+		_refresh_surface_list()
+		return
 	_refresh_surface_list()
 	if _surface_placement != null:
 		_surface_placement.refresh()
@@ -1368,7 +1430,9 @@ func _refresh_surface_list() -> void:
 	var configs: Array[SurfaceUnitConfig] = PlayerLoadout.surface_units
 	if _surface_count_label != null:
 		_surface_count_label.text = (
-			"%d installation(s) placed" % configs.size()
+			"%d / %d station(s) placed" % [
+				configs.size(), Research.ground_defense_capacity(),
+			]
 		)
 	for i in range(configs.size()):
 		_surface_root.add_child(_build_surface_row(i, configs[i]))
@@ -1431,24 +1495,256 @@ static func _format_lon(lon: float) -> String:
 
 # ---------------------------------------------------------------- Research
 
+# Two-column layout: the graph view (left, scrollable) renders every
+# chain as a row of polygon nodes; the detail panel (right) populates
+# from whichever node the operator last clicked. The point-pool readout
+# spans the top so the cost the unlock button shows always reads
+# against the visible budget.
 func _build_research_tab() -> Control:
-	var hbox := _padded_hbox()
-	var pad: Control = hbox.get_parent() as Control
+	var pad := MarginContainer.new()
+	pad.anchor_right = 1.0
+	pad.anchor_bottom = 1.0
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 12)
+	pad.add_theme_constant_override("margin_bottom", 12)
 
-	var box := _section("Research", 0)
-	hbox.add_child(box[0])
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 12)
+	pad.add_child(col)
 
-	var msg := Label.new()
-	msg.text = "Research tree coming soon."
-	msg.add_theme_color_override("font_color", COLOR_FG_DIM)
-	msg.add_theme_font_size_override("font_size", 16)
-	msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	msg.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	msg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	msg.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	box[1].add_child(msg)
+	col.add_child(_build_research_header())
 
+	var body := HBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 12)
+	col.add_child(body)
+
+	var graph_section := _section("Research Graph", 0)
+	body.add_child(graph_section[0])
+	var graph_scroll := ScrollContainer.new()
+	graph_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	graph_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	graph_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	graph_section[1].add_child(graph_scroll)
+	_research_graph = ResearchGraph.new()
+	_research_graph.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_research_graph.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_research_graph.node_selected.connect(_on_research_node_selected)
+	graph_scroll.add_child(_research_graph)
+
+	var detail_section := _section("Node Brief", SIDE_PANEL_WIDTH)
+	body.add_child(detail_section[0])
+	_build_research_detail_panel(detail_section[1])
+
+	_refresh_research_header()
+	_refresh_research_detail()
 	return pad
+
+
+# Top header strip: research-point pool readout + a one-line hint.
+# Stored apart from the body so the layout above can keep the panel
+# fixed-height while the graph + detail columns flex.
+func _build_research_header() -> Control:
+	var header := PanelContainer.new()
+	header.add_theme_stylebox_override("panel", _flat_stylebox(COLOR_PANEL_DIM))
+
+	var header_pad := MarginContainer.new()
+	header_pad.add_theme_constant_override("margin_left", 12)
+	header_pad.add_theme_constant_override("margin_right", 12)
+	header_pad.add_theme_constant_override("margin_top", 8)
+	header_pad.add_theme_constant_override("margin_bottom", 8)
+	header.add_child(header_pad)
+
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 16)
+	header_pad.add_child(box)
+
+	var caption := Label.new()
+	caption.text = "RESEARCH POINTS"
+	caption.add_theme_color_override("font_color", COLOR_FG_DIM)
+	caption.add_theme_font_size_override("font_size", 11)
+	box.add_child(caption)
+
+	_research_points_label = Label.new()
+	_research_points_label.add_theme_color_override("font_color", COLOR_ACCENT)
+	_research_points_label.add_theme_font_size_override("font_size", 18)
+	box.add_child(_research_points_label)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(spacer)
+
+	var hint := Label.new()
+	hint.text = "Click a node to inspect. Each chain unlocks left to right."
+	hint.add_theme_color_override("font_color", COLOR_FG_DIM)
+	hint.add_theme_font_size_override("font_size", 11)
+	box.add_child(hint)
+	return header
+
+
+# Compose the right-column detail panel into the supplied parent VBox.
+# Stored in member labels so `_refresh_research_detail` can rewrite text
+# in place without rebuilding the layout — keeps the operator's eye
+# anchored to the same row when they click between adjacent nodes.
+func _build_research_detail_panel(parent: VBoxContainer) -> void:
+	_research_detail_title = Label.new()
+	_research_detail_title.add_theme_color_override("font_color", COLOR_ACCENT)
+	_research_detail_title.add_theme_font_size_override("font_size", 18)
+	_research_detail_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(_research_detail_title)
+
+	_research_detail_category = Label.new()
+	_research_detail_category.add_theme_color_override(
+		"font_color", COLOR_FG_DIM,
+	)
+	_research_detail_category.add_theme_font_size_override("font_size", 11)
+	parent.add_child(_research_detail_category)
+
+	parent.add_child(_hr())
+
+	_research_detail_status = Label.new()
+	_research_detail_status.add_theme_font_size_override("font_size", 12)
+	parent.add_child(_research_detail_status)
+
+	_research_detail_cost = Label.new()
+	_research_detail_cost.add_theme_color_override("font_color", COLOR_FG)
+	_research_detail_cost.add_theme_font_size_override("font_size", 12)
+	parent.add_child(_research_detail_cost)
+
+	_research_detail_stats = Label.new()
+	_research_detail_stats.add_theme_color_override("font_color", COLOR_FG)
+	_research_detail_stats.add_theme_font_size_override("font_size", 12)
+	_research_detail_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(_research_detail_stats)
+
+	_research_detail_prereq = Label.new()
+	_research_detail_prereq.add_theme_color_override("font_color", COLOR_WARN)
+	_research_detail_prereq.add_theme_font_size_override("font_size", 11)
+	_research_detail_prereq.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(_research_detail_prereq)
+
+	parent.add_child(_hr())
+
+	_research_detail_flavor = Label.new()
+	_research_detail_flavor.add_theme_color_override("font_color", COLOR_FG_DIM)
+	_research_detail_flavor.add_theme_font_size_override("font_size", 12)
+	_research_detail_flavor.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_research_detail_flavor.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(_research_detail_flavor)
+
+	_research_detail_button = Button.new()
+	_research_detail_button.custom_minimum_size = Vector2(0, 36)
+	_research_detail_button.add_theme_font_size_override("font_size", 13)
+	_research_detail_button.pressed.connect(_on_research_unlock_pressed)
+	parent.add_child(_research_detail_button)
+
+
+func _refresh_research_header() -> void:
+	if _research_points_label != null:
+		_research_points_label.text = "%d" % Research.research_points
+
+
+func _on_research_node_selected(node_id: String) -> void:
+	_research_selected_id = node_id
+	_refresh_research_detail()
+
+
+# Rewrite every label in the detail panel against the currently
+# selected node. Empty selection (or an id that doesn't resolve, e.g.
+# after a future catalog edit) collapses to a "click a node" prompt
+# with the unlock button hidden.
+func _refresh_research_detail() -> void:
+	if _research_detail_title == null:
+		return
+	var data: Dictionary = (
+		Research.describe(_research_selected_id)
+		if _research_selected_id != "" else {}
+	)
+	if data.is_empty():
+		_research_detail_title.text = "(no node selected)"
+		_research_detail_category.text = ""
+		_research_detail_status.text = ""
+		_research_detail_cost.text = ""
+		_research_detail_stats.text = ""
+		_research_detail_prereq.text = ""
+		_research_detail_flavor.text = "Click a node in the graph to inspect it."
+		_research_detail_button.visible = false
+		return
+	_research_detail_button.visible = true
+
+	_research_detail_title.text = String(data["label"])
+	_research_detail_category.text = String(data["category"]).to_upper()
+
+	if bool(data["is_unlocked"]):
+		_research_detail_status.text = "STATUS · UNLOCKED"
+		_research_detail_status.add_theme_color_override("font_color", COLOR_OK)
+	elif String(data["prereq_label"]) != "":
+		_research_detail_status.text = "STATUS · LOCKED"
+		_research_detail_status.add_theme_color_override(
+			"font_color", COLOR_FG_FAINT,
+		)
+	else:
+		_research_detail_status.text = "STATUS · AVAILABLE"
+		_research_detail_status.add_theme_color_override(
+			"font_color", COLOR_ACCENT,
+		)
+
+	var cost: int = int(data["cost"])
+	if bool(data["is_unlocked"]):
+		_research_detail_cost.text = "Cost · paid"
+	elif cost == 0:
+		_research_detail_cost.text = "Cost · free (starting unlock)"
+	else:
+		_research_detail_cost.text = "Cost · %d RP" % cost
+
+	_research_detail_stats.text = String(data["stats"])
+
+	var prereq_label := String(data["prereq_label"])
+	if prereq_label == "":
+		_research_detail_prereq.text = ""
+	else:
+		_research_detail_prereq.text = "Requires: %s" % prereq_label
+
+	_research_detail_flavor.text = String(data["flavor"])
+
+	if bool(data["is_unlocked"]):
+		_research_detail_button.text = "Unlocked"
+		_research_detail_button.disabled = true
+	elif bool(data["can_unlock"]):
+		_research_detail_button.text = "Unlock for %d RP" % cost
+		_research_detail_button.disabled = false
+	elif prereq_label != "":
+		_research_detail_button.text = "Locked — research %s first" % prereq_label
+		_research_detail_button.disabled = true
+	else:
+		_research_detail_button.text = "Need %d RP" % cost
+		_research_detail_button.disabled = true
+
+
+# Triggered by the detail panel's button. Re-reads the currently
+# selected node id rather than binding it so a refresh after a
+# selection change is unambiguous.
+func _on_research_unlock_pressed() -> void:
+	if _research_selected_id == "":
+		return
+	if not Research.unlock(_research_selected_id):
+		return
+	_refresh_research_header()
+	_refresh_research_detail()
+	if _research_graph != null:
+		_research_graph.refresh()
+		_research_graph.set_selected(_research_selected_id)
+	# Unlocking a component lets the Hangar dropdowns see the new tier,
+	# and unlocking a capacity tier raises the gate on the Orbital /
+	# Surface Ops tabs. Refresh those views so the operator doesn't
+	# have to bounce out and back to see the change.
+	_rebuild_unit_editor()
+	_rebuild_launch_rows()
+	_refresh_surface_list()
 
 
 # ---------------------------------------------------------------- helpers

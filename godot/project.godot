@@ -12,6 +12,11 @@ config/features=PackedStringArray("4.3", "GL Compatibility")
 
 [autoload]
 
+; Player research progress (points pool + unlocked-node set). Listed
+; before PlayerLoadout so its _ready seeds the starting unlocks before
+; PlayerLoadout.reset_units consults the launch-capacity cap.
+Research="*res://scripts/research.gd"
+
 ; Persistent pre-game player choices (selected stage, per-unit weapon
 ; loadout, per-unit initial orbit). Lives on /root so it survives the
 ; menu->stage scene transition. Read by SpawnDirector at start.
