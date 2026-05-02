@@ -14,6 +14,7 @@ extends Node
 ## menu's _ready when launched is false).
 
 const UnitConfig = preload("res://scripts/unit_config.gd")
+const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 
 # Stage catalogue. `id` is the stable key the menu writes to
 # selected_stage_id; only entries with playable=true permit Launch.
@@ -62,6 +63,10 @@ const DEFAULT_UNIT_COUNT: int = 3
 
 var selected_stage_id: String = "luna"
 var units: Array[UnitConfig] = []
+# Surface installations placed by the player on the Surface Ops tab.
+# Empty by default — surface units are entirely opt-in, so a player who
+# never opens that tab launches with the legacy orbital-only roster.
+var surface_units: Array[SurfaceUnitConfig] = []
 var launched: bool = false
 
 
@@ -77,6 +82,25 @@ func reset_units() -> void:
 	units.clear()
 	for i in range(DEFAULT_UNIT_COUNT):
 		units.append(UnitConfig.make(i))
+
+
+# Append a fresh surface unit at the supplied (lat, lon). Index in the
+# returned name is one past the current size, so consecutive presses on
+# the Surface Ops map produce S-01, S-02, S-03 …. Caller (the menu)
+# refreshes its list display from `surface_units` after this returns.
+func add_surface_unit(lat_deg: float, lon_deg: float) -> SurfaceUnitConfig:
+	var cfg := SurfaceUnitConfig.make(surface_units.size(), lat_deg, lon_deg)
+	surface_units.append(cfg)
+	return cfg
+
+
+# Remove a surface unit by its index in `surface_units`. Out-of-range
+# indices are silently ignored — the menu may double-fire a remove
+# button against a stale row while it's rebuilding the list view.
+func remove_surface_unit(index: int) -> void:
+	if index < 0 or index >= surface_units.size():
+		return
+	surface_units.remove_at(index)
 
 
 # Look up a stage record by id. Returns an empty Dictionary when no

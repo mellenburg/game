@@ -76,22 +76,33 @@ script = ExtResource("4_hud")
 
 [node name="InfoLabel" type="RichTextLabel" parent="CanvasLayer/HUD"]
 layout_mode = 1
-anchors_preset = 0
-offset_left = 10.0
-offset_top = 110.0
-offset_right = 280.0
-offset_bottom = 170.0
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -320.0
+offset_top = 330.0
+offset_right = -10.0
+offset_bottom = 410.0
 mouse_filter = 2
 bbcode_enabled = true
 scroll_active = false
 
-[node name="PlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD"]
+[node name="PlayerRosters" type="VBoxContainer" parent="CanvasLayer/HUD"]
 layout_mode = 1
 anchors_preset = 0
 offset_left = 10.0
 offset_top = 10.0
 offset_right = 1190.0
-offset_bottom = 100.0
+offset_bottom = 240.0
+mouse_filter = 2
+theme_override_constants/separation = 8
+
+[node name="PlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD/PlayerRosters"]
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="SurfacePlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD/PlayerRosters"]
+visible = false
 mouse_filter = 2
 theme_override_constants/separation = 6
 
@@ -157,9 +168,9 @@ anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
 offset_left = -320.0
-offset_top = 340.0
+offset_top = 420.0
 offset_right = -10.0
-offset_bottom = 410.0
+offset_bottom = 490.0
 mouse_filter = 2
 bbcode_enabled = true
 scroll_active = false

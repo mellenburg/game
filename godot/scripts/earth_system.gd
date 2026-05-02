@@ -26,6 +26,7 @@ const CombatController = preload("res://scripts/combat_controller.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
+const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -127,6 +128,9 @@ func _ready() -> void:
 	_albedo_image = _load_albedo_image()
 	if impact_map != null:
 		impact_map.tracker = impact_tracker
+		# Bound by reference, so the minimap reflects every spawn /
+		# destruction of a surface installation without explicit refresh.
+		impact_map.satellites = real_satellites
 	_apply_map_mode()
 
 	spawn_director = SpawnDirector.new()
@@ -141,9 +145,19 @@ func _ready() -> void:
 		radar_map.waves = spawn_director.meteorite_waves
 
 	spawn_director.spawn_starting_fleet(_player_loadout_units())
+	spawn_director.spawn_surface_units(
+		_player_loadout_surface_units(), earth.earth_phase
+	)
+	# Position surface units immediately so the very first render frame
+	# already shows them on the ground — _physics_process won't run until
+	# after _ready completes, and without this seed the markers would
+	# briefly sit at orbit.r's spawn placeholder.
+	for sat in real_satellites:
+		if sat.is_surface:
+			sat.update_surface_position(earth.earth_phase)
 	if not real_satellites.is_empty():
-		selected_ship = 0
-		real_satellites[0].select()
+		selected_ship = _first_orbital_player_index()
+		real_satellites[selected_ship].select()
 
 
 # Pull the per-unit configs the pre-game menu set into PlayerLoadout, if
@@ -166,6 +180,37 @@ func _player_loadout_units() -> Array[UnitConfig]:
 	# inferred-Variant return.
 	var units: Array[UnitConfig] = loadout.units
 	return units
+
+
+# Same gate as _player_loadout_units but for surface installations
+# placed via the menu's Surface Ops tab. Empty array means the player
+# never opened that tab (or booted main.tscn directly), so no surface
+# units spawn.
+func _player_loadout_surface_units() -> Array[SurfaceUnitConfig]:
+	var empty: Array[SurfaceUnitConfig] = []
+	var tree := get_tree()
+	if tree == null:
+		return empty
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null:
+		return empty
+	if not loadout.launched:
+		return empty
+	var configs: Array[SurfaceUnitConfig] = loadout.surface_units
+	return configs
+
+
+# Default-select the first orbital player satellite rather than blindly
+# picking index 0, which after spawn_starting_fleet + spawn_surface_units
+# could be any team / kind. Surface installations don't accept thrust
+# input, and selecting one as the active ship would silently make every
+# arrow key a no-op until the operator pressed Tab.
+func _first_orbital_player_index() -> int:
+	for i in range(real_satellites.size()):
+		var sat := real_satellites[i]
+		if sat.team == Satellite.TEAM_PLAYER and not sat.is_surface:
+			return i
+	return 0
 
 
 # Pull the day-side albedo into an Image once. Sampling at impact time
@@ -199,7 +244,14 @@ func _physics_process(delta: float) -> void:
 	earth.advance_phase(sim_delta)
 	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
-		sat.advance_time(sim_delta)
+		if sat.is_surface:
+			# Surface installations ride Earth's daily rotation rather
+			# than propagating Keplerian motion — orbit.r is rewritten
+			# from (lat, lon, earth_phase) so combat queries that read
+			# attacker.orbit.r still work.
+			sat.update_surface_position(earth.earth_phase)
+		else:
+			sat.advance_time(sim_delta)
 	combat_controller.process_combat(real_satellites, sim_time, sim_delta)
 	_remove_dead_satellites()
 
@@ -214,7 +266,16 @@ func _physics_process(delta: float) -> void:
 			var plan_sat := planning_satellites[i]
 			plan_sat.clone_orbit_from(real_satellites[i])
 			if plan_sat.orbit_alive and plan_sat.alive and window > 0.0:
-				plan_sat.advance_time(window)
+				if plan_sat.is_surface:
+					# Surface installation — extrapolate the planet's
+					# rotation rather than the orbit so the planning
+					# preview shows the unit's future ECI position.
+					var future_phase: float = (
+						earth.earth_phase + earth.rotation_rate * window
+					)
+					plan_sat.update_surface_position(future_phase)
+				else:
+					plan_sat.advance_time(window)
 			plan_sat.visible = true
 	else:
 		for sat in planning_satellites:
@@ -335,7 +396,10 @@ func _process_continuous_input(delta: float) -> void:
 	var idx := planning_selected if planning_mode else selected_ship
 	if not target_satellites.is_empty() and idx >= 0 and idx < target_satellites.size():
 		var sat := target_satellites[idx]
-		if sat.team == Satellite.TEAM_PLAYER:
+		# Surface installations are anchored to Earth's surface — thrust
+		# inputs are silently ignored on them, otherwise the queued Δv
+		# would land in raw_maneuver and confuse the planning preview.
+		if sat.team == Satellite.TEAM_PLAYER and not sat.is_surface:
 			sat.set_maneuver(thrust)
 
 	# Engagement-range nudge. Always written to the *real* satellite —

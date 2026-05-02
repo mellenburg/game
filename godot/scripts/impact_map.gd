@@ -13,6 +13,7 @@ extends Control
 ## basemap rather than under it.
 
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
+const Satellite = preload("res://scripts/satellite.gd")
 
 # Inner Control that draws the impact markers and grid. Lives as a
 # child of ImpactMap, added AFTER the map TextureRect so Godot's
@@ -25,6 +26,13 @@ class _MarkerLayer extends Control:
 	# same instance — the parent passes its tracker straight through.
 	const _Tracker = preload("res://scripts/impact_tracker.gd")
 	var tracker: _Tracker = null
+	# Bound to EarthSystem.real_satellites; the layer filters for
+	# is_surface each draw call so newly-placed or destroyed surface
+	# installations show up without any signal plumbing. Plain Array
+	# typing because the inner class can't reach the outer file's typed-
+	# array element binding cleanly — same idiom RadarMap uses for its
+	# wave list.
+	var satellites: Array = []
 	var origin: Vector2 = Vector2.ZERO
 	var map_size: Vector2 = Vector2.ZERO
 	var lat_clamp_deg: float = 85.0
@@ -32,6 +40,15 @@ class _MarkerLayer extends Control:
 	var marker_outer: Color = Color(1.0, 0.25, 0.05, 0.95)
 	var marker_inner: Color = Color(1.0, 0.85, 0.4, 0.95)
 	var marker_radius: float = 4.0
+	# Surface-installation marker palette: green to match the in-world
+	# COLOR_SURFACE tint, distinct from the red/orange impact dots so
+	# the two readouts coexist on the same map without ambiguity.
+	# Squares (drawn by _draw_rect) instead of circles so the eye can
+	# tell at a glance which markers are friendly emplacements vs.
+	# meteorite impacts at the same lat/lon.
+	var surface_outer: Color = Color(0.85, 1.0, 0.30, 0.95)
+	var surface_inner: Color = Color(0.20, 0.70, 0.15, 0.95)
+	var surface_marker_side: float = 8.0
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -41,6 +58,7 @@ class _MarkerLayer extends Control:
 
 	func _draw() -> void:
 		_draw_grid()
+		_draw_surface_units()
 		if tracker == null:
 			return
 		for entry in tracker.impacts:
@@ -49,6 +67,30 @@ class _MarkerLayer extends Control:
 			var p := _latlon_to_local(lat, lon)
 			draw_circle(p, marker_radius + 1.5, marker_outer)
 			draw_circle(p, marker_radius - 1.0, marker_inner)
+
+	# Surface-unit markers are drawn UNDER the impact dots so a
+	# meteorite that lands on top of an emplacement still shows the
+	# impact splash on top — easier to read as "this position was hit"
+	# than the inverse layering would be.
+	func _draw_surface_units() -> void:
+		var side := surface_marker_side
+		var half := side * 0.5
+		for sat in satellites:
+			if sat == null or not sat.is_surface:
+				continue
+			if not sat.alive:
+				continue
+			var p := _latlon_to_local(sat.surface_lat_deg, sat.surface_lon_deg)
+			# Outer rect (slightly larger) drawn first as a halo, inner
+			# fill on top — same two-tone idiom as the impact circles.
+			draw_rect(
+				Rect2(p.x - half - 1.0, p.y - half - 1.0, side + 2.0, side + 2.0),
+				surface_outer, true,
+			)
+			draw_rect(
+				Rect2(p.x - half + 1.0, p.y - half + 1.0, side - 2.0, side - 2.0),
+				surface_inner, true,
+			)
 
 	func _draw_grid() -> void:
 		var mid_x := origin.x + map_size.x * 0.5
@@ -102,6 +144,13 @@ var tracker: ImpactTracker:
 		tracker = value
 		if _marker_layer != null:
 			_marker_layer.tracker = value
+# Reference to the live game's satellite list. Bound from EarthSystem
+# at _ready; the marker layer filters for is_surface each draw call.
+var satellites: Array[Satellite] = []:
+	set(value):
+		satellites = value
+		if _marker_layer != null:
+			_marker_layer.satellites = value
 var _panel: Panel
 var _map_rect: TextureRect
 var _title: Label
@@ -164,6 +213,7 @@ func _ready() -> void:
 	_marker_layer.marker_inner = MARKER_INNER
 	_marker_layer.marker_radius = MARKER_RADIUS
 	_marker_layer.tracker = tracker
+	_marker_layer.satellites = satellites
 	add_child(_marker_layer)
 
 

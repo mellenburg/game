@@ -17,6 +17,8 @@ const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
+const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
+const SurfacePosition = preload("res://scripts/surface_position.gd")
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -179,6 +181,50 @@ func _default_loadout_for(index: int) -> Array[Weapon]:
 	if index >= 2:
 		return [RailgunWeapon.new()] as Array[Weapon]
 	return [LaserWeapon.new()] as Array[Weapon]
+
+
+# Spawn the player's configured surface installations. `earth_phase`
+# at spawn time is taken from the EarthSystem so the very first frame
+# already has the units sitting on the right ECI position; subsequent
+# frames are driven by Satellite.update_surface_position from the
+# physics tick. Empty `configs` is a no-op — surface units are entirely
+# opt-in and the legacy direct-boot path leaves them empty.
+func spawn_surface_units(
+	configs: Array[SurfaceUnitConfig], earth_phase: float
+) -> void:
+	for cfg in configs:
+		var sat := Satellite.new()
+		sat.team = Satellite.TEAM_PLAYER
+		sat.is_surface = true
+		sat.surface_lat_deg = cfg.lat_deg
+		sat.surface_lon_deg = cfg.lon_deg
+		sat.max_hp = cfg.max_hp
+		sat.hp = cfg.max_hp
+		sat.mass = cfg.mass_kg
+		sat.weapons = _surface_weapons_for_kind(cfg.weapon_kind)
+		# Seed orbit with the spawn-tick surface position so the first
+		# render frame draws the marker on the ground rather than at
+		# Satellite._init's DEFAULT_R far above LEO. update_surface_position
+		# overwrites this each physics tick.
+		var radius := EarthOrbit.EARTH_RADIUS_KM + Satellite.SURFACE_UNIT_ALTITUDE_KM
+		var pos := SurfacePosition.latlon_to_eci(
+			cfg.lat_deg, cfg.lon_deg, earth_phase, radius
+		)
+		sat.orbit = EarthOrbit.new(pos, Vector3(0.0, 0.0, 1.0e-3))
+		_satellite_container.add_child(sat)
+		_satellites.append(sat)
+
+
+# Surface installations are laser-only in the MVP (see
+# SurfaceUnitConfig comments for why). Returns a fresh array per call
+# so each unit gets its own per-weapon heat / overheat state.
+func _surface_weapons_for_kind(weapon_kind: int) -> Array[Weapon]:
+	# Hangar's WEAPON_LASER == SurfaceUnitConfig.WEAPON_LASER == 0; the
+	# match is here to mirror _weapons_for_kind's structure so adding a
+	# second surface weapon kind later is a one-line edit.
+	match weapon_kind:
+		_:
+			return [LaserWeapon.new()] as Array[Weapon]
 
 
 # Translate a UnitConfig.WEAPON_* selection into a freshly-allocated
