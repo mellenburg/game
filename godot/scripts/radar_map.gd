@@ -35,7 +35,20 @@ class _BlipLayer extends Control:
 	var axis_color: Color = Color(0.85, 0.92, 1.0, 0.35)
 	var blip_outer: Color = Color(1.0, 0.35, 0.35, 0.95)
 	var blip_inner: Color = Color(1.0, 0.85, 0.4, 0.95)
+	# Decaying-orbit threats get a magenta tint so the operator can
+	# distinguish them at a glance from sub-orbital meteorites — they
+	# behave very differently (long spiral-in vs straight ground impact)
+	# and mixing the two color codes them on the wave radar.
+	var blip_decaying_outer: Color = Color(0.95, 0.45, 0.95, 0.95)
+	var blip_decaying_inner: Color = Color(1.0, 0.85, 0.4, 0.95)
 	var blip_radius: float = 3.0
+	# Mass^(2/3) scaling of the blip radius: a body whose mass equals
+	# this reference renders at the unscaled blip_radius. Heavier bodies
+	# scale up at the 2/3 power (proportional to a sphere's projected
+	# cross-section under linear-radius scaling), lighter shrink. 1000 kg
+	# matches Satellite.DEFAULT_MASS_KG so the legacy fixed-radius look
+	# falls out for default bodies.
+	var blip_reference_mass_kg: float = 1000.0
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -98,8 +111,20 @@ class _BlipLayer extends Control:
 				origin.x + (x_norm * 0.5 + 0.5) * view_size.x,
 				origin.y + y_norm * view_size.y,
 			)
-			draw_circle(p, blip_radius + 1.5, blip_outer)
-			draw_circle(p, blip_radius - 1.0, blip_inner)
+			# Mass^(2/3) gives the radar blip a "size on screen"
+			# proportional to a body's cross-section (radius ∝ mass^(1/3),
+			# projected area ∝ mass^(2/3)) — matches the player's mental
+			# model that a heavier rock should look bigger. Specs without
+			# a mass key (legacy storms) fall back to the reference mass.
+			var mass: float = entry.get("mass", blip_reference_mass_kg)
+			var r := blip_radius * pow(
+				maxf(mass, 1.0) / blip_reference_mass_kg, 2.0 / 3.0
+			)
+			var is_decaying: bool = entry.get("is_decaying", false)
+			var outer := blip_decaying_outer if is_decaying else blip_outer
+			var inner := blip_decaying_inner if is_decaying else blip_inner
+			draw_circle(p, r + 1.5, outer)
+			draw_circle(p, maxf(r - 1.0, 0.5), inner)
 
 
 const RADAR_SIZE := Vector2(420.0, 320.0)
