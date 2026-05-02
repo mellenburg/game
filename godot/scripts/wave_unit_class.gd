@@ -1,0 +1,186 @@
+class_name WaveUnitClass
+extends Resource
+## One wave-unit "size class" (small / medium / large). Each class
+## carries the parameters that govern what gets sampled when the spawn
+## director materialises a wave-unit of that class:
+##   * `count_min` / `count_max`  : range from which the per-unit
+##                                  object count is drawn at spawn.
+##                                  Equal min/max collapses to a fixed
+##                                  count.
+##   * `decaying_ratio_min/max`   : range from which the decaying-orbit
+##                                  share is drawn (0.0 = none, 1.0 =
+##                                  every object spirals in).
+##   * `size_small/medium/large`  : barycentric weights summing to 1.0
+##                                  governing how the wave-unit's
+##                                  objects split across small / medium
+##                                  / large mass bands. (Distinct from
+##                                  the *wave-unit's* own size class —
+##                                  a "large wave-unit" can still be
+##                                  composed mostly of small objects.)
+##
+## Pure data Resource so the Recon editor can mutate fields in place
+## and the spawn path consumes them at sample time. Fields are kept on
+## one Resource (rather than three separate range objects) to keep the
+## inspector / save-shape flat.
+
+# Range bounds enforced by the editor. Floor at 1 because a wave-unit
+# with zero objects has no meaningful effect; cap at 200 so the spawn
+# burst can't accidentally lock the propagator. Tweak if balance work
+# wants larger bursts.
+const COUNT_MIN: int = 1
+const COUNT_MAX: int = 200
+
+@export var count_min: int = 20
+@export var count_max: int = 20
+@export var decaying_ratio_min: float = 0.2
+@export var decaying_ratio_max: float = 0.4
+@export var size_small: float = 0.7
+@export var size_medium: float = 0.25
+@export var size_large: float = 0.05
+
+
+# Sample a concrete object count for one wave-unit instance. Range
+# convention: [count_min, count_max] inclusive; equal min/max yields
+# the constant value.
+func sample_count(rng: RandomNumberGenerator) -> int:
+	var lo := mini(count_min, count_max)
+	var hi := maxi(count_min, count_max)
+	return rng.randi_range(lo, hi)
+
+
+# Sample a decaying-orbit ratio in [decaying_ratio_min, decaying_ratio_max].
+# Caller multiplies by the sampled count and rounds to get the integer
+# decaying-body slot count.
+func sample_decaying_ratio(rng: RandomNumberGenerator) -> float:
+	var lo := minf(decaying_ratio_min, decaying_ratio_max)
+	var hi := maxf(decaying_ratio_min, decaying_ratio_max)
+	return rng.randf_range(lo, hi)
+
+
+# Allocate `count` objects into (small, medium, large) integer counts
+# from the barycentric weights. Uses largest-remainder rounding so the
+# three integers always sum to `count` exactly — naive `round(count *
+# w)` can over- or under-count by up to 1 each, leaving gaps in the
+# spec list the spawn director would otherwise fail to fill.
+func sample_object_size_counts(count: int) -> Dictionary:
+	var weights: Array[float] = normalized_weights()
+	var raw: Array[float] = [
+		float(count) * weights[0],
+		float(count) * weights[1],
+		float(count) * weights[2],
+	]
+	var floors: Array[int] = [int(raw[0]), int(raw[1]), int(raw[2])]
+	var remainder: int = count - (floors[0] + floors[1] + floors[2])
+	# Largest-remainder: hand the leftover units to whichever weights
+	# had the biggest fractional part. Stable tie-break by lower index
+	# (we sort descending on fractional part; equal fracs preserve
+	# original order via the indexed pairs).
+	var fracs: Array = [
+		[raw[0] - float(floors[0]), 0],
+		[raw[1] - float(floors[1]), 1],
+		[raw[2] - float(floors[2]), 2],
+	]
+	fracs.sort_custom(func(a, b): return float(a[0]) > float(b[0]))
+	for i in range(remainder):
+		var idx: int = int(fracs[i][1])
+		floors[idx] += 1
+	return {"small": floors[0], "medium": floors[1], "large": floors[2]}
+
+
+# Normalised (s, m, l) tuple. Always sums to 1.0; if all three weights
+# are zero we fall back to even thirds so the editor can't hand the
+# spawner a degenerate (0, 0, 0) and starve the wave-unit.
+func normalized_weights() -> Array[float]:
+	var s := maxf(size_small, 0.0)
+	var m := maxf(size_medium, 0.0)
+	var l := maxf(size_large, 0.0)
+	var total := s + m + l
+	if total <= 0.0:
+		return [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
+	return [s / total, m / total, l / total]
+
+
+# In-place barycentric clamp. Clears negatives and rescales so the
+# three weights sum to 1.0. Called by the editor after a triangle-
+# picker drag to keep the stored values consistent with what the user
+# sees.
+func normalize_weights_in_place() -> void:
+	var n := normalized_weights()
+	size_small = n[0]
+	size_medium = n[1]
+	size_large = n[2]
+
+
+# Clamp count_min <= count_max into the allowed band. Called by the
+# range-slider after a drag; the slider tracks the two handles
+# independently and we tidy on commit.
+func clamp_count_range() -> void:
+	count_min = clampi(count_min, COUNT_MIN, COUNT_MAX)
+	count_max = clampi(count_max, COUNT_MIN, COUNT_MAX)
+	if count_min > count_max:
+		var tmp := count_min
+		count_min = count_max
+		count_max = tmp
+
+
+func clamp_decaying_range() -> void:
+	decaying_ratio_min = clampf(decaying_ratio_min, 0.0, 1.0)
+	decaying_ratio_max = clampf(decaying_ratio_max, 0.0, 1.0)
+	if decaying_ratio_min > decaying_ratio_max:
+		var tmp := decaying_ratio_min
+		decaying_ratio_min = decaying_ratio_max
+		decaying_ratio_max = tmp
+
+
+# Default factory for the three ship-class progression. Tunes are
+# chosen so a small wave-unit reads as "scattered fast impactors", a
+# medium as "mixed bag with some decaying threats", and a large as
+# "heavyweight assault with lots of decaying spirals". All three start
+# with count locked at 20 so the legacy 20-body wave behaviour reads
+# unchanged before the player touches the editor.
+static func default_small() -> WaveUnitClass:
+	var c := WaveUnitClass.new()
+	c.count_min = 18
+	c.count_max = 22
+	c.decaying_ratio_min = 0.10
+	c.decaying_ratio_max = 0.20
+	c.size_small = 0.80
+	c.size_medium = 0.15
+	c.size_large = 0.05
+	return c
+
+
+static func default_medium() -> WaveUnitClass:
+	var c := WaveUnitClass.new()
+	c.count_min = 22
+	c.count_max = 28
+	c.decaying_ratio_min = 0.20
+	c.decaying_ratio_max = 0.35
+	c.size_small = 0.45
+	c.size_medium = 0.40
+	c.size_large = 0.15
+	return c
+
+
+static func default_large() -> WaveUnitClass:
+	var c := WaveUnitClass.new()
+	c.count_min = 28
+	c.count_max = 38
+	c.decaying_ratio_min = 0.30
+	c.decaying_ratio_max = 0.50
+	c.size_small = 0.20
+	c.size_medium = 0.40
+	c.size_large = 0.40
+	return c
+
+
+func duplicate_class() -> WaveUnitClass:
+	var c := WaveUnitClass.new()
+	c.count_min = count_min
+	c.count_max = count_max
+	c.decaying_ratio_min = decaying_ratio_min
+	c.decaying_ratio_max = decaying_ratio_max
+	c.size_small = size_small
+	c.size_medium = size_medium
+	c.size_large = size_large
+	return c

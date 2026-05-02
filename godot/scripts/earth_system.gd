@@ -25,6 +25,8 @@ const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
 const Mission = preload("res://scripts/mission.gd")
 const EndGameOverlay = preload("res://scripts/end_game_overlay.gd")
+const ReconSettings = preload("res://scripts/recon_settings.gd")
+const WaveUnitClass = preload("res://scripts/wave_unit_class.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
@@ -118,6 +120,11 @@ var _mission_summary_shown: bool = false
 # wave-unit in that wave so the cluster lands inside one solid-angle
 # patch. Indexed by int wave_id, value is a unit Vector3.
 var _mission_wave_bases: Dictionary = {}
+# Snapshot of ReconSettings the active mission was started against.
+# Mid-mission edits land on PlayerLoadout but don't rebuild this; we
+# snapshot at start so a wave-unit emission still resolves to the
+# class config the player intended at launch time.
+var _mission_settings: ReconSettings = null
 
 @onready var earth: Earth = $Earth as Earth
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
@@ -197,8 +204,24 @@ func _ready() -> void:
 	# the menu's Launch button. Direct main.tscn boot keeps the legacy
 	# sandbox where waves are only triggered by the debug keybinds.
 	if _player_loadout_is_launched():
-		mission = Mission.default_mission()
-		mission.start()
+		_mission_settings = _player_loadout_recon_settings()
+		mission = Mission.new()
+		mission.start_from_settings(_mission_settings)
+
+
+# Pull the player's wave configuration off PlayerLoadout. Falls back
+# to the shipped default settings if the autoload is missing or has
+# never been initialised — direct main.tscn boots take this branch.
+func _player_loadout_recon_settings() -> ReconSettings:
+	var tree := get_tree()
+	if tree == null:
+		return ReconSettings.default_settings()
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null or loadout.recon_settings == null:
+		return ReconSettings.default_settings()
+	# Snapshot a copy so live edits to PlayerLoadout.recon_settings can
+	# never mutate the running mission's config out from under it.
+	return loadout.recon_settings.duplicate_settings()
 
 
 # Tighter check than `_player_loadout_launches`: we want a true / false
@@ -323,7 +346,11 @@ func _tick_mission(delta: float) -> void:
 		if not _mission_wave_bases.has(wave_id):
 			_mission_wave_bases[wave_id] = spawn_director.sample_unit_vector()
 		var base: Vector3 = _mission_wave_bases[wave_id]
-		spawn_director.start_meteorite_wave_clustered(base)
+		var size_class := int(emission.get("size_class", ReconSettings.SIZE_SMALL))
+		var unit_class: WaveUnitClass = null
+		if _mission_settings != null:
+			unit_class = _mission_settings.class_for(size_class)
+		spawn_director.start_wave_unit_clustered(base, unit_class)
 
 
 # Once every wave has been handed to the spawn director, the in-flight

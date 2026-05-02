@@ -21,6 +21,7 @@ const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
 const Launch = preload("res://scripts/launch.gd")
+const WaveUnitClass = preload("res://scripts/wave_unit_class.gd")
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -449,6 +450,86 @@ func start_meteorite_wave_clustered(base_r_hat: Vector3) -> void:
 # seeded RNG this director owns.
 func sample_unit_vector() -> Vector3:
 	return _random_unit_vector()
+
+
+# Begin a meteorite wave driven by a WaveUnitClass: object count, the
+# decaying-orbit ratio, and the per-object size mix all come from the
+# class's range / barycentric fields. Same nexus-clustering as
+# `start_meteorite_wave_clustered`; same threat-alert / radar-overlay
+# wiring. This is the entry point Mission emissions land on.
+func start_wave_unit_clustered(
+	base_r_hat: Vector3, unit_class: WaveUnitClass
+) -> void:
+	if unit_class == null:
+		start_meteorite_wave_clustered(base_r_hat)
+		return
+	var perturbed := _perturb_unit_vector(
+		base_r_hat, deg_to_rad(MISSION_NEXUS_CONE_HALF_ANGLE_DEG)
+	)
+	var count := unit_class.sample_count(_rng)
+	var decaying_ratio := unit_class.sample_decaying_ratio(_rng)
+	var wave := _build_meteorite_wave_at_nexus(perturbed)
+	var specs := _sample_class_wave_specs(
+		count,
+		decaying_ratio,
+		unit_class,
+		METEORITE_WAVE_DURATION_SEC,
+		METEORITE_WAVE_PREROLL_SEC,
+	)
+	wave.set_specs(
+		specs, METEORITE_WAVE_DURATION_SEC, METEORITE_LATERAL_SPREAD_KM
+	)
+	meteorite_waves.append(wave)
+	if _threat_alert != null:
+		_threat_alert.trigger()
+
+
+# Build per-object specs for a class-driven wave-unit. Object size
+# bands come from the class's barycentric weights (largest-remainder
+# rounded so the three counts always sum to `count` exactly); the
+# decaying-orbit subset is a uniform-random pick of `round(count *
+# decaying_ratio)` slots across the *whole* spec list — unlike the
+# legacy 20-body wave (which restricted decaying to medium/large), a
+# class-driven wave can pour decaying threats onto any size.
+func _sample_class_wave_specs(
+	count: int,
+	decaying_ratio: float,
+	unit_class: WaveUnitClass,
+	duration_sec: float,
+	preroll_sec: float,
+) -> Array[Dictionary]:
+	var specs: Array[Dictionary] = []
+	if count <= 0:
+		return specs
+	var bands := unit_class.sample_object_size_counts(count)
+	var sizes: Array[int] = []
+	for _i in range(int(bands["small"])):
+		sizes.append(SIZE_SMALL)
+	for _i in range(int(bands["medium"])):
+		sizes.append(SIZE_MEDIUM)
+	for _i in range(int(bands["large"])):
+		sizes.append(SIZE_LARGE)
+	_shuffle_int_array(sizes)
+	# Decaying-slot picks are independent of size — the class's
+	# decaying ratio governs the overall share, not the heavy-body
+	# subset like the legacy wave did.
+	var n_decaying := clampi(
+		int(round(float(count) * decaying_ratio)), 0, count
+	)
+	var indices: Array[int] = []
+	for i in range(count):
+		indices.append(i)
+	_shuffle_int_array(indices)
+	var decaying_set := {}
+	for i in range(n_decaying):
+		decaying_set[indices[i]] = true
+	for i in range(count):
+		var size_class: int = sizes[i]
+		var mass := _sample_mass_for_class(size_class)
+		specs.append(_make_wave_spec(
+			mass, decaying_set.has(i), duration_sec, preroll_sec
+		))
+	return specs
 
 
 # Internal: shared body of `start_meteorite_wave` (random nexus) and

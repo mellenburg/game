@@ -13,6 +13,7 @@ extends Control
 ## the 3D scene independent of camera state.
 
 const MENU_SCENE_PATH := "res://scenes/menu.tscn"
+const ReconEditor = preload("res://scripts/menu/recon_editor.gd")
 
 const COLOR_OVERLAY := Color(0.0, 0.0, 0.0, 0.55)
 const COLOR_PANEL := Color(0.07, 0.085, 0.11)
@@ -99,14 +100,17 @@ func _build_ui() -> void:
 	add_child(_root_panel)
 
 	_settings_panel = _build_settings_panel()
-	_settings_panel.anchor_left = 0.5
-	_settings_panel.anchor_top = 0.5
-	_settings_panel.anchor_right = 0.5
-	_settings_panel.anchor_bottom = 0.5
-	_settings_panel.offset_left = -240
-	_settings_panel.offset_right = 240
-	_settings_panel.offset_top = -200
-	_settings_panel.offset_bottom = 200
+	# Recon editor needs more room than the previous placeholder; size
+	# it as a comfortable margin off the viewport edges so the per-class
+	# triangles + wave list aren't cramped.
+	_settings_panel.anchor_left = 0.0
+	_settings_panel.anchor_top = 0.0
+	_settings_panel.anchor_right = 1.0
+	_settings_panel.anchor_bottom = 1.0
+	_settings_panel.offset_left = 60
+	_settings_panel.offset_right = -60
+	_settings_panel.offset_top = 60
+	_settings_panel.offset_bottom = -60
 	_settings_panel.visible = false
 	add_child(_settings_panel)
 
@@ -149,9 +153,11 @@ func _build_main_panel() -> PanelContainer:
 	return panel
 
 
-# Settings is a placeholder for now — the layout slot is defined here
-# so the existing pause flow already knows how to present it, but the
-# fields themselves aren't wired to live engine settings yet.
+# Settings panel is the same Recon editor the pre-game menu's Recon
+# tab mounts. Both bind to PlayerLoadout.recon_settings, so an edit
+# made while paused persists for the next launch — Mission snapshots
+# the settings at start and never re-reads them mid-run, so live
+# changes don't reroll the running schedule.
 func _build_settings_panel() -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", _flat_stylebox(COLOR_PANEL))
@@ -164,57 +170,41 @@ func _build_settings_panel() -> PanelContainer:
 	panel.add_child(pad)
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 10)
+	col.add_theme_constant_override("separation", 12)
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pad.add_child(col)
 
 	var title := Label.new()
-	title.text = "SETTINGS"
+	title.text = "RECON"
 	title.add_theme_color_override("font_color", COLOR_ACCENT)
 	title.add_theme_font_size_override("font_size", 20)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(title)
 
+	var sub := Label.new()
+	sub.text = "Wave & wave-unit settings — applied to the next launch."
+	sub.add_theme_color_override("font_color", COLOR_FG_DIM)
+	sub.add_theme_font_size_override("font_size", 11)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(sub)
+
 	col.add_child(_hr())
 
-	col.add_child(_settings_row("Master Volume", "100%"))
-	col.add_child(_settings_row("Music Volume", "80%"))
-	col.add_child(_settings_row("SFX Volume", "100%"))
-	col.add_child(_settings_row("Mouse Sensitivity", "1.00"))
-	col.add_child(_settings_row("UI Scale", "100%"))
+	var editor := ReconEditor.new()
+	editor.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	editor.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Bind explicitly even though the editor would resolve the same
+	# loadout on its own — being explicit means swapping this overlay
+	# in for a different Resource later (e.g. a "scratch" sandbox)
+	# only takes the one-line bind change.
+	if Engine.has_singleton("PlayerLoadout") or get_tree().root.has_node("PlayerLoadout"):
+		editor.bind_settings(get_tree().root.get_node("PlayerLoadout").recon_settings)
+	col.add_child(editor)
 
 	col.add_child(_hr())
-
-	var note := Label.new()
-	note.text = "Settings editor coming soon — these read-outs are placeholders."
-	note.add_theme_color_override("font_color", COLOR_FG_DIM)
-	note.add_theme_font_size_override("font_size", 11)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(note)
-
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_child(spacer)
 
 	col.add_child(_make_button("Back", _on_settings_back_pressed))
 	return panel
-
-
-func _settings_row(label: String, value: String) -> HBoxContainer:
-	var row := HBoxContainer.new()
-	var lbl := Label.new()
-	lbl.text = label
-	lbl.add_theme_color_override("font_color", COLOR_FG)
-	lbl.add_theme_font_size_override("font_size", 12)
-	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(lbl)
-
-	var val := Label.new()
-	val.text = value
-	val.add_theme_color_override("font_color", COLOR_FG_DIM)
-	val.add_theme_font_size_override("font_size", 12)
-	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(val)
-	return row
 
 
 func _make_button(text: String, handler: Callable) -> Button:

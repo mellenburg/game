@@ -20,6 +20,7 @@ const UnitConfig = preload("res://scripts/unit_config.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const Launch = preload("res://scripts/launch.gd")
 const Satellite = preload("res://scripts/satellite.gd")
+const ReconSettings = preload("res://scripts/recon_settings.gd")
 
 # Pre-game launch capacity, in propellant kg. Each scheduled launch
 # debits the budget by Tsiolkovsky-weighted propellant — heavier units
@@ -106,6 +107,12 @@ var launches: Array[Launch] = []
 var surface_units: Array[SurfaceUnitConfig] = []
 var launched: bool = false
 
+# Wave / wave-unit configuration the player edits via the Recon tab in
+# the pre-game menu and the Settings panel in the in-game pause menu.
+# Mission.start consumes this once per run; live edits queue for the
+# next launch rather than rerolling the running schedule.
+var recon_settings: ReconSettings = ReconSettings.default_settings()
+
 # Monotonic id counters — used to produce stable per-unit ids so a
 # launch's unit_id reference survives the operator reordering /
 # renaming the pool. The ints are private state; callers don't need to
@@ -117,6 +124,15 @@ var _next_launch_seq: int = 1
 func _ready() -> void:
 	if unit_pool.is_empty():
 		reset_units()
+	if recon_settings == null:
+		recon_settings = ReconSettings.default_settings()
+
+
+# Restore wave / wave-unit settings to the shipped defaults. Bound to
+# the Recon editor's "Reset" affordance so the player can drop a tuning
+# experiment without restarting the process.
+func reset_recon_settings() -> void:
+	recon_settings = ReconSettings.default_settings()
 
 
 # Repopulate the unit pool and launch list with the default 3-unit
