@@ -38,7 +38,7 @@ class FakeSat extends RefCounted:
 	func _init() -> void:
 		orbit = FakeOrbit.new()
 
-	func take_damage(amount: float) -> bool:
+	func take_damage(amount: float, _attacker = null) -> bool:
 		hp = maxf(hp - amount, 0.0)
 		if hp <= 0.0:
 			alive = false
@@ -62,8 +62,11 @@ func _make_enemy(pos: Vector3) -> FakeSat:
 
 func test_cool_rate_is_quarter_of_heat_rate() -> void:
 	# Core invariant of the impulse model: heating outruns cooling 4:1.
+	# `cool_rate` is now a field driven by the radiator complement; a
+	# bare construction defaults to COOL_PER_SEC, which is the
+	# pre-parts baseline this invariant was sized against.
 	var w := LaserWeapon.new()
-	assert_close(w.heat_rate(), 4.0 * w.cool_rate())
+	assert_close(w.heat_rate(), 4.0 * w.cool_rate)
 
 
 func test_idle_weapon_is_ready() -> void:

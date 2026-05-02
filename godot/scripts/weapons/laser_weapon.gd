@@ -31,8 +31,10 @@ const ENERGY_PER_SEC: float = 0.005
 # means 40 sim-sec of continuous fire takes the weapon from full
 # ready to overheated.
 const HEAT_PER_SEC: float = 0.025
-# Recovery per sim-second of idle. 4x slower than heat by design —
-# 160 sim-sec to fully cool from overheated.
+# Baseline recovery per sim-second of idle, used as the bare-instance
+# default and the per-radiator contribution. 4x slower than heat by
+# design — 160 sim-sec to fully cool from overheated when the unit
+# carries one default-tier radiator.
 const COOL_PER_SEC: float = HEAT_PER_SEC / 4.0
 # Distance at which damage drops to zero. Linear falloff between 0 km
 # (full damage) and MAX_RANGE_KM (no damage). 40 000 km ≈ 6.3 Earth
@@ -47,13 +49,31 @@ const MAX_RANGE_KM: float = 40000.0
 # this would let an operator effectively disable fire control.
 const MIN_ENGAGEMENT_RANGE_KM: float = 500.0
 
+# Damage tier multiplier wired up by SpawnDirector when the unit is
+# built. Default 1.0 keeps every existing call site (and every unit
+# test that constructs a bare `LaserWeapon.new()`) on the original
+# numbers; SpawnDirector overrides it from the weapon part's tier.
+# Heat accumulation is intrinsic to the emitter and stays unmultiplied
+# — the same shot still loads the same thermal energy; the radiator
+# (which feeds the base class's `cool_rate` field) only flushes it
+# faster.
+var damage_mult: float = 1.0
+
+
+# Bare construction defaults cool_rate to the per-class baseline so
+# tests that build a LaserWeapon without a unit still cool at the
+# pre-parts rate. SpawnDirector overwrites this at spawn time with
+# the unit's aggregate radiator contribution.
+func _init() -> void:
+	cool_rate = COOL_PER_SEC
+
 
 func display_name() -> String:
 	return "Laser"
 
 
 func damage_per_second() -> float:
-	return DAMAGE_PER_SEC
+	return DAMAGE_PER_SEC * damage_mult
 
 
 func cost_per_second() -> float:
@@ -62,10 +82,6 @@ func cost_per_second() -> float:
 
 func heat_rate() -> float:
 	return HEAT_PER_SEC
-
-
-func cool_rate() -> float:
-	return COOL_PER_SEC
 
 
 func can_fire(attacker) -> bool:
@@ -175,7 +191,7 @@ func fire(attacker, target, sim_delta: float) -> bool:
 		return false
 	var distance: float = (target.orbit.r - attacker.orbit.r).length()
 	var dmg_scale: float = range_factor(distance)
-	target.take_damage(DAMAGE_PER_SEC * dt * dmg_scale)
+	target.take_damage(damage_per_second() * dt * dmg_scale, attacker)
 	attacker.energy = maxf(attacker.energy - ENERGY_PER_SEC * dt, 0.0)
 	ready_fraction = clampf(ready_fraction - HEAT_PER_SEC * dt, 0.0, 1.0)
 	if ready_fraction <= 0.0:

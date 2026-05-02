@@ -18,6 +18,15 @@ var ready_fraction: float = 1.0
 # to 1.0. Locks the weapon out of fire() for the entire cool window so
 # brief ready upticks don't let the operator dribble out shots.
 var overheated: bool = false
+# Recovery applied to ready_fraction per sim-second of cooling. The
+# value is supplied externally — the radiator parts the unit carries
+# define how fast each weapon cools, so this field is the single seam
+# between "weapon strategy" (heat / damage / range) and "thermal
+# system" (the radiator's job). Concrete weapons set a baseline in
+# their _init so a bare `LaserWeapon.new()` still cools at the
+# pre-parts rate (tests rely on this); SpawnDirector overwrites it
+# at spawn time with the per-unit radiator complement's contribution.
+var cool_rate: float = 0.0
 
 
 ## Cost in `attacker.energy` fractions per simulated second of fire.
@@ -33,12 +42,6 @@ func heat_rate() -> float:
 	return 0.0
 
 
-## Recovery applied to ready_fraction per sim-second of cooling.
-## By convention 4x slower than heat_rate for energy weapons.
-func cool_rate() -> float:
-	return 0.0
-
-
 ## 0.0 = just overheated, 1.0 = ready. Mirror of ready_fraction so
 ## HUD code reads a stable progress accessor.
 func ready_progress() -> float:
@@ -51,7 +54,7 @@ func ready_progress() -> float:
 func tick(sim_delta: float) -> void:
 	if sim_delta <= 0.0:
 		return
-	ready_fraction = clampf(ready_fraction + cool_rate() * sim_delta, 0.0, 1.0)
+	ready_fraction = clampf(ready_fraction + cool_rate * sim_delta, 0.0, 1.0)
 	if overheated and ready_fraction >= 1.0:
 		overheated = false
 

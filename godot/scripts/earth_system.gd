@@ -27,6 +27,7 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
+const Launch = preload("res://scripts/launch.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -66,6 +67,17 @@ var planning_selected: int = 0
 # whether the cause was a weapon hit or a sub-orbital impact.
 var enemies_shot_down: int = 0
 var meteorites_impacted: int = 0
+# Sum of HP each impacting body still carried at ground contact —
+# i.e. the damage total Earth ate. Counted from the dead-sat sweep so
+# every impact flows through one place. Surfaced on the end-of-run
+# summary alongside per-unit damage / kills.
+var total_impact_hp: float = 0.0
+# Snapshots of player satellites that died during the run. Each entry
+# is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
+# the moment of death so the end-of-run summary can credit a unit
+# whose satellite never survived to the final tick. Live satellites
+# are read directly from real_satellites at summary time.
+var dead_player_stats: Array[Dictionary] = []
 
 var _time_factor_accum: float = 0.0
 var _planning_dt_accum: float = 0.0
@@ -144,7 +156,9 @@ func _ready() -> void:
 	if radar_map != null:
 		radar_map.waves = spawn_director.meteorite_waves
 
-	spawn_director.spawn_starting_fleet(_player_loadout_units())
+	var launches := _player_loadout_launches()
+	var pool := _player_loadout_pool()
+	spawn_director.spawn_starting_fleet(launches, pool)
 	spawn_director.spawn_surface_units(
 		_player_loadout_surface_units(), earth.earth_phase
 	)
@@ -160,26 +174,37 @@ func _ready() -> void:
 		real_satellites[selected_ship].select()
 
 
-# Pull the per-unit configs the pre-game menu set into PlayerLoadout, if
-# the autoload is present and the player launched from the menu. Empty
+# Pull the launches the pre-game menu set into PlayerLoadout, if the
+# autoload is present and the player launched from the menu. Empty
 # array otherwise — SpawnDirector treats that as "use the legacy
 # randomised fleet", which keeps direct-boot of main.tscn working for
 # debugging and any future smoke tests.
-func _player_loadout_units() -> Array[UnitConfig]:
+func _player_loadout_launches() -> Array[Launch]:
+	var empty: Array[Launch] = []
+	var tree := get_tree()
+	if tree == null:
+		return empty
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null or not loadout.launched:
+		return empty
+	var launches: Array[Launch] = loadout.launches
+	return launches
+
+
+# Companion lookup for the unit pool — SpawnDirector resolves each
+# launch's unit_id against this list so the chassis + parts are
+# available at materialisation time. Empty when no menu / not launched
+# (matches `_player_loadout_launches`'s shape).
+func _player_loadout_pool() -> Array[UnitConfig]:
 	var empty: Array[UnitConfig] = []
 	var tree := get_tree()
 	if tree == null:
 		return empty
 	var loadout := tree.root.get_node_or_null("PlayerLoadout")
-	if loadout == null:
+	if loadout == null or not loadout.launched:
 		return empty
-	if not loadout.launched:
-		return empty
-	# Loadout.units is already typed Array[UnitConfig]; assign through
-	# a typed local so the strict-warnings build doesn't see an
-	# inferred-Variant return.
-	var units: Array[UnitConfig] = loadout.units
-	return units
+	var pool: Array[UnitConfig] = loadout.unit_pool
+	return pool
 
 
 # Same gate as _player_loadout_units but for surface installations
@@ -314,7 +339,21 @@ func _remove_dead_satellites() -> void:
 				enemies_shot_down += 1
 			elif sat.is_meteorite or sat.is_decaying:
 				meteorites_impacted += 1
+				# HP at the moment of impact is the un-reduced threat
+				# Earth absorbed. Tally it before the satellite is
+				# freed so the end-of-run summary can show "total HP
+				# of impactors", not just a count.
+				total_impact_hp += maxf(sat.hp, 0.0)
 				_record_meteorite_impact(sat)
+		elif sat.team == Satellite.TEAM_PLAYER and sat.unit_name != "":
+			# Snapshot the dying player unit's tallies so the summary
+			# still credits its damage / kills even though the live
+			# Satellite is about to be freed.
+			dead_player_stats.append({
+				"unit_name": sat.unit_name,
+				"damage_dealt": sat.damage_dealt,
+				"kills": sat.kills,
+			})
 		# Mirror removal in planning so indices stay aligned.
 		if i < planning_satellites.size():
 			var plan_sat: Satellite = planning_satellites[i]
@@ -335,6 +374,40 @@ func _remove_dead_satellites() -> void:
 	# Picking a fresh selection above can leave the new ship un-highlighted.
 	if not real_satellites[selected_ship].selected:
 		real_satellites[selected_ship].select()
+
+
+# Build the end-of-run report. Combines live player-satellite tallies
+# (read directly from each Satellite) with the dead_player_stats
+# snapshots captured in _remove_dead_satellites, so a unit whose ship
+# was lost mid-run still gets credit for what it did. The end-game
+# overlay renders this dictionary directly; storing it as a struct
+# rather than a formatted string keeps the formatting concern in the
+# overlay where it belongs.
+func end_game_summary() -> Dictionary:
+	var per_unit: Array[Dictionary] = []
+	for sat in real_satellites:
+		if sat.team != Satellite.TEAM_PLAYER:
+			continue
+		if sat.unit_name == "":
+			continue
+		per_unit.append({
+			"unit_name": sat.unit_name,
+			"damage_dealt": sat.damage_dealt,
+			"kills": sat.kills,
+			"alive": sat.alive,
+		})
+	for dead in dead_player_stats:
+		per_unit.append({
+			"unit_name": String(dead.get("unit_name", "")),
+			"damage_dealt": float(dead.get("damage_dealt", 0.0)),
+			"kills": int(dead.get("kills", 0)),
+			"alive": false,
+		})
+	return {
+		"per_unit": per_unit,
+		"total_impacts": meteorites_impacted,
+		"total_impact_hp": total_impact_hp,
+	}
 
 
 func _process_continuous_input(delta: float) -> void:

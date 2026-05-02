@@ -29,7 +29,7 @@ class FakeSat extends RefCounted:
 	# matches the orbital path the existing tests exercise.
 	var is_surface: bool = false
 
-	func take_damage(amount: float) -> bool:
+	func take_damage(amount: float, _attacker = null) -> bool:
 		hp = maxf(hp - amount, 0.0)
 		if hp <= 0.0:
 			alive = false

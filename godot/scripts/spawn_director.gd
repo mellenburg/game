@@ -19,6 +19,8 @@ const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
+const UnitPart = preload("res://scripts/unit_part.gd")
+const Launch = preload("res://scripts/launch.gd")
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -119,10 +121,9 @@ func setup(
 	_rng.randomize()
 
 
-# Spawn the starting fleet. When `configs` is non-empty the player set
-# up the loadout in the pre-game menu — honour those exact orbits and
-# weapon kinds. When empty (e.g. the scene was booted directly without
-# going through the menu, or a test harness instantiates SpawnDirector)
+# Spawn the starting fleet. When `launches` is non-empty the player
+# configured launches via the pre-game menu — honour each launch's
+# assigned unit + orbit. When empty (scene booted directly, no menu)
 # fall back to the legacy randomised three-ship spread so existing
 # entry points keep working.
 #
@@ -133,9 +134,12 @@ func setup(
 # Replaces Satellite._init's default [Laser, Laser, Railgun] mix on
 # the spawned units; the freshly-allocated weapon instances dropped
 # here are RefCounted and freed when the array is reassigned.
-func spawn_starting_fleet(configs: Array[UnitConfig] = []) -> void:
-	if not configs.is_empty():
-		_spawn_from_configs(configs)
+func spawn_starting_fleet(
+	launches: Array[Launch] = [],
+	pool: Array[UnitConfig] = [],
+) -> void:
+	if not launches.is_empty():
+		_spawn_from_launches(launches, pool)
 		return
 	var inc_max := deg_to_rad(STARTING_SAT_INC_MAX_DEG)
 	var gap_min := deg_to_rad(STARTING_SAT_NU_GAP_MIN_DEG)
@@ -143,6 +147,7 @@ func spawn_starting_fleet(configs: Array[UnitConfig] = []) -> void:
 	var nu := _rng.randf_range(0.0, TAU)
 	for i in range(STARTING_SAT_COUNT):
 		var sat := Satellite.new()
+		sat.unit_name = "T-%02d" % (i + 1)
 		sat.orbit = EarthOrbit.make_circular(
 			STARTING_SAT_ALT_KM,
 			_rng.randf_range(0.0, inc_max),
@@ -155,22 +160,92 @@ func spawn_starting_fleet(configs: Array[UnitConfig] = []) -> void:
 		nu = fposmod(nu + _rng.randf_range(gap_min, gap_max), TAU)
 
 
-# Materialise the player's configured fleet. Each UnitConfig carries
-# its own altitude / inclination / RAAN / true-anomaly and weapon kind,
-# so this loop just translates those into orbit elements + Weapon
-# instances and parents the resulting satellites under the container.
-func _spawn_from_configs(configs: Array[UnitConfig]) -> void:
-	for cfg in configs:
+# Materialise the player's scheduled launches. Each Launch references a
+# unit by id; we resolve that against the pool and use the unit's
+# parts to build the satellite's weapons + tune its energy_max,
+# energy_rate, and per-weapon cool multipliers. Launches without an
+# assigned unit are skipped — PlayerLoadout.purge_unassigned_launches()
+# is expected to have already dropped them, but defensive skip-on-miss
+# means a stale/unmatched id won't crash the run.
+func _spawn_from_launches(
+	launches: Array[Launch], pool: Array[UnitConfig]
+) -> void:
+	for launch in launches:
+		if not launch.has_unit():
+			continue
+		var unit := _find_unit(pool, launch.unit_id)
+		if unit == null:
+			continue
 		var sat := Satellite.new()
 		sat.orbit = EarthOrbit.make_circular(
-			cfg.altitude_km,
-			deg_to_rad(cfg.inclination_deg),
-			deg_to_rad(cfg.raan_deg),
-			deg_to_rad(cfg.true_anomaly_deg),
+			launch.altitude_km,
+			deg_to_rad(launch.inclination_deg),
+			deg_to_rad(launch.raan_deg),
+			deg_to_rad(launch.true_anomaly_deg),
 		)
-		sat.weapons = _weapons_for_kind(cfg.weapon_kind)
+		_apply_unit_to_satellite(sat, unit)
 		_satellite_container.add_child(sat)
 		_satellites.append(sat)
+
+
+func _find_unit(pool: Array[UnitConfig], unit_id: String) -> UnitConfig:
+	for unit in pool:
+		if unit.id == unit_id:
+			return unit
+	return null
+
+
+# Translate a UnitConfig (chassis + parts) into the satellite's
+# spawn-time fields:
+#   * weapons: one Weapon per filled weapon slot, with damage / cool
+#     multipliers driven by that weapon's tier and the satellite's
+#     aggregate radiator multiplier.
+#   * energy_max: storage parts' total multiplier × default ENERGY_MAX
+#     (default tier with one slot ⇒ 1× default; advanced tier ⇒ 2×).
+#   * energy_rate_per_sim_sec: same logic against the reactor row.
+# A unit whose storage / reactor row is empty contributes zero to that
+# facet, which is intentional: a unit with no reactor cannot recharge.
+func _apply_unit_to_satellite(sat: Satellite, unit: UnitConfig) -> void:
+	var radiator_mult := unit.total_multiplier_for_kind(UnitPart.KIND_RADIATOR)
+	var storage_mult := unit.total_multiplier_for_kind(UnitPart.KIND_ENERGY_STORAGE)
+	var reactor_mult := unit.total_multiplier_for_kind(UnitPart.KIND_REACTOR)
+	sat.unit_name = unit.name
+	sat.energy_max = Satellite.ENERGY_MAX * storage_mult
+	sat.energy_rate_per_sim_sec = Satellite.ENERGY_RATE_PER_SIM_SEC * reactor_mult
+	sat.weapons = _build_weapons(unit, radiator_mult)
+
+
+# Translate the unit's weapon-slot row into a Weapon array, applying
+# the satellite's aggregate radiator multiplier to each weapon's
+# cool_mult so the cooldown speedup is felt by every gun the unit
+# carries. Empty / unknown weapon parts are skipped — a slot the player
+# explicitly left unfilled stays unfilled.
+func _build_weapons(unit: UnitConfig, radiator_mult: float) -> Array[Weapon]:
+	var out: Array[Weapon] = []
+	for part_id in unit.weapon_part_ids:
+		var part := UnitPart.get_by_id(part_id)
+		if part.kind != UnitPart.KIND_WEAPON or part.weapon_class == "":
+			continue
+		var w: Weapon = null
+		match part.weapon_class:
+			UnitPart.WCLASS_LASER:
+				var laser := LaserWeapon.new()
+				laser.damage_mult = part.multiplier
+				# Radiator complement defines the weapon's cooling rate
+				# directly. Per-class baseline × aggregate radiator mult
+				# means a unit with one default radiator cools at the
+				# pre-parts speed; an advanced radiator (or two) cools
+				# proportionally faster.
+				laser.cool_rate = LaserWeapon.COOL_PER_SEC * radiator_mult
+				w = laser
+			UnitPart.WCLASS_RAILGUN:
+				var railgun := RailgunWeapon.new()
+				railgun.damage_mult = part.multiplier
+				railgun.cool_rate = RailgunWeapon.COOL_PER_SEC * radiator_mult
+				w = railgun
+		if w != null:
+			out.append(w)
+	return out
 
 
 # Per-slot weapon loadout for the legacy randomised starting fleet.
@@ -196,6 +271,7 @@ func spawn_surface_units(
 		var sat := Satellite.new()
 		sat.team = Satellite.TEAM_PLAYER
 		sat.is_surface = true
+		sat.unit_name = cfg.name
 		sat.surface_lat_deg = cfg.lat_deg
 		sat.surface_lon_deg = cfg.lon_deg
 		sat.max_hp = cfg.max_hp
@@ -217,25 +293,13 @@ func spawn_surface_units(
 
 # Surface installations are laser-only in the MVP (see
 # SurfaceUnitConfig comments for why). Returns a fresh array per call
-# so each unit gets its own per-weapon heat / overheat state.
+# so each unit gets its own per-weapon heat / overheat state. The
+# laser is built bare — surface units don't carry a parts loadout, so
+# damage / cooling stay at the LaserWeapon class baselines.
 func _surface_weapons_for_kind(weapon_kind: int) -> Array[Weapon]:
-	# Hangar's WEAPON_LASER == SurfaceUnitConfig.WEAPON_LASER == 0; the
-	# match is here to mirror _weapons_for_kind's structure so adding a
-	# second surface weapon kind later is a one-line edit.
+	# SurfaceUnitConfig.WEAPON_LASER == 0; the match is here so adding
+	# a second surface weapon kind later is a one-line edit.
 	match weapon_kind:
-		_:
-			return [LaserWeapon.new()] as Array[Weapon]
-
-
-# Translate a UnitConfig.WEAPON_* selection into a freshly-allocated
-# weapon array. Each call returns new Weapon instances so per-weapon
-# cooldown/heat state is never shared across satellites.
-func _weapons_for_kind(weapon_kind: int) -> Array[Weapon]:
-	match weapon_kind:
-		UnitConfig.WEAPON_RAILGUN:
-			return [RailgunWeapon.new()] as Array[Weapon]
-		UnitConfig.WEAPON_MIXED:
-			return [LaserWeapon.new(), RailgunWeapon.new()] as Array[Weapon]
 		_:
 			return [LaserWeapon.new()] as Array[Weapon]
 

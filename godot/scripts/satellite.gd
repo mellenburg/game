@@ -63,6 +63,12 @@ const DEFAULT_MAX_ORBITAL_RADIUS_KM: float = 50000.0
 # floating-point slop in the propagator can't tip the body across the
 # surface termination check.
 const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 1.0
+# Defaults for the energy reservoir + reactor regen. Per-instance
+# `energy_max` and `energy_rate_per_sim_sec` start at these values and
+# are scaled at spawn time by the unit's energy-storage / reactor parts
+# (advanced parts double the corresponding facet). Constants kept on
+# the class so existing tests / callers that read the default still
+# resolve cleanly.
 const ENERGY_MAX: float = 1.0
 # Fraction of the energy pool gained per simulated second. Doubled
 # from the prior 0.00007 to compensate for the halved per-shot cost
@@ -76,11 +82,27 @@ var did_maneuver: bool = false
 var orbit_alive: bool = true
 
 var team: int = TEAM_PLAYER
+# Operator-facing display name. Set by SpawnDirector at spawn time
+# (mirroring the Hangar's UnitConfig.name); the HUD roster renders this
+# in the unit box and the end-of-run summary keys per-unit stats by
+# it. Empty string for unnamed bodies (enemies, meteorites, decaying
+# threats) so the HUD knows to skip the name row.
+var unit_name: String = ""
 # Per-instance HP cap. Defaults to MAX_HP for player / standard enemy
 # satellites; threat-spawning paths (meteorite, decaying-orbit body)
 # override it with their own cap and seed `hp` to the same value.
 var max_hp: float = MAX_HP
 var hp: float = MAX_HP
+# Cumulative damage this satellite has dealt across the run. Updated
+# when an attacker's weapon successfully fires — take_damage attributes
+# the actual applied amount to the attacker passed in. The end-of-run
+# summary reads this directly.
+var damage_dealt: float = 0.0
+# Number of enemies this satellite has finished off (dealt the killing
+# blow against). Incremented by take_damage when the attacker's hit
+# brings the target to 0 HP. Surface units and orbital ships share the
+# same counter — both count as "kills" for the unit summary.
+var kills: int = 0
 # Per-instance mass (kg). Used by the railgun's momentum-transfer math
 # only; orbital propagation is mass-independent. Spawners override for
 # heavier (decaying-orbit) or fragile (meteorite) bodies.
@@ -110,9 +132,14 @@ var is_surface: bool = false
 var surface_lat_deg: float = 0.0
 var surface_lon_deg: float = 0.0
 # Shared energy reservoir, drained by every weapon's fire(). Charges
-# at ENERGY_RATE_PER_SIM_SEC per simulated second so time_factor
-# scales it the same as everything else.
+# at energy_rate_per_sim_sec per simulated second so time_factor
+# scales it the same as everything else. `energy_max` and
+# `energy_rate_per_sim_sec` are overridden at spawn time per-unit by
+# SpawnDirector based on the operator's chosen energy-storage and
+# reactor parts.
 var energy: float = 0.0
+var energy_max: float = ENERGY_MAX
+var energy_rate_per_sim_sec: float = ENERGY_RATE_PER_SIM_SEC
 # Empty for unarmed units (e.g. enemies in the MVP). Player satellites
 # spawn with two lasers; weapons fire independently but share energy.
 var weapons: Array[Weapon] = []
@@ -200,7 +227,9 @@ func _init() -> void:
 func tick_combat(sim_delta: float) -> void:
 	if sim_delta <= 0.0:
 		return
-	energy = clampf(energy + ENERGY_RATE_PER_SIM_SEC * sim_delta, 0.0, ENERGY_MAX)
+	energy = clampf(
+		energy + energy_rate_per_sim_sec * sim_delta, 0.0, energy_max,
+	)
 
 
 func _ready() -> void:
@@ -366,12 +395,24 @@ func get_current_maneuver() -> Vector3:
 ## Only kills once — repeated calls on a dead satellite are no-ops, so
 ## stray late shots from concurrent attackers don't double-fire the
 ## death transition.
-func take_damage(amount: float) -> bool:
+##
+## When `attacker` is non-null, the actual applied damage (capped at
+## current HP so overkill doesn't inflate the counter) is added to
+## `attacker.damage_dealt`, and on a finishing blow `attacker.kills`
+## is bumped. The end-of-run summary reads both counters directly off
+## each player satellite, so per-shot crediting here is the single
+## source of truth.
+func take_damage(amount: float, attacker: Satellite = null) -> bool:
 	if not alive or amount <= 0.0:
 		return false
+	var applied: float = minf(amount, hp)
 	hp = maxf(hp - amount, 0.0)
+	if attacker != null:
+		attacker.damage_dealt += applied
 	if hp <= 0.0:
 		alive = false
+		if attacker != null:
+			attacker.kills += 1
 		_hide_visuals()
 		return true
 	return false
@@ -521,8 +562,11 @@ func clone_orbit_from(other: Satellite) -> void:
 	selected = other.selected
 	orbit_alive = other.orbit_alive
 	team = other.team
+	unit_name = other.unit_name
 	max_hp = other.max_hp
 	hp = other.hp
+	damage_dealt = other.damage_dealt
+	kills = other.kills
 	alive = other.alive
 	is_meteorite = other.is_meteorite
 	is_decaying = other.is_decaying
@@ -533,6 +577,8 @@ func clone_orbit_from(other: Satellite) -> void:
 	# energy bar for an enemy preview (clones get fresh weapons in
 	# _init that we'd otherwise leave dangling).
 	energy = other.energy
+	energy_max = other.energy_max
+	energy_rate_per_sim_sec = other.energy_rate_per_sim_sec
 	engagement_range_km = other.engagement_range_km
 	fire_control_active = other.fire_control_active
 	targeting_mode = other.targeting_mode

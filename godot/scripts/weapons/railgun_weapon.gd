@@ -50,9 +50,22 @@ const COOL_PER_SEC: float = 1.0 / COOLDOWN_SEC
 # code that consumes it) so the safety predicate is self-contained.
 const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 100.0
 
+# Damage tier multiplier — see laser_weapon.gd for the rationale.
+# Cooldown is now sourced from the radiator complement via the base
+# class's cool_rate field; advanced railguns just hit harder. Slug
+# momentum / energy cost are deliberately untouched.
+var damage_mult: float = 1.0
 
-func cool_rate() -> float:
-	return COOL_PER_SEC
+
+# Bare construction defaults cool_rate to the per-class baseline so
+# tests that build a RailgunWeapon without a unit still cool at the
+# pre-parts rate. SpawnDirector overwrites this at spawn time.
+func _init() -> void:
+	cool_rate = COOL_PER_SEC
+
+
+func damage_per_shot() -> float:
+	return DAMAGE_PER_SHOT * damage_mult
 
 
 func display_name() -> String:
@@ -193,7 +206,7 @@ func fire(attacker, target, sim_delta: float) -> bool:
 		target.orbit_alive = false
 	target.invalidate_impact_cache()
 
-	target.take_damage(DAMAGE_PER_SHOT)
+	target.take_damage(damage_per_shot(), attacker)
 	attacker.energy = maxf(attacker.energy - ENERGY_PER_SHOT, 0.0)
 	# Latch cooldown: ready falls to 0, overheated locks out can_fire
 	# until ready climbs back to 1.0 via base Weapon.tick(). Mirrors
