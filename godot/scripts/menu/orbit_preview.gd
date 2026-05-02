@@ -1,32 +1,30 @@
 extends Control
-## 2D top-down preview of the per-unit initial orbits configured on the
-## Orbital Ops tab. Renders one ellipse per UnitConfig (projected from
-## RAAN+inclination onto the equatorial plane), plus a marker at the
-## true-anomaly position so the operator sees where each unit will spawn.
+## 2D top-down preview of every assigned launch's initial orbit.
+## Renders one ellipse per Launch (projected from RAAN+inclination
+## onto the equatorial plane), plus a marker at the true-anomaly
+## position so the operator sees where each unit will spawn.
 ##
 ## Pure visual feedback: no input handling, no edit affordances. The
-## sliders mutate PlayerLoadout.units; the menu calls refresh() after
-## each change so this Control redraws.
+## sliders mutate PlayerLoadout.launches; the menu calls refresh()
+## after each change so this Control redraws.
 
-const UnitConfig = preload("res://scripts/unit_config.gd")
+const Launch = preload("res://scripts/launch.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
 const COLOR_BG := Color(0.04, 0.05, 0.07)
 const COLOR_GRID := Color(0.18, 0.20, 0.24, 0.5)
 const COLOR_PLANET := Color(0.18, 0.30, 0.42)
 const COLOR_PLANET_RING := Color(0.55, 0.58, 0.64, 0.6)
-const COLOR_ORBIT := Color(1.0, 0.706, 0.329, 0.85)
-const COLOR_ORBIT_DIM := Color(0.55, 0.58, 0.64, 0.65)
-const COLOR_MARKER := Color(1.0, 0.706, 0.329)
-const COLOR_LABEL := Color(0.86, 0.88, 0.92)
 
-# Per-unit colour cycle so the three default orbits are visually
-# distinguishable. Cycled modulo unit count; lengths beyond the table
-# wrap (the menu tops out at 3 units today).
+# Per-row colour cycle so a handful of launches are visually
+# distinguishable. Cycles modulo launch count; lengths beyond the
+# table wrap.
 const ORBIT_COLORS: Array[Color] = [
 	Color(1.0, 0.706, 0.329),     # amber
 	Color(0.40, 0.85, 0.55),      # green
 	Color(0.55, 0.85, 0.95),      # cyan
+	Color(0.95, 0.55, 0.85),      # pink
+	Color(0.95, 0.95, 0.55),      # yellow
 ]
 
 
@@ -36,7 +34,7 @@ func _ready() -> void:
 
 # Recompute and redraw. Called by the menu after any slider value
 # change. Cheap — just an invalidation; the actual geometry is laid
-# out in _draw using the current UnitConfig values.
+# out in _draw using the current Launch values.
 func refresh() -> void:
 	queue_redraw()
 
@@ -49,14 +47,14 @@ func _draw() -> void:
 		return
 
 	# World scale: pick the largest (Earth radius + altitude) across
-	# the configured units so the most distant orbit just fits in the
-	# control's bounds. Min ceiling so an empty roster still renders
+	# the configured launches so the most distant orbit just fits in
+	# the control's bounds. Min ceiling so an empty roster still renders
 	# at a sensible scale.
 	var max_world_km: float = EarthOrbit.EARTH_RADIUS_KM
-	for unit in PlayerLoadout.units:
+	for launch: Launch in PlayerLoadout.launches:
 		max_world_km = maxf(
 			max_world_km,
-			EarthOrbit.EARTH_RADIUS_KM + unit.altitude_km,
+			EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km,
 		)
 	max_world_km *= 1.10  # 10% padding so labels don't crop on the rim
 	var px_per_km: float = span / max_world_km
@@ -79,25 +77,30 @@ func _draw() -> void:
 	draw_circle(center, planet_r, COLOR_PLANET)
 	draw_arc(center, planet_r, 0.0, TAU, 64, COLOR_PLANET_RING, 1.0)
 
-	# Per-unit orbits
-	for i in range(PlayerLoadout.units.size()):
-		var unit: UnitConfig = PlayerLoadout.units[i]
+	# Per-launch orbits
+	for i in range(PlayerLoadout.launches.size()):
+		var launch: Launch = PlayerLoadout.launches[i]
 		var color := ORBIT_COLORS[i % ORBIT_COLORS.size()]
-		_draw_orbit(unit, center, px_per_km, color)
-		_draw_label(unit, i, center, px_per_km, color)
+		# Dim unassigned launches so the operator can see them but they
+		# don't visually compete with the assigned rows that will
+		# actually spawn.
+		if not launch.has_unit():
+			color = Color(color.r, color.g, color.b, 0.35)
+		_draw_orbit(launch, center, px_per_km, color)
+		_draw_label(launch, center, px_per_km, color)
 
 
-# Project the unit's circular orbit onto the screen-plane:
+# Project the launch's circular orbit onto the screen-plane:
 #   r(θ) in 3D = R3z(Ω) · R1x(i) · [cos θ, sin θ, 0] · a
 # Then drop the z component to render the on-plane footprint. RAAN
 # rotates the line of nodes; inclination tilts the plane so the orbit
 # foreshortens into an ellipse from the top-down view.
 func _draw_orbit(
-	unit: UnitConfig, center: Vector2, px_per_km: float, color: Color
+	launch: Launch, center: Vector2, px_per_km: float, color: Color
 ) -> void:
-	var a_km: float = EarthOrbit.EARTH_RADIUS_KM + unit.altitude_km
-	var i_rad: float = deg_to_rad(unit.inclination_deg)
-	var raan_rad: float = deg_to_rad(unit.raan_deg)
+	var a_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var i_rad: float = deg_to_rad(launch.inclination_deg)
+	var raan_rad: float = deg_to_rad(launch.raan_deg)
 	var cos_raan: float = cos(raan_rad)
 	var sin_raan: float = sin(raan_rad)
 	var cos_i: float = cos(i_rad)
@@ -109,8 +112,6 @@ func _draw_orbit(
 		var theta: float = (TAU * float(k)) / float(SEGMENTS)
 		var x_perifocal: float = cos(theta) * a_km
 		var y_perifocal: float = sin(theta) * a_km
-		# After inclination tilt + RAAN spin, the screen-plane (x,y)
-		# components are:
 		var x: float = (
 			x_perifocal * cos_raan
 			- y_perifocal * cos_i * sin_raan
@@ -119,12 +120,11 @@ func _draw_orbit(
 			x_perifocal * sin_raan
 			+ y_perifocal * cos_i * cos_raan
 		)
-		# Screen y inverts so +y world points up on screen.
 		points[k] = center + Vector2(x, -y) * px_per_km
 	draw_polyline(points, color, 1.6, true)
 
 	# Spawn marker at the configured true anomaly
-	var nu_rad: float = deg_to_rad(unit.true_anomaly_deg)
+	var nu_rad: float = deg_to_rad(launch.true_anomaly_deg)
 	var x_perifocal_nu: float = cos(nu_rad) * a_km
 	var y_perifocal_nu: float = sin(nu_rad) * a_km
 	var marker_x: float = (
@@ -141,18 +141,17 @@ func _draw_orbit(
 	draw_circle(marker_pos, 4.0, color)
 
 
-# Draw the unit's name to the right of its spawn marker.
+# Draw the launch's name to the right of its spawn marker.
 func _draw_label(
-	unit: UnitConfig,
-	_i: int,
+	launch: Launch,
 	center: Vector2,
 	px_per_km: float,
 	color: Color,
 ) -> void:
-	var a_km: float = EarthOrbit.EARTH_RADIUS_KM + unit.altitude_km
-	var i_rad: float = deg_to_rad(unit.inclination_deg)
-	var raan_rad: float = deg_to_rad(unit.raan_deg)
-	var nu_rad: float = deg_to_rad(unit.true_anomaly_deg)
+	var a_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var i_rad: float = deg_to_rad(launch.inclination_deg)
+	var raan_rad: float = deg_to_rad(launch.raan_deg)
+	var nu_rad: float = deg_to_rad(launch.true_anomaly_deg)
 	var x_perifocal: float = cos(nu_rad) * a_km
 	var y_perifocal: float = sin(nu_rad) * a_km
 	var x: float = (
@@ -167,7 +166,10 @@ func _draw_label(
 	var font := get_theme_default_font()
 	if font == null:
 		return
+	var text: String = launch.name
+	if not launch.has_unit():
+		text += " · (no unit)"
 	draw_string(
 		font, marker_pos + Vector2(8, 4),
-		unit.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color,
+		text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color,
 	)

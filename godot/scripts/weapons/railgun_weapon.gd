@@ -50,9 +50,21 @@ const COOL_PER_SEC: float = 1.0 / COOLDOWN_SEC
 # code that consumes it) so the safety predicate is self-contained.
 const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 100.0
 
+# Tier multipliers — see laser_weapon.gd for the rationale. `damage_mult`
+# scales DAMAGE_PER_SHOT (advanced railguns punch harder); `cool_mult`
+# scales COOL_PER_SEC so radiator-rich units recover between shots
+# faster. Slug momentum / energy cost are deliberately untouched —
+# tier separates "tuning" from "fundamentals".
+var damage_mult: float = 1.0
+var cool_mult: float = 1.0
+
 
 func cool_rate() -> float:
-	return COOL_PER_SEC
+	return COOL_PER_SEC * cool_mult
+
+
+func damage_per_shot() -> float:
+	return DAMAGE_PER_SHOT * damage_mult
 
 
 func display_name() -> String:
@@ -193,7 +205,7 @@ func fire(attacker, target, sim_delta: float) -> bool:
 		target.orbit_alive = false
 	target.invalidate_impact_cache()
 
-	target.take_damage(DAMAGE_PER_SHOT)
+	target.take_damage(damage_per_shot())
 	attacker.energy = maxf(attacker.energy - ENERGY_PER_SHOT, 0.0)
 	# Latch cooldown: ready falls to 0, overheated locks out can_fire
 	# until ready climbs back to 1.0 via base Weapon.tick(). Mirrors

@@ -47,13 +47,24 @@ const MAX_RANGE_KM: float = 40000.0
 # this would let an operator effectively disable fire control.
 const MIN_ENGAGEMENT_RANGE_KM: float = 500.0
 
+# Tier multipliers wired up by SpawnDirector when the unit is built.
+# Default 1.0 keeps every existing call site (and every unit test that
+# constructs a bare `LaserWeapon.new()`) on the original numbers.
+# `damage_mult` scales DAMAGE_PER_SEC; `cool_mult` scales COOL_PER_SEC
+# so radiator parts can speed up cooldown without touching heat
+# accumulation. Heat accumulation is intrinsic to the emitter and
+# stays unmultiplied — the same shot still loads the same thermal
+# energy; the radiator only flushes it faster.
+var damage_mult: float = 1.0
+var cool_mult: float = 1.0
+
 
 func display_name() -> String:
 	return "Laser"
 
 
 func damage_per_second() -> float:
-	return DAMAGE_PER_SEC
+	return DAMAGE_PER_SEC * damage_mult
 
 
 func cost_per_second() -> float:
@@ -65,7 +76,7 @@ func heat_rate() -> float:
 
 
 func cool_rate() -> float:
-	return COOL_PER_SEC
+	return COOL_PER_SEC * cool_mult
 
 
 func can_fire(attacker) -> bool:
@@ -175,7 +186,7 @@ func fire(attacker, target, sim_delta: float) -> bool:
 		return false
 	var distance: float = (target.orbit.r - attacker.orbit.r).length()
 	var dmg_scale: float = range_factor(distance)
-	target.take_damage(DAMAGE_PER_SEC * dt * dmg_scale)
+	target.take_damage(damage_per_second() * dt * dmg_scale)
 	attacker.energy = maxf(attacker.energy - ENERGY_PER_SEC * dt, 0.0)
 	ready_fraction = clampf(ready_fraction - HEAT_PER_SEC * dt, 0.0, 1.0)
 	if ready_fraction <= 0.0:

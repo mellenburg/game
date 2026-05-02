@@ -27,6 +27,7 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
+const Launch = preload("res://scripts/launch.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -144,7 +145,9 @@ func _ready() -> void:
 	if radar_map != null:
 		radar_map.waves = spawn_director.meteorite_waves
 
-	spawn_director.spawn_starting_fleet(_player_loadout_units())
+	var launches := _player_loadout_launches()
+	var pool := _player_loadout_pool()
+	spawn_director.spawn_starting_fleet(launches, pool)
 	spawn_director.spawn_surface_units(
 		_player_loadout_surface_units(), earth.earth_phase
 	)
@@ -160,26 +163,37 @@ func _ready() -> void:
 		real_satellites[selected_ship].select()
 
 
-# Pull the per-unit configs the pre-game menu set into PlayerLoadout, if
-# the autoload is present and the player launched from the menu. Empty
+# Pull the launches the pre-game menu set into PlayerLoadout, if the
+# autoload is present and the player launched from the menu. Empty
 # array otherwise — SpawnDirector treats that as "use the legacy
 # randomised fleet", which keeps direct-boot of main.tscn working for
 # debugging and any future smoke tests.
-func _player_loadout_units() -> Array[UnitConfig]:
+func _player_loadout_launches() -> Array[Launch]:
+	var empty: Array[Launch] = []
+	var tree := get_tree()
+	if tree == null:
+		return empty
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null or not loadout.launched:
+		return empty
+	var launches: Array[Launch] = loadout.launches
+	return launches
+
+
+# Companion lookup for the unit pool — SpawnDirector resolves each
+# launch's unit_id against this list so the chassis + parts are
+# available at materialisation time. Empty when no menu / not launched
+# (matches `_player_loadout_launches`'s shape).
+func _player_loadout_pool() -> Array[UnitConfig]:
 	var empty: Array[UnitConfig] = []
 	var tree := get_tree()
 	if tree == null:
 		return empty
 	var loadout := tree.root.get_node_or_null("PlayerLoadout")
-	if loadout == null:
+	if loadout == null or not loadout.launched:
 		return empty
-	if not loadout.launched:
-		return empty
-	# Loadout.units is already typed Array[UnitConfig]; assign through
-	# a typed local so the strict-warnings build doesn't see an
-	# inferred-Variant return.
-	var units: Array[UnitConfig] = loadout.units
-	return units
+	var pool: Array[UnitConfig] = loadout.unit_pool
+	return pool
 
 
 # Same gate as _player_loadout_units but for surface installations

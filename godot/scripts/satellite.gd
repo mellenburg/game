@@ -63,6 +63,12 @@ const DEFAULT_MAX_ORBITAL_RADIUS_KM: float = 50000.0
 # floating-point slop in the propagator can't tip the body across the
 # surface termination check.
 const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 1.0
+# Defaults for the energy reservoir + reactor regen. Per-instance
+# `energy_max` and `energy_rate_per_sim_sec` start at these values and
+# are scaled at spawn time by the unit's energy-storage / reactor parts
+# (advanced parts double the corresponding facet). Constants kept on
+# the class so existing tests / callers that read the default still
+# resolve cleanly.
 const ENERGY_MAX: float = 1.0
 # Fraction of the energy pool gained per simulated second. Doubled
 # from the prior 0.00007 to compensate for the halved per-shot cost
@@ -110,9 +116,14 @@ var is_surface: bool = false
 var surface_lat_deg: float = 0.0
 var surface_lon_deg: float = 0.0
 # Shared energy reservoir, drained by every weapon's fire(). Charges
-# at ENERGY_RATE_PER_SIM_SEC per simulated second so time_factor
-# scales it the same as everything else.
+# at energy_rate_per_sim_sec per simulated second so time_factor
+# scales it the same as everything else. `energy_max` and
+# `energy_rate_per_sim_sec` are overridden at spawn time per-unit by
+# SpawnDirector based on the operator's chosen energy-storage and
+# reactor parts.
 var energy: float = 0.0
+var energy_max: float = ENERGY_MAX
+var energy_rate_per_sim_sec: float = ENERGY_RATE_PER_SIM_SEC
 # Empty for unarmed units (e.g. enemies in the MVP). Player satellites
 # spawn with two lasers; weapons fire independently but share energy.
 var weapons: Array[Weapon] = []
@@ -200,7 +211,9 @@ func _init() -> void:
 func tick_combat(sim_delta: float) -> void:
 	if sim_delta <= 0.0:
 		return
-	energy = clampf(energy + ENERGY_RATE_PER_SIM_SEC * sim_delta, 0.0, ENERGY_MAX)
+	energy = clampf(
+		energy + energy_rate_per_sim_sec * sim_delta, 0.0, energy_max,
+	)
 
 
 func _ready() -> void:
@@ -533,6 +546,8 @@ func clone_orbit_from(other: Satellite) -> void:
 	# energy bar for an enemy preview (clones get fresh weapons in
 	# _init that we'd otherwise leave dangling).
 	energy = other.energy
+	energy_max = other.energy_max
+	energy_rate_per_sim_sec = other.energy_rate_per_sim_sec
 	engagement_range_km = other.engagement_range_km
 	fire_control_active = other.fire_control_active
 	targeting_mode = other.targeting_mode
