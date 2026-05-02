@@ -13,6 +13,9 @@ const Satellite = preload("res://scripts/satellite.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
 const ThreatAlert = preload("res://scripts/threat_alert.gd")
+const Weapon = preload("res://scripts/weapons/weapon.gd")
+const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
+const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -118,6 +121,14 @@ func setup(
 # true anomalies separated by a random gap so the formation fans out.
 # Selection is left to the caller so the standard "select index 0"
 # pattern in EarthSystem._ready stays in one place.
+#
+# Loadout is differentiated per slot so the player has to think about
+# fleet composition rather than treating ships as identical: the first
+# two carry a single laser apiece (continuous-fire, no orbital cost),
+# the third carries a single railgun (impulse, recoil-shifts-orbit).
+# Replaces Satellite._init's default [Laser, Laser, Railgun] mix on
+# the spawned units; the freshly-allocated weapon instances dropped
+# here are RefCounted and freed when the array is reassigned.
 func spawn_starting_fleet() -> void:
 	var inc_max := deg_to_rad(STARTING_SAT_INC_MAX_DEG)
 	var gap_min := deg_to_rad(STARTING_SAT_NU_GAP_MIN_DEG)
@@ -131,9 +142,20 @@ func spawn_starting_fleet() -> void:
 			_rng.randf_range(0.0, TAU),
 			nu,
 		)
+		sat.weapons = _starting_loadout_for(i)
 		_satellite_container.add_child(sat)
 		_satellites.append(sat)
 		nu = fposmod(nu + _rng.randf_range(gap_min, gap_max), TAU)
+
+
+# Per-slot weapon loadout for the starting fleet. Slots 0 and 1 get a
+# laser, slot 2 gets a railgun. Returning a fresh array per call so
+# every ship gets independent weapon instances (cooldown / heat state
+# is per-weapon, not shared).
+func _starting_loadout_for(index: int) -> Array[Weapon]:
+	if index >= 2:
+		return [RailgunWeapon.new()] as Array[Weapon]
+	return [LaserWeapon.new()] as Array[Weapon]
 
 
 # Spawn a fixed batch of unarmed enemies in random circular orbits.
