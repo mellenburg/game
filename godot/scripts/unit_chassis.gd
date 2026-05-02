@@ -20,6 +20,7 @@ var weapon_slots: int
 var radiator_slots: int
 var energy_storage_slots: int
 var reactor_slots: int
+var thruster_slots: int
 
 
 static func make(
@@ -29,6 +30,7 @@ static func make(
 	radiator_slots: int,
 	energy_storage_slots: int,
 	reactor_slots: int,
+	thruster_slots: int = 1,
 ) -> UnitChassis:
 	var c := UnitChassis.new()
 	c.id = chassis_id
@@ -37,6 +39,7 @@ static func make(
 	c.radiator_slots = radiator_slots
 	c.energy_storage_slots = energy_storage_slots
 	c.reactor_slots = reactor_slots
+	c.thruster_slots = thruster_slots
 	return c
 
 
@@ -44,8 +47,8 @@ static func make(
 # any module-load ordering pitfalls a static const dictionary would hit.
 static func catalog() -> Array[UnitChassis]:
 	var out: Array[UnitChassis] = []
-	out.append(make(ID_DEFAULT, "Default", 1, 1, 1, 1))
-	out.append(make(ID_HEAVY, "Heavy", 2, 2, 1, 1))
+	out.append(make(ID_DEFAULT, "Default", 1, 1, 1, 1, 1))
+	out.append(make(ID_HEAVY, "Heavy", 2, 2, 1, 1, 1))
 	return out
 
 
@@ -56,7 +59,7 @@ static func get_by_id(chassis_id: String) -> UnitChassis:
 	# Fall back to the default chassis rather than null so callers don't
 	# have to special-case a missing id (e.g. a save file from an older
 	# build that referenced a chassis that's since been retired).
-	return make(ID_DEFAULT, "Default", 1, 1, 1, 1)
+	return make(ID_DEFAULT, "Default", 1, 1, 1, 1, 1)
 
 
 static func slot_count_for_kind(chassis_id: String, kind: int) -> int:
@@ -70,4 +73,6 @@ static func slot_count_for_kind(chassis_id: String, kind: int) -> int:
 			return c.energy_storage_slots
 		UnitPart.KIND_REACTOR:
 			return c.reactor_slots
+		UnitPart.KIND_THRUSTER:
+			return c.thruster_slots
 	return 0

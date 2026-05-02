@@ -19,6 +19,20 @@ extends Node
 const UnitConfig = preload("res://scripts/unit_config.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const Launch = preload("res://scripts/launch.gd")
+const Satellite = preload("res://scripts/satellite.gd")
+
+# Pre-game launch capacity, in propellant kg. Each scheduled launch
+# debits the budget by Tsiolkovsky-weighted propellant — heavier units
+# in higher / more-inclined orbits cost more, equatorial-LEO launches
+# cost zero. The fleet won't launch if the cumulative debit exceeds
+# this number; the menu's LAUNCH button gates on can_launch().
+#
+# 4000 kg fits the default 3-unit roster (T-01..T-03 at 0°/25°/50°
+# inclination, all 500 km circular) with comfortable headroom for a
+# player who tilts one launch up to GEO or pushes a unit into a polar
+# slot. Players who load the fleet into a polar GEO orbit will run
+# the budget out and have to scale back — that's the intended tension.
+const LAUNCH_PROPELLANT_BUDGET_KG: float = 4000.0
 
 # Stage catalogue. `id` is the stable key the menu writes to
 # selected_stage_id; only entries with playable=true permit Launch.
@@ -219,7 +233,41 @@ func can_launch() -> bool:
 	var stage := selected_stage()
 	if stage.is_empty() or not bool(stage.get("playable", false)):
 		return false
-	return has_assigned_launches()
+	if not has_assigned_launches():
+		return false
+	# Budget gate: cumulative propellant draw across assigned launches
+	# must fit inside the pre-game capacity. Each launch's draw is
+	# Tsiolkovsky-weighted by the assigned unit's wet mass, so the same
+	# orbit costs more for a heavier unit — exactly the pressure the
+	# operator feels when they overload a single launch.
+	return total_launch_propellant_used_kg() <= LAUNCH_PROPELLANT_BUDGET_KG
+
+
+# Sum of per-launch propellant draws across every assigned launch,
+# in kg. Unassigned launches contribute zero (they get purged on
+# Launch press anyway). Drives both the budget gate in can_launch()
+# and the menu's "Launch budget X / Y kg" readout.
+func total_launch_propellant_used_kg() -> float:
+	var total: float = 0.0
+	for launch in launches:
+		if not launch.has_unit():
+			continue
+		var unit := unit_for_id(launch.unit_id)
+		if unit == null:
+			continue
+		var wet_mass: float = (
+			Satellite.DEFAULT_DRY_MASS_KG + unit.total_propellant_capacity_kg()
+		)
+		total += launch.propellant_cost_kg(wet_mass)
+	return total
+
+
+# Convenience for the menu: kg of propellant still available after
+# the currently-assigned launches' draws. Negative when over budget;
+# the LAUNCH button is gated on can_launch() so a negative number is
+# the operator's signal to drop a launch or pick a cheaper orbit.
+func launch_propellant_remaining_kg() -> float:
+	return LAUNCH_PROPELLANT_BUDGET_KG - total_launch_propellant_used_kg()
 
 
 func _make_unit_with_id(unit_name: String) -> UnitConfig:

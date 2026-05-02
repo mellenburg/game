@@ -219,10 +219,17 @@ func _spawn_from_launches(
 		if unit == null:
 			continue
 		var sat := Satellite.new()
-		sat.orbit = EarthOrbit.make_circular(
+		# Eccentricity-aware: the legacy menu only exposed circular
+		# orbits, but the Launch struct now carries `eccentricity` and
+		# `argp_deg` so the spawner builds an ellipse when the operator
+		# dials them up. Passing ecc=0 / argp=0 reproduces make_circular
+		# exactly, which is what every pre-eccentricity save resolves to.
+		sat.orbit = EarthOrbit.make_elliptical(
 			launch.altitude_km,
+			launch.eccentricity,
 			deg_to_rad(launch.inclination_deg),
 			deg_to_rad(launch.raan_deg),
+			deg_to_rad(launch.argp_deg),
 			deg_to_rad(launch.true_anomaly_deg),
 		)
 		_apply_unit_to_satellite(sat, unit)
@@ -255,6 +262,19 @@ func _apply_unit_to_satellite(sat: Satellite, unit: UnitConfig) -> void:
 	sat.energy_max = Satellite.ENERGY_MAX * storage_mult
 	sat.energy_rate_per_sim_sec = Satellite.ENERGY_RATE_PER_SIM_SEC * reactor_mult
 	sat.weapons = _build_weapons(unit, radiator_mult)
+	# Propulsion: seed thrust / Isp / propellant from the unit's
+	# thruster row. Units with an empty thruster row (saved from a
+	# pre-thruster build) collapse to zero capacity, which leaves the
+	# satellite unable to maneuver — by design; the operator should
+	# fit a thruster part to make the unit mobile. Wet mass is
+	# dry + propellant so railgun recoil math sees the same number a
+	# fully-fueled unit would carry into orbit.
+	sat.thrust_n = unit.total_thrust_n()
+	sat.isp_s = unit.effective_isp_s()
+	sat.max_propellant_kg = unit.total_propellant_capacity_kg()
+	sat.propellant_kg = sat.max_propellant_kg
+	sat.dry_mass_kg = Satellite.DEFAULT_DRY_MASS_KG
+	sat.mass = sat.dry_mass_kg + sat.propellant_kg
 
 
 # Translate the unit's weapon-slot row into a Weapon array, applying
