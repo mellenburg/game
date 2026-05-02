@@ -911,7 +911,9 @@ func _build_launch_row(index: int) -> Control:
 	var selected_picker_idx := 0
 	for i in range(PlayerLoadout.unit_pool.size()):
 		var unit: UnitConfig = PlayerLoadout.unit_pool[i]
-		picker.add_item("%s · %s" % [unit.name, unit.summary()])
+		# Just the operator-set name — the parts breakdown lives in
+		# the Hangar's Unit Summary panel and would crowd this picker.
+		picker.add_item(unit.name)
 		picker.set_item_metadata(i + 1, unit.id)
 		if unit.id == launch.unit_id:
 			selected_picker_idx = i + 1
