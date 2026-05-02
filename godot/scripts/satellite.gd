@@ -306,6 +306,29 @@ func toggle_railgun() -> void:
 	railgun_enabled = not railgun_enabled
 
 
+## Whether this satellite carries at least one laser. Drives every
+## laser-specific UI surface and input gate (the targeting-mode toggle,
+## fire-control toggle, engagement-range slider, and their HUD
+## readouts). A railgun-only ship returns false and is silently
+## skipped by all of those — pressing L on it does nothing, the HUD
+## doesn't render a TGT or FC line, and the range slider stays put.
+func has_laser() -> bool:
+	for w: Weapon in weapons:
+		if w is LaserWeapon:
+			return true
+	return false
+
+
+## Whether this satellite carries at least one railgun. Mirrors
+## has_laser(); used by the HUD to decide whether to render the RG
+## status line.
+func has_railgun() -> bool:
+	for w: Weapon in weapons:
+		if w is RailgunWeapon:
+			return true
+	return false
+
+
 func get_current_maneuver() -> Vector3:
 	return DELTA_V_MAGNITUDE * raw_maneuver
 

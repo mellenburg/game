@@ -569,10 +569,12 @@ func _update_box(
 		current_bars -= 1
 
 	# Reattach (or drop) the FC label after the bars are in their
-	# final shape. Only armed satellites can have fire control on; an
-	# unarmed unit shouldn't carry the label even if some upstream
-	# state ever flipped the flag.
-	var want_fc := sat.fire_control_active and not sat.weapons.is_empty()
+	# final shape. Fire control adjusts engagement_range_km, which is
+	# read only by the laser, so the line is gated on the satellite
+	# carrying at least one laser — railgun-only ships don't render
+	# it even if some upstream code flipped fire_control_active.
+	var has_laser := sat.has_laser()
+	var want_fc := sat.fire_control_active and has_laser
 	if want_fc:
 		if fc_label == null:
 			fc_label = _make_fc_label()
@@ -581,11 +583,11 @@ func _update_box(
 	elif fc_label != null:
 		fc_label.queue_free()
 
-	# Targeting mode is always shown on armed player ships — it's a
-	# persistent setting, not a transient overlay, so it doesn't gate
-	# on a toggle. Unarmed bodies skip it for the same reason FC does.
-	var want_tgt := not sat.weapons.is_empty()
-	if want_tgt:
+	# Targeting mode (MAX DAMAGE / MAX DANGER) is a laser-only setting
+	# — the railgun ignores attacker.targeting_mode and picks randomly
+	# from in-envelope LOS targets. Show the line only on satellites
+	# that actually carry a laser; railgun-only ships skip it.
+	if has_laser:
 		if tgt_label == null:
 			tgt_label = _make_targeting_label()
 		tgt_label.text = (
@@ -600,12 +602,7 @@ func _update_box(
 	# railgun. Two readouts on one line: ON/OFF gate (X) and the
 	# operator-set max orbital radius cap (Shift+Left/Right). Players
 	# without a railgun never see this row.
-	var has_railgun := false
-	for w_check: Weapon in sat.weapons:
-		if w_check is RailgunWeapon:
-			has_railgun = true
-			break
-	if has_railgun:
+	if sat.has_railgun():
 		if rg_label == null:
 			rg_label = _make_railgun_label()
 		var on_text: String = "ON" if sat.railgun_enabled else "OFF"

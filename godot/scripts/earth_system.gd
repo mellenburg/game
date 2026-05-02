@@ -329,17 +329,20 @@ func _process_continuous_input(delta: float) -> void:
 	var fleet_range_mode := shift_held and Input.is_key_pressed(KEY_C)
 	var fleet_adjusting_now := false
 	if range_input != 0.0 and fleet_range_mode and not real_satellites.is_empty():
-		var armed := _armed_player_sats()
-		if not armed.is_empty():
+		# Engagement range only governs the laser. Shift+C+arrows
+		# snaps every laser-armed ship to the fleet average and
+		# nudges from there; railgun-only ships are skipped.
+		var laser_armed := _laser_armed_player_sats()
+		if not laser_armed.is_empty():
 			if not _fleet_range_adjusting:
 				var sum := 0.0
-				for sat in armed:
+				for sat in laser_armed:
 					sum += sat.engagement_range_km
-				var avg := sum / float(armed.size())
-				for sat in armed:
+				var avg := sum / float(laser_armed.size())
+				for sat in laser_armed:
 					sat.set_engagement_range(avg)
 			var step_km := range_input * RANGE_RATE_KM_PER_SEC * delta
-			for sat in armed:
+			for sat in laser_armed:
 				sat.set_engagement_range(sat.engagement_range_km + step_km)
 			fleet_adjusting_now = true
 	elif range_input != 0.0 and not real_satellites.is_empty():
@@ -359,17 +362,15 @@ func _process_continuous_input(delta: float) -> void:
 
 	# Railgun max-orbital-radius nudge. Same write-to-real-not-planning
 	# pattern as the engagement-range slider, since clone_orbit_from
-	# overwrites the planning copy each tick. No fire-control gate here
-	# — the cap is always live (the railgun checks it on every shot
-	# regardless of which other modes are toggled).
+	# overwrites the planning copy each tick. Gated on the selected
+	# ship carrying a railgun — the cap is read only by the railgun's
+	# safety check, so adjusting it on a laser-only ship would mutate
+	# a value nothing ever reads.
 	if radius_input != 0.0 and not real_satellites.is_empty():
 		var real_idx := planning_selected if planning_mode else selected_ship
 		if real_idx >= 0 and real_idx < real_satellites.size():
 			var rsat := real_satellites[real_idx]
-			if (
-				rsat.team == Satellite.TEAM_PLAYER
-				and not rsat.weapons.is_empty()
-			):
+			if rsat.team == Satellite.TEAM_PLAYER and rsat.has_railgun():
 				rsat.set_max_orbital_radius(
 					rsat.max_orbital_radius_km
 					+ radius_input * MAX_RADIUS_RATE_KM_PER_SEC * delta
@@ -422,34 +423,38 @@ func _toggle_fire_control_on_selected() -> void:
 	if idx < 0 or idx >= real_satellites.size():
 		return
 	var sat := real_satellites[idx]
-	if sat.team != Satellite.TEAM_PLAYER or sat.weapons.is_empty():
+	# Fire control adjusts the laser's engagement-range cap; on a
+	# railgun-only ship it would toggle a flag nothing reads. Silently
+	# no-op so the input doesn't produce confusing HUD blink.
+	if sat.team != Satellite.TEAM_PLAYER or not sat.has_laser():
 		return
 	sat.toggle_fire_control()
 
 
-# Toggle fire-control mode across every armed player satellite at once
-# (Shift+C). If any unit currently has it off, turn the whole fleet on;
-# otherwise turn the whole fleet off. Unarmed and enemy ships are skipped
-# — fire control is meaningless on them.
+# Toggle fire-control mode across every laser-armed player satellite
+# at once (Shift+C). Same "consensus then flip" pattern as the
+# targeting / railgun toggles. Railgun-only and unarmed ships skip:
+# fire control only governs the laser's engagement_range_km cap.
 func _toggle_fire_control_on_all() -> void:
-	var armed := _armed_player_sats()
-	if armed.is_empty():
+	var laser_armed := _laser_armed_player_sats()
+	if laser_armed.is_empty():
 		return
 	var any_off := false
-	for sat in armed:
+	for sat in laser_armed:
 		if not sat.fire_control_active:
 			any_off = true
 			break
 	var target := any_off
-	for sat in armed:
+	for sat in laser_armed:
 		if sat.fire_control_active != target:
 			sat.toggle_fire_control()
 
 
-# Toggle targeting mode on the active player satellite. Mirrors the
-# fire-control variant — mutates the *real* sat (planning clone gets
-# resync'd on the next physics tick) and silently no-ops on enemies /
-# unarmed units so the user gets no feedback for a meaningless toggle.
+# Toggle targeting mode on the active player satellite. Targeting
+# (MAX DAMAGE / MAX DANGER) is laser-only — the railgun ignores it
+# and picks randomly from in-envelope LOS targets — so we silently
+# no-op on railgun-only and unarmed ships rather than flipping a
+# flag the weapon strategy doesn't read.
 func _toggle_targeting_mode_on_selected() -> void:
 	if real_satellites.is_empty():
 		return
@@ -457,22 +462,20 @@ func _toggle_targeting_mode_on_selected() -> void:
 	if idx < 0 or idx >= real_satellites.size():
 		return
 	var sat := real_satellites[idx]
-	if sat.team != Satellite.TEAM_PLAYER or sat.weapons.is_empty():
+	if sat.team != Satellite.TEAM_PLAYER or not sat.has_laser():
 		return
 	sat.toggle_targeting_mode()
 
 
-# Fleet-wide targeting toggle (Shift+L). If any armed player ship is in
-# MAX_DAMAGE, snap the whole fleet to MAX_DANGER; otherwise snap them
-# all back to MAX_DAMAGE. Same "consensus then flip" pattern the
-# fire-control variant uses, so a mixed fleet converges to one mode in
-# a single press.
+# Fleet-wide targeting toggle (Shift+L). Same "consensus then flip"
+# pattern as the other fleet toggles, but only over laser-armed
+# ships — the railgun has no targeting_mode of its own.
 func _toggle_targeting_mode_on_all() -> void:
-	var armed := _armed_player_sats()
-	if armed.is_empty():
+	var laser_armed := _laser_armed_player_sats()
+	if laser_armed.is_empty():
 		return
 	var any_max_damage := false
-	for sat in armed:
+	for sat in laser_armed:
 		if sat.targeting_mode == LaserWeapon.TARGETING_MAX_DAMAGE:
 			any_max_damage = true
 			break
@@ -480,27 +483,26 @@ func _toggle_targeting_mode_on_all() -> void:
 		LaserWeapon.TARGETING_MAX_DANGER if any_max_damage
 		else LaserWeapon.TARGETING_MAX_DAMAGE
 	)
-	for sat in armed:
+	for sat in laser_armed:
 		if sat.targeting_mode != target_mode:
 			sat.toggle_targeting_mode()
 
 
-# Fleet-wide railgun gate (X). If any armed player ship currently has
-# its railgun on, snap the whole fleet off; otherwise snap them all on.
-# Same "consensus then flip" pattern as fire-control / targeting so a
-# mixed fleet converges to one state in a single press. Unarmed and
-# enemy ships are skipped — railgun_enabled is meaningless on them.
+# Fleet-wide railgun gate (X). If any railgun-armed player ship
+# currently has it on, snap the whole fleet off; otherwise snap them
+# all on. Laser-only and unarmed ships skip — railgun_enabled is
+# meaningless on them.
 func _toggle_railgun_on_all() -> void:
-	var armed := _armed_player_sats()
-	if armed.is_empty():
+	var rg_armed := _railgun_armed_player_sats()
+	if rg_armed.is_empty():
 		return
 	var any_on := false
-	for sat in armed:
+	for sat in rg_armed:
 		if sat.railgun_enabled:
 			any_on = true
 			break
 	var target := not any_on
-	for sat in armed:
+	for sat in rg_armed:
 		if sat.railgun_enabled != target:
 			sat.toggle_railgun()
 
@@ -512,6 +514,27 @@ func _armed_player_sats() -> Array[Satellite]:
 			sat.team == Satellite.TEAM_PLAYER
 			and not sat.weapons.is_empty()
 		):
+			out.append(sat)
+	return out
+
+
+# Player ships that carry at least one laser. Drives the laser-only
+# fleet toggles (Shift+L targeting, Shift+C fire control) and the
+# fleet-wide engagement-range adjustment under Shift+C+arrows.
+func _laser_armed_player_sats() -> Array[Satellite]:
+	var out: Array[Satellite] = []
+	for sat in real_satellites:
+		if sat.team == Satellite.TEAM_PLAYER and sat.has_laser():
+			out.append(sat)
+	return out
+
+
+# Player ships that carry at least one railgun. Drives the fleet-wide
+# X toggle for the railgun on/off gate.
+func _railgun_armed_player_sats() -> Array[Satellite]:
+	var out: Array[Satellite] = []
+	for sat in real_satellites:
+		if sat.team == Satellite.TEAM_PLAYER and sat.has_railgun():
 			out.append(sat)
 	return out
 
