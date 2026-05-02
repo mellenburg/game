@@ -138,6 +138,17 @@ const DECAYING_INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
 # decaying threats sample their own mass from the medium / large band.
 const DECAYING_DEFAULT_MASS_KG: float = 1000.0
 
+# Mission-wave bands. Mission waves reuse the meteorite wave plumbing
+# (shared sub-orbital nexus + per-body lateral / altitude / velocity
+# jitter) but ship as small evenly-paced groups rather than the legacy
+# 20-body burst. All bodies share one nexus so they appear as a broad
+# lumpy cluster from one direction in the sky — the lateral spread
+# spans roughly 7° of solid angle at the default 50 000 km entry
+# altitude (atan(6000 / 50000)). Preroll is zero because the Mission
+# state machine governs inter-wave delays directly.
+const MISSION_WAVE_PREROLL_SEC: float = 0.0
+const MISSION_WAVE_LATERAL_SPREAD_KM: float = 6000.0
+
 # Active meteorite waves. Each carries its own nexus + queue of pending
 # spawn delays; ticked from the controller's _process so the spawn
 # window is real-time and independent of time_factor (so pausing the
@@ -417,6 +428,68 @@ func start_meteorite_wave(
 	meteorite_waves.append(wave)
 	if _threat_alert != null:
 		_threat_alert.trigger()
+
+
+# Begin a mission wave: `count` small-class meteorites sharing one
+# random sub-orbital nexus. When `randomized` is false, body i fires at
+# `i * spacing_sec` so the cadence is metronomic; when true, every
+# body's timer is drawn uniformly over [0, random_duration_sec] so the
+# wave arrives as a clumpy burst. Same shared-nexus + lateral-spread
+# pattern as `start_meteorite_wave`, so the radar overlay and threat
+# alert wiring just work; no preroll because the Mission state machine
+# manages the inter-wave delay directly.
+func start_mission_wave(
+	count: int,
+	spacing_sec: float = 1.0,
+	randomized: bool = false,
+	random_duration_sec: float = 0.0,
+) -> void:
+	if count <= 0:
+		return
+	var wave := _build_meteorite_wave_at_random_nexus()
+	var specs: Array[Dictionary] = []
+	var duration: float
+	if randomized:
+		duration = maxf(random_duration_sec, 0.001)
+		for _i in range(count):
+			specs.append(_make_mission_spec(
+				_rng.randf_range(0.0, random_duration_sec)
+			))
+	else:
+		# Total emission window = (count - 1) * spacing. A 1-body wave
+		# would yield zero duration, which would divide-by-zero the radar
+		# overlay's normalisation; floor at a small positive number.
+		duration = maxf(spacing_sec * float(maxi(count - 1, 0)), 0.001)
+		for i in range(count):
+			specs.append(_make_mission_spec(float(i) * spacing_sec))
+	wave.set_specs(specs, duration, MISSION_WAVE_LATERAL_SPREAD_KM)
+	meteorite_waves.append(wave)
+	if _threat_alert != null:
+		_threat_alert.trigger()
+
+
+# One mission-wave body spec. Shape matches the legacy meteorite spec so
+# `_make_meteorite` can consume it unchanged: timer + lateral / altitude
+# / velocity jitter + mass + decaying flag. Mass sampled in the small
+# class — mission waves are a steady drip of light bodies, not the
+# heavier mixed composition the 20-body legacy wave produces.
+func _make_mission_spec(t: float) -> Dictionary:
+	var ang := _rng.randf_range(0.0, TAU)
+	var dist := _rng.randf_range(0.0, MISSION_WAVE_LATERAL_SPREAD_KM)
+	return {
+		"t": t + MISSION_WAVE_PREROLL_SEC,
+		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
+		"alt_offset": _rng.randf_range(
+			-METEORITE_ALT_JITTER_KM, METEORITE_ALT_JITTER_KM
+		),
+		"vel_jitter": Vector3(
+			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
+			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
+			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
+		),
+		"mass": _sample_mass_for_class(SIZE_SMALL),
+		"is_decaying": false,
+	}
 
 
 # Build the full 20-spec mix for a single wave: pick the size-class
