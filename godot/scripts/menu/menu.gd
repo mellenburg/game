@@ -474,7 +474,11 @@ func _rebuild_unit_list() -> void:
 	var selected_idx := -1
 	for i in range(PlayerLoadout.unit_pool.size()):
 		var unit: UnitConfig = PlayerLoadout.unit_pool[i]
-		_unit_list.add_item("%s\n%s" % [unit.name, unit.summary()])
+		# Pool list shows only the user-provided name. The chassis +
+		# parts breakdown is one click away in the unit editor and is
+		# duplicated in the right-column summary, so cluttering the
+		# row with the same string just makes the list noisier.
+		_unit_list.add_item(unit.name)
 		if unit.id == _selected_unit_id:
 			selected_idx = i
 	if selected_idx >= 0:
@@ -620,22 +624,20 @@ func _rebuild_unit_summary() -> void:
 		_hangar_summary.add_child(_summary_row(
 			"Max range", "%.0f km" % float(stats["laser_max_range"])
 		))
+		_hangar_summary.add_child(_summary_row(
+			"Cooldown",
+			_format_cooldown(float(stats["laser_cooldown_sec"])),
+		))
 
 	if int(stats["railgun_count"]) > 0:
 		_hangar_summary.add_child(_summary_section("RAILGUNS"))
 		_hangar_summary.add_child(_summary_row(
 			"Damage / shot", "%.1f" % float(stats["railgun_damage_total"])
 		))
-		var rate: float = float(stats["railgun_fire_rate"])
-		var rate_text: String = "n/a"
-		if rate > 0.0:
-			# Sim-seconds per shot is the natural unit at this scale —
-			# the raw shots/sec is ~1e-3 with the default radiator and
-			# reads as a string of zeroes. The cooldown number (and
-			# how it halves with an advanced radiator) communicates
-			# the change without scientific notation.
-			rate_text = "1 shot / %.0f s" % (1.0 / rate)
-		_hangar_summary.add_child(_summary_row("Fire rate", rate_text))
+		_hangar_summary.add_child(_summary_row(
+			"Cooldown",
+			_format_cooldown(float(stats["railgun_cooldown_sec"])),
+		))
 
 	_hangar_summary.add_child(_summary_section("ENERGY"))
 	_hangar_summary.add_child(_summary_row(
@@ -666,6 +668,17 @@ func _summary_row(key: String, value: String) -> Control:
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(v)
 	return row
+
+
+# Format a cooldown duration in sim-seconds. INF surfaces the
+# "no radiator" case as a clear "n/a" so the operator sees that the
+# weapon could fire once and never recover; finite values render as
+# whole sim-seconds (the granularity that matches the integer wall
+# numbers radiators produce).
+func _format_cooldown(seconds: float) -> String:
+	if not is_finite(seconds):
+		return "n/a (no radiator)"
+	return "%.0f s" % seconds
 
 
 func _summary_section(title: String) -> Control:
@@ -789,7 +802,7 @@ func _on_unit_name_changed(new_text: String) -> void:
 	if _unit_list != null:
 		for i in range(PlayerLoadout.unit_pool.size()):
 			if PlayerLoadout.unit_pool[i].id == _selected_unit_id:
-				_unit_list.set_item_text(i, "%s\n%s" % [unit.name, unit.summary()])
+				_unit_list.set_item_text(i, unit.name)
 				break
 
 

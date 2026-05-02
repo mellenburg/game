@@ -124,11 +124,12 @@ func test_summary_stats_advanced_parts_double_facets() -> void:
 	)
 
 
-func test_summary_stats_railgun_fire_rate_scales_with_radiator() -> void:
+func test_summary_stats_railgun_cooldown_scales_with_radiator() -> void:
 	# Default railgun + advanced radiator ⇒ cool_rate doubles, so the
-	# reported fire rate doubles. Verifies the radiator multiplier
-	# flows through to the railgun's cooldown stat (the same mult
-	# SpawnDirector applies to RailgunWeapon.cool_mult at spawn).
+	# reported cooldown halves. Verifies the radiator complement
+	# (which now supplies cool_rate directly) flows through to the
+	# weapon's cooldown stat — the same value SpawnDirector writes to
+	# RailgunWeapon.cool_rate at spawn.
 	var u := UnitConfig.make_default("U-1", "T-01")
 	u.set_part_id(UnitPart.KIND_WEAPON, 0, "railgun_default")
 	u.set_part_id(UnitPart.KIND_RADIATOR, 0, "radiator_advanced")
@@ -138,8 +139,21 @@ func test_summary_stats_railgun_fire_rate_scales_with_radiator() -> void:
 		float(s["railgun_damage_total"]), RailgunWeapon.DAMAGE_PER_SHOT,
 	)
 	assert_close(
-		float(s["railgun_fire_rate"]), 2.0 * RailgunWeapon.COOL_PER_SEC,
+		float(s["railgun_cooldown_sec"]),
+		1.0 / (2.0 * RailgunWeapon.COOL_PER_SEC),
 	)
+
+
+func test_summary_stats_no_radiator_yields_infinite_cooldown() -> void:
+	# Strip the radiator slot's part. With cool_rate driven entirely
+	# by the radiator complement, an empty radiator row means weapons
+	# couldn't recover after firing — the summary surfaces this as
+	# INF so the operator can see the unit is inert.
+	var u := UnitConfig.make_default("U-1", "T-01")
+	u.set_part_id(UnitPart.KIND_RADIATOR, 0, "")
+	var s := u.summary_stats()
+	assert_false(is_finite(float(s["laser_cooldown_sec"])))
+	assert_false(is_finite(float(s["railgun_cooldown_sec"])))
 
 
 func test_summary_stats_heavy_dual_weapon_sums_damage() -> void:

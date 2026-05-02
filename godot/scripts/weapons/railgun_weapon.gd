@@ -50,17 +50,18 @@ const COOL_PER_SEC: float = 1.0 / COOLDOWN_SEC
 # code that consumes it) so the safety predicate is self-contained.
 const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 100.0
 
-# Tier multipliers — see laser_weapon.gd for the rationale. `damage_mult`
-# scales DAMAGE_PER_SHOT (advanced railguns punch harder); `cool_mult`
-# scales COOL_PER_SEC so radiator-rich units recover between shots
-# faster. Slug momentum / energy cost are deliberately untouched —
-# tier separates "tuning" from "fundamentals".
+# Damage tier multiplier — see laser_weapon.gd for the rationale.
+# Cooldown is now sourced from the radiator complement via the base
+# class's cool_rate field; advanced railguns just hit harder. Slug
+# momentum / energy cost are deliberately untouched.
 var damage_mult: float = 1.0
-var cool_mult: float = 1.0
 
 
-func cool_rate() -> float:
-	return COOL_PER_SEC * cool_mult
+# Bare construction defaults cool_rate to the per-class baseline so
+# tests that build a RailgunWeapon without a unit still cool at the
+# pre-parts rate. SpawnDirector overwrites this at spawn time.
+func _init() -> void:
+	cool_rate = COOL_PER_SEC
 
 
 func damage_per_shot() -> float:

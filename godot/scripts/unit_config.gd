@@ -97,20 +97,24 @@ func total_multiplier_for_kind(kind: int) -> float:
 # Predicted satellite stats for the unit's current chassis + parts,
 # returned as a Dictionary the Hangar tab's summary panel renders. The
 # numbers here are the spec SpawnDirector implements: weapon damage
-# scales on the weapon part's tier; cool rate (and therefore railgun
-# fire rate) scales on the aggregate radiator multiplier; energy_max /
-# energy_rate scale on the storage / reactor rows. Units stay raw —
-# the menu does its own formatting.
+# scales on the weapon part's tier; cool rate (and therefore the
+# weapon's cooldown duration) is supplied by the unit's radiator
+# complement; energy_max / energy_rate scale on the storage / reactor
+# rows. Units stay raw — the menu does its own formatting.
 #
 # Keys:
-#   "hp"               — initial / max hit points (kg·units of damage)
+#   "hp"               — initial / max hit points
 #   "mass_kg"          — unit mass (railgun recoil math)
 #   "laser_count"      — number of laser slots filled
 #   "laser_dps_total"  — sum of laser damage_per_second at full pool
 #   "laser_max_range"  — laser engagement ceiling, km
+#   "laser_cooldown_sec" — sim-sec for an overheated laser to fully
+#                          cool back to ready. INF when the unit has
+#                          no radiator (the weapon could never recover).
 #   "railgun_count"    — number of railgun slots filled
 #   "railgun_damage_total"  — sum of per-shot damage across railguns
-#   "railgun_fire_rate" — shots per simulated second (per railgun)
+#   "railgun_cooldown_sec" — sim-sec between railgun shots. INF when
+#                            the unit has no radiator.
 #   "energy_storage"   — pool capacity (fraction units)
 #   "energy_production" — pool fill rate per simulated second
 func summary_stats() -> Dictionary:
@@ -132,17 +136,16 @@ func summary_stats() -> Dictionary:
 				railgun_count += 1
 				railgun_damage_total += RailgunWeapon.DAMAGE_PER_SHOT * part.multiplier
 
-	# Railgun fire rate is shots/sec, derived from cool_rate. Each shot
-	# locks the weapon out until ready_fraction climbs back to 1.0; the
-	# slope is COOL_PER_SEC × cool_mult, so per-weapon fire rate is the
-	# same slope (cool_mult is applied to every railgun on the hull).
-	# Reported as 0 when there's no radiator (cool_mult would be zero,
-	# the weapon could fire once and never recover) — surfacing this
-	# directly in the summary deters the operator from shipping a unit
-	# they couldn't sustain fire from.
-	var railgun_fire_rate: float = 0.0
+	# Cooldown duration is the inverse of the radiator-supplied cool
+	# rate (per-class baseline × aggregate radiator multiplier). With
+	# no radiator the rate is zero and the cooldown is infinite — the
+	# weapon would fire once and never recover. Surface that directly
+	# so the operator can't ship a unit whose guns can't sustain fire.
+	var laser_cooldown: float = INF
+	var railgun_cooldown: float = INF
 	if radiator_mult > 0.0:
-		railgun_fire_rate = RailgunWeapon.COOL_PER_SEC * radiator_mult
+		laser_cooldown = 1.0 / (LaserWeapon.COOL_PER_SEC * radiator_mult)
+		railgun_cooldown = 1.0 / (RailgunWeapon.COOL_PER_SEC * radiator_mult)
 
 	return {
 		"hp": Satellite.MAX_HP,
@@ -150,9 +153,10 @@ func summary_stats() -> Dictionary:
 		"laser_count": laser_count,
 		"laser_dps_total": laser_dps_total,
 		"laser_max_range": LaserWeapon.MAX_RANGE_KM,
+		"laser_cooldown_sec": laser_cooldown,
 		"railgun_count": railgun_count,
 		"railgun_damage_total": railgun_damage_total,
-		"railgun_fire_rate": railgun_fire_rate,
+		"railgun_cooldown_sec": railgun_cooldown,
 		"energy_storage": Satellite.ENERGY_MAX * storage_mult,
 		"energy_production": Satellite.ENERGY_RATE_PER_SIM_SEC * reactor_mult,
 	}

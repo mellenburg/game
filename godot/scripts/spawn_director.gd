@@ -229,12 +229,17 @@ func _build_weapons(unit: UnitConfig, radiator_mult: float) -> Array[Weapon]:
 			UnitPart.WCLASS_LASER:
 				var laser := LaserWeapon.new()
 				laser.damage_mult = part.multiplier
-				laser.cool_mult = radiator_mult
+				# Radiator complement defines the weapon's cooling rate
+				# directly. Per-class baseline × aggregate radiator mult
+				# means a unit with one default radiator cools at the
+				# pre-parts speed; an advanced radiator (or two) cools
+				# proportionally faster.
+				laser.cool_rate = LaserWeapon.COOL_PER_SEC * radiator_mult
 				w = laser
 			UnitPart.WCLASS_RAILGUN:
 				var railgun := RailgunWeapon.new()
 				railgun.damage_mult = part.multiplier
-				railgun.cool_mult = radiator_mult
+				railgun.cool_rate = RailgunWeapon.COOL_PER_SEC * radiator_mult
 				w = railgun
 		if w != null:
 			out.append(w)
