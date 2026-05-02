@@ -141,7 +141,18 @@ func _build_topbar() -> PanelContainer:
 	hint.add_theme_color_override("font_color", COLOR_FG_DIM)
 	hint.add_theme_font_size_override("font_size", 11)
 	bar.add_child(hint)
+
+	var exit_btn := Button.new()
+	exit_btn.text = "EXIT"
+	exit_btn.add_theme_font_size_override("font_size", 12)
+	exit_btn.custom_minimum_size = Vector2(80, 0)
+	exit_btn.pressed.connect(_on_exit_pressed)
+	bar.add_child(exit_btn)
 	return panel
+
+
+func _on_exit_pressed() -> void:
+	get_tree().quit()
 
 
 # Layout helper. Each tab's body is a margin around an HBox that
