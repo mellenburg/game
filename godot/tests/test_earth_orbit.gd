@@ -327,13 +327,16 @@ func test_time_to_impact_orders_two_meteorites_by_urgency() -> void:
 
 
 func test_compute_apoapsis_circular_orbit_equals_radius() -> void:
-	# Circular orbit: e ≈ 0, so r_a = r_p = r.
+	# Circular orbit: e ≈ 0, so r_a = r_p = r. Tolerance is 1e-2 km
+	# rather than 1e-6 because Vector3 components are 32-bit; the
+	# stored v_circ rounds enough to put |e| in the 1e-7 range, which
+	# scaled against r ~ 7000 km lands around 1 mm of deviation.
 	var radius := 6371.0 + 500.0
 	var v_circ := sqrt(EarthOrbit.MU / radius)
 	var pos := Vector3(radius, 0.0, 0.0)
 	var vel := Vector3(0.0, v_circ, 0.0)
-	assert_close(EarthOrbit.compute_apoapsis(pos, vel), radius, 1.0e-6)
-	assert_close(EarthOrbit.compute_periapsis(pos, vel), radius, 1.0e-6)
+	assert_close(EarthOrbit.compute_apoapsis(pos, vel), radius, 1.0e-2)
+	assert_close(EarthOrbit.compute_periapsis(pos, vel), radius, 1.0e-2)
 
 
 func test_compute_apoapsis_elliptic_matches_orbit_elements() -> void:
@@ -349,20 +352,24 @@ func test_compute_apoapsis_elliptic_matches_orbit_elements() -> void:
 	assert_close(EarthOrbit.compute_periapsis(pos, vel), orb.r_p, 1.0e-3)
 
 
-func test_compute_apoapsis_returns_inf_for_escape_velocity() -> void:
-	# v at exactly local escape: KE = μ/r → energy = 0 → unbound.
-	# compute_apoapsis must return INF rather than a wildly large
-	# finite value (which would let the railgun safety check pass an
-	# escape-velocity shot as long as the slider was high enough).
+func test_compute_apoapsis_returns_inf_for_unbound_trajectory() -> void:
+	# Any clearly-unbound (parabolic+) trajectory must report INF
+	# rather than a wildly large finite r_a — otherwise the railgun
+	# safety check would let an escape-velocity shot pass as long as
+	# the operator's max-radius slider was high enough. The exact
+	# escape-velocity boundary itself is float-fragile (32-bit
+	# Vector3 component truncation can flip the sign of specific
+	# orbital energy), so the assertion is only on velocities past
+	# the boundary by a clear margin.
 	var radius := 8000.0
 	var v_esc := sqrt(2.0 * EarthOrbit.MU / radius)
 	var pos := Vector3(radius, 0.0, 0.0)
-	# Tangential escape velocity — gives a parabolic trajectory.
-	var vel := Vector3(0.0, v_esc, 0.0)
-	assert_eq(EarthOrbit.compute_apoapsis(pos, vel), INF)
-	# Hyperbolic — strictly above escape.
-	var hyper_vel := Vector3(0.0, v_esc * 1.2, 0.0)
-	assert_eq(EarthOrbit.compute_apoapsis(pos, hyper_vel), INF)
+	# 0.1 % past escape — energy positive but small.
+	var hyper_just_past := Vector3(0.0, v_esc * 1.001, 0.0)
+	assert_eq(EarthOrbit.compute_apoapsis(pos, hyper_just_past), INF)
+	# Well past escape — strictly hyperbolic.
+	var hyper_well_past := Vector3(0.0, v_esc * 1.5, 0.0)
+	assert_eq(EarthOrbit.compute_apoapsis(pos, hyper_well_past), INF)
 
 
 func test_compute_apoapsis_returns_inf_for_radial_state() -> void:
