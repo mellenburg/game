@@ -246,6 +246,38 @@ static func compute_periapsis(pos: Vector3, vel: Vector3) -> float:
 	return p_slr / (1.0 + ecc)
 
 
+## Apoapsis radius for the orbit defined by (r, v). Returns INF for any
+## unbound trajectory — escape velocity (specific orbital energy ≥ 0)
+## or a parabolic / hyperbolic conic (ecc ≥ 1). Rectilinear / singular
+## states return INF as well: there is no well-defined "outer turning
+## point" for a body with no angular momentum, and any guard that asks
+## "would this orbit stay below max radius?" should treat the case as
+## "no". Pure function — used by the railgun's pre-fire safety check
+## to refuse shots that would push the shooter past the operator's max
+## orbital radius or onto an escape trajectory.
+static func compute_apoapsis(pos: Vector3, vel: Vector3) -> float:
+	var r_len := pos.length()
+	if r_len == 0.0:
+		return INF
+	var v_sq := vel.dot(vel)
+	# Specific orbital energy. Non-negative ⇒ parabolic or hyperbolic ⇒
+	# no apoapsis. Cheap early-out so we don't bother with the eccentricity
+	# vector for unbound shots.
+	var energy := 0.5 * v_sq - MU / r_len
+	if energy >= 0.0:
+		return INF
+	var h := pos.cross(vel)
+	var norm_h := h.length()
+	if norm_h == 0.0:
+		return INF
+	var e_vec := pos * ((v_sq - MU / r_len) / MU) + vel * (-pos.dot(vel) / MU)
+	var ecc := e_vec.length()
+	if ecc >= 1.0:
+		return INF
+	var p_slr := h.dot(h) / MU
+	return p_slr / (1.0 - ecc)
+
+
 ## Shrink `dv` along its own direction to the largest fraction α ∈ [0,1]
 ## such that (vel + α·dv) defines an orbit with periapsis ≥ min_r_p.
 ## Bisection — the safety predicate is monotone in α along the dv ray

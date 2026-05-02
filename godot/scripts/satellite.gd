@@ -9,19 +9,10 @@ const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 const OrbitalPath = preload("res://scripts/orbital_path.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
+const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 
 const TEAM_PLAYER: int = 0
 const TEAM_ENEMY: int = 1
-
-# Laser targeting modes. MAX_DAMAGE picks the closest in-envelope target
-# (current-distance scoring, so range-falloff damage is highest);
-# MAX_DANGER picks the in-envelope target with the smallest predicted
-# time-to-impact-on-Earth, falling back to closest distance when no
-# candidate is on a current-trajectory impact path. Stored on the
-# satellite so each ship can carry its own setting; toggled per-unit
-# (L) or fleet-wide (Shift+L).
-const TARGETING_MAX_DAMAGE: int = 0
-const TARGETING_MAX_DANGER: int = 1
 
 const SCENE_SCALE: float = 1.0 / 1000.0
 const DEFAULT_R := Vector3(-6045.0, -3490.0, 2500.0)
@@ -35,6 +26,19 @@ const COLOR_DECAYING := Color(0.95, 0.45, 0.95)
 const COLOR_HIT := Color(1.0, 0.25, 0.05)
 
 const MAX_HP: float = 100.0
+# Default unit mass (kg). Distinct from hit points — used by the
+# railgun's momentum-transfer math: the impulse delivered to shooter
+# (recoil) and target (push) is fixed in (kg·km/s) and divided by the
+# unit's mass to yield the resulting Δv. Player satellites and unarmed
+# enemy sats default to this value; meteorite / decaying spawners set
+# their own mass via spawn_director.
+const DEFAULT_MASS_KG: float = 1000.0
+# Default operator-set cap on the shooter's post-recoil orbital radius.
+# 50 000 km matches the design spec: large enough that a few shots
+# barely shift orbit, small enough that a long railgun engagement
+# eventually self-limits before the shooter drifts out to GEO+. Pure
+# game-balance number; players can tune it in flight.
+const DEFAULT_MAX_ORBITAL_RADIUS_KM: float = 50000.0
 # Player thrust is clamped each tick so the resulting orbit's periapsis
 # stays at or above this radius. Sits a hair above EARTH_RADIUS_KM so
 # floating-point slop in the propagator can't tip the body across the
@@ -58,6 +62,10 @@ var team: int = TEAM_PLAYER
 # override it with their own cap and seed `hp` to the same value.
 var max_hp: float = MAX_HP
 var hp: float = MAX_HP
+# Per-instance mass (kg). Used by the railgun's momentum-transfer math
+# only; orbital propagation is mass-independent. Spawners override for
+# heavier (decaying-orbit) or fragile (meteorite) bodies.
+var mass: float = DEFAULT_MASS_KG
 var alive: bool = true
 # Sub-orbital trajectory (a meteorite) — its periapsis is below Earth's
 # surface by construction, so it impacts ground in finite time. Used to
@@ -93,11 +101,29 @@ var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
 # engagement_range_km value is preserved so re-toggling fire control
 # brings the same setting back.
 var fire_control_active: bool = false
-# Per-ship laser targeting mode. Honored by CombatController._pick_target_for_weapon
-# when selecting which in-envelope enemy each weapon will fire at this tick.
-# Cloned across planning satellites so the planning view shows the same
-# auto-targeting choice the live simulation will make.
-var targeting_mode: int = TARGETING_MAX_DAMAGE
+# Per-ship laser targeting mode. Honored by LaserWeapon.pick_target
+# when selecting which in-envelope enemy each weapon will fire at this
+# tick. Cloned across planning satellites so the planning view shows
+# the same auto-targeting choice the live simulation will make. Stored
+# on the satellite (not the weapon) because all of a ship's lasers
+# share the same operator setting, even though the constants live on
+# LaserWeapon as the strategy that consumes them.
+var targeting_mode: int = LaserWeapon.TARGETING_MAX_DAMAGE
+# Operator-set cap on the shooter's post-recoil apoapsis (km). The
+# railgun's pre-fire safety check refuses any shot whose recoil would
+# push apoapsis past this radius; floor is hard-coded at
+# RailgunWeapon.SAFE_PERIAPSIS_KM (no slider) to keep the post-shot
+# orbit above the upper atmosphere. Adjusted in-flight via
+# Shift+Left/Right.
+var max_orbital_radius_km: float = DEFAULT_MAX_ORBITAL_RADIUS_KM
+# Fleet-wide (toggled together via X) gate on whether the railgun is
+# allowed to fire at all. Default on so a fresh game has railguns
+# active; press X to silence the entire fleet's railguns when the
+# operator wants to preserve momentum / energy. Stored per-satellite so
+# the weapon strategy (which only sees its attacker) can read a single
+# field; EarthSystem._toggle_railgun_on_all keeps the flag consistent
+# across player units.
+var railgun_enabled: bool = true
 
 # Cached absolute simulated time at which this body's current
 # trajectory crosses Earth's surface. NAN means "unknown — compute on
@@ -131,7 +157,11 @@ var path_visual: OrbitalPath
 
 func _init() -> void:
 	orbit = EarthOrbit.new(DEFAULT_R, DEFAULT_V)
-	weapons = [LaserWeapon.new(), LaserWeapon.new()]
+	# Player loadout: two lasers (continuous-fire) plus a single railgun
+	# (impulse, momentum-conserving). Lasers sit first so their HUD
+	# bars line up with prior screenshots; the railgun bar tails the
+	# strip. Spawners that build unarmed enemies clear the array.
+	weapons = [LaserWeapon.new(), LaserWeapon.new(), RailgunWeapon.new()]
 
 
 ## Charge the shared energy pool. Per-weapon cooling is driven by
@@ -241,10 +271,10 @@ func invalidate_impact_cache() -> void:
 ## meaningful on armed units; on unarmed bodies the flag is harmless but
 ## ignored by the combat loop.
 func toggle_targeting_mode() -> void:
-	if targeting_mode == TARGETING_MAX_DAMAGE:
-		targeting_mode = TARGETING_MAX_DANGER
+	if targeting_mode == LaserWeapon.TARGETING_MAX_DAMAGE:
+		targeting_mode = LaserWeapon.TARGETING_MAX_DANGER
 	else:
-		targeting_mode = TARGETING_MAX_DAMAGE
+		targeting_mode = LaserWeapon.TARGETING_MAX_DAMAGE
 
 
 ## Clamp + assign the operator-set engagement range. The lower bound
@@ -257,6 +287,46 @@ func set_engagement_range(km: float) -> void:
 		LaserWeapon.MIN_ENGAGEMENT_RANGE_KM,
 		LaserWeapon.MAX_RANGE_KM,
 	)
+
+
+## Clamp + assign the operator-set max orbital radius (railgun safety
+## cap). Lower bound is the hard-coded periapsis floor so the slider
+## can't be driven below the planet; upper bound is unbounded in
+## principle, but capped at INF/2 to dodge any future "infinite +
+## infinite" arithmetic landmines. The shooter is still independently
+## refused fire if any individual shot would put it on an escape
+## trajectory regardless of where this slider sits.
+func set_max_orbital_radius(km: float) -> void:
+	max_orbital_radius_km = maxf(km, RailgunWeapon.SAFE_PERIAPSIS_KM)
+
+
+## Flip the railgun-enabled gate. Like toggle_fire_control this is
+## per-instance; EarthSystem keeps the whole fleet in sync via X.
+func toggle_railgun() -> void:
+	railgun_enabled = not railgun_enabled
+
+
+## Whether this satellite carries at least one laser. Drives every
+## laser-specific UI surface and input gate (the targeting-mode toggle,
+## fire-control toggle, engagement-range slider, and their HUD
+## readouts). A railgun-only ship returns false and is silently
+## skipped by all of those — pressing L on it does nothing, the HUD
+## doesn't render a TGT or FC line, and the range slider stays put.
+func has_laser() -> bool:
+	for w: Weapon in weapons:
+		if w is LaserWeapon:
+			return true
+	return false
+
+
+## Whether this satellite carries at least one railgun. Mirrors
+## has_laser(); used by the HUD to decide whether to render the RG
+## status line.
+func has_railgun() -> bool:
+	for w: Weapon in weapons:
+		if w is RailgunWeapon:
+			return true
+	return false
 
 
 func get_current_maneuver() -> Vector3:
@@ -430,6 +500,9 @@ func clone_orbit_from(other: Satellite) -> void:
 	engagement_range_km = other.engagement_range_km
 	fire_control_active = other.fire_control_active
 	targeting_mode = other.targeting_mode
+	mass = other.mass
+	max_orbital_radius_km = other.max_orbital_radius_km
+	railgun_enabled = other.railgun_enabled
 	# Mirror the cache so the planning preview's HUD ranking matches
 	# the real fleet's. The stored value is an absolute sim-time, so
 	# the planning sat — which lives on the same sim clock as reality

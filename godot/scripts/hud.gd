@@ -16,6 +16,8 @@ extends Control
 const Satellite = preload("res://scripts/satellite.gd")
 const LosCheck = preload("res://scripts/los_check.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
+const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
+const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
@@ -56,6 +58,14 @@ const FC_NODE_NAME: String = "FCStatus"
 const TGT_TEXT_COLOR := Color(0.55, 0.85, 0.95, 1.0)
 const TGT_FONT_SIZE: int = 10
 const TGT_NODE_NAME: String = "TargetingStatus"
+
+# Railgun readout — orange-tinted to distinguish from the FC green and
+# TGT cyan, since this line carries two pieces of state (on/off + max
+# orbital radius cap). Only present on armed player ships that carry
+# at least one railgun; unarmed bodies and laser-only loadouts skip it.
+const RG_TEXT_COLOR := Color(0.95, 0.65, 0.30, 1.0)
+const RG_FONT_SIZE: int = 10
+const RG_NODE_NAME: String = "RailgunStatus"
 
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
@@ -492,6 +502,15 @@ func _make_targeting_label() -> Label:
 	return l
 
 
+func _make_railgun_label() -> Label:
+	var l := Label.new()
+	l.name = RG_NODE_NAME
+	l.add_theme_font_size_override("font_size", RG_FONT_SIZE)
+	l.add_theme_color_override("font_color", RG_TEXT_COLOR)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
 func _update_bar_row(row: Control, fill_color: Color, text: String, fraction: float) -> void:
 	var fill := row.get_child(1) as ColorRect
 	if fill != null:
@@ -532,6 +551,9 @@ func _update_box(
 	var tgt_label := rows.get_node_or_null(TGT_NODE_NAME) as Label
 	if tgt_label != null:
 		rows.remove_child(tgt_label)
+	var rg_label := rows.get_node_or_null(RG_NODE_NAME) as Label
+	if rg_label != null:
+		rows.remove_child(rg_label)
 
 	var desired_bars := 0
 	if not sat.weapons.is_empty():
@@ -547,10 +569,12 @@ func _update_box(
 		current_bars -= 1
 
 	# Reattach (or drop) the FC label after the bars are in their
-	# final shape. Only armed satellites can have fire control on; an
-	# unarmed unit shouldn't carry the label even if some upstream
-	# state ever flipped the flag.
-	var want_fc := sat.fire_control_active and not sat.weapons.is_empty()
+	# final shape. Fire control adjusts engagement_range_km, which is
+	# read only by the laser, so the line is gated on the satellite
+	# carrying at least one laser — railgun-only ships don't render
+	# it even if some upstream code flipped fire_control_active.
+	var has_laser := sat.has_laser()
+	var want_fc := sat.fire_control_active and has_laser
 	if want_fc:
 		if fc_label == null:
 			fc_label = _make_fc_label()
@@ -559,20 +583,35 @@ func _update_box(
 	elif fc_label != null:
 		fc_label.queue_free()
 
-	# Targeting mode is always shown on armed player ships — it's a
-	# persistent setting, not a transient overlay, so it doesn't gate
-	# on a toggle. Unarmed bodies skip it for the same reason FC does.
-	var want_tgt := not sat.weapons.is_empty()
-	if want_tgt:
+	# Targeting mode (MAX DAMAGE / MAX DANGER) is a laser-only setting
+	# — the railgun ignores attacker.targeting_mode and picks randomly
+	# from in-envelope LOS targets. Show the line only on satellites
+	# that actually carry a laser; railgun-only ships skip it.
+	if has_laser:
 		if tgt_label == null:
 			tgt_label = _make_targeting_label()
 		tgt_label.text = (
-			"TGT MAX DANGER" if sat.targeting_mode == Satellite.TARGETING_MAX_DANGER
+			"TGT MAX DANGER" if sat.targeting_mode == LaserWeapon.TARGETING_MAX_DANGER
 			else "TGT MAX DAMAGE"
 		)
 		rows.add_child(tgt_label)
 	elif tgt_label != null:
 		tgt_label.queue_free()
+
+	# Railgun status — only on satellites that carry at least one
+	# railgun. Two readouts on one line: ON/OFF gate (X) and the
+	# operator-set max orbital radius cap (Shift+Left/Right). Players
+	# without a railgun never see this row.
+	if sat.has_railgun():
+		if rg_label == null:
+			rg_label = _make_railgun_label()
+		var on_text: String = "ON" if sat.railgun_enabled else "OFF"
+		rg_label.text = "RG %s  MAX R %d km" % [
+			on_text, int(round(sat.max_orbital_radius_km))
+		]
+		rows.add_child(rg_label)
+	elif rg_label != null:
+		rg_label.queue_free()
 
 	if desired_bars == 0:
 		return
@@ -584,6 +623,14 @@ func _update_box(
 			energy_row, BAR_ENERGY, "Energy  %d%%" % pct, sat.energy
 		)
 
+	# Per-type counter so multiple lasers number 1, 2, 3 while a single
+	# railgun reads as just "Railgun" (no index). Keeps the bar text
+	# sensible regardless of how the weapon array is composed.
+	var per_type_idx: Dictionary = {}
+	var per_type_total: Dictionary = {}
+	for w_count: Weapon in sat.weapons:
+		var n := w_count.display_name()
+		per_type_total[n] = int(per_type_total.get(n, 0)) + 1
 	for i in range(sat.weapons.size()):
 		var w: Weapon = sat.weapons[i]
 		var row := rows.get_child(2 + i) as Control
@@ -591,19 +638,27 @@ func _update_box(
 			continue
 		var prog := w.ready_progress()
 		var pct := int(round(prog * 100.0))
+		var name := w.display_name()
+		var idx := int(per_type_idx.get(name, 0)) + 1
+		per_type_idx[name] = idx
+		var label := name
+		if int(per_type_total[name]) > 1:
+			label = "%s %d" % [name, idx]
 		# Three states: OVERHEAT (locked, cooling back to 100%), READY
 		# (full and unlocked), or partial (firing or recovering toward
-		# READY without having tripped the lockout).
+		# READY without having tripped the lockout). The railgun's
+		# single-shot semantics use the same overheated latch as the
+		# laser, so this branch handles both weapon types cleanly.
 		var text: String
 		var fill_color: Color
 		if w.overheated:
-			text = "Laser %d  OVERHEAT %d%%" % [i + 1, pct]
+			text = "%s  COOLDOWN %d%%" % [label, pct]
 			fill_color = BAR_COOLDOWN
 		elif prog >= 1.0:
-			text = "Laser %d  READY" % (i + 1)
+			text = "%s  READY" % label
 			fill_color = BAR_READY
 		else:
-			text = "Laser %d  %d%%" % [i + 1, pct]
+			text = "%s  %d%%" % [label, pct]
 			fill_color = BAR_COOLDOWN
 		_update_bar_row(row, fill_color, text, prog)
 

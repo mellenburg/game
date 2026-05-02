@@ -73,3 +73,22 @@ func is_target_in_engagement_envelope(_attacker, _target) -> bool:
 ## (caller can use that to drive feedback and to skip cooling).
 func fire(_attacker, _target, _sim_delta: float) -> bool:
 	return false
+
+
+## Pick which of the prefiltered `candidates` this weapon should fire at
+## this tick. Concrete weapons override — the laser ranks by attacker
+## targeting_mode (closest / soonest impact), the railgun picks
+## randomly from in-envelope LOS candidates. Returning null means
+## "nothing to fire at"; the caller treats that as a cool tick.
+##
+## `candidates` is the controller's universal alive-and-orbit-alive
+## list (no team filter). Weapons that need other invariants must
+## verify them via their own is_target_in_engagement_envelope().
+func pick_target(_attacker, _candidates: Array, _sim_time: float):
+	return null
+
+
+## Short label used by the HUD's weapon-row text (e.g. "Laser 1  85%",
+## "Railgun  COOLDOWN 50%"). Concrete weapons override.
+func display_name() -> String:
+	return "Weapon"

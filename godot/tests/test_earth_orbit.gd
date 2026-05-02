@@ -324,3 +324,59 @@ func test_time_to_impact_orders_two_meteorites_by_urgency() -> void:
 	assert_true(is_finite(t_slow))
 	assert_true(is_finite(t_fast))
 	assert_true(t_fast < t_slow, "faster inbound should impact sooner")
+
+
+func test_compute_apoapsis_circular_orbit_equals_radius() -> void:
+	# Circular orbit: e ≈ 0, so r_a = r_p = r. Tolerance is 1e-2 km
+	# rather than 1e-6 because Vector3 components are 32-bit; the
+	# stored v_circ rounds enough to put |e| in the 1e-7 range, which
+	# scaled against r ~ 7000 km lands around 1 mm of deviation.
+	var radius := 6371.0 + 500.0
+	var v_circ := sqrt(EarthOrbit.MU / radius)
+	var pos := Vector3(radius, 0.0, 0.0)
+	var vel := Vector3(0.0, v_circ, 0.0)
+	assert_close(EarthOrbit.compute_apoapsis(pos, vel), radius, 1.0e-2)
+	assert_close(EarthOrbit.compute_periapsis(pos, vel), radius, 1.0e-2)
+
+
+func test_compute_apoapsis_elliptic_matches_orbit_elements() -> void:
+	# Build a clearly elliptical orbit and check apoapsis matches the
+	# r_a stored on the EarthOrbit. Two independent code paths should
+	# produce the same answer; if they diverge the safety check is
+	# computing a different ellipse than the propagator believes in.
+	var pos := Vector3(8000.0, 0.0, 0.0)
+	var vel := Vector3(0.0, 8.5, 0.0)  # tangential, clearly bound
+	var orb := EarthOrbit.new(pos, vel)
+	assert_true(orb.is_state_valid())
+	assert_close(EarthOrbit.compute_apoapsis(pos, vel), orb.r_a, 1.0e-3)
+	assert_close(EarthOrbit.compute_periapsis(pos, vel), orb.r_p, 1.0e-3)
+
+
+func test_compute_apoapsis_returns_inf_for_unbound_trajectory() -> void:
+	# Any clearly-unbound (parabolic+) trajectory must report INF
+	# rather than a wildly large finite r_a — otherwise the railgun
+	# safety check would let an escape-velocity shot pass as long as
+	# the operator's max-radius slider was high enough. The exact
+	# escape-velocity boundary itself is float-fragile (32-bit
+	# Vector3 component truncation can flip the sign of specific
+	# orbital energy), so the assertion is only on velocities past
+	# the boundary by a clear margin.
+	var radius := 8000.0
+	var v_esc := sqrt(2.0 * EarthOrbit.MU / radius)
+	var pos := Vector3(radius, 0.0, 0.0)
+	# 0.1 % past escape — energy positive but small.
+	var hyper_just_past := Vector3(0.0, v_esc * 1.001, 0.0)
+	assert_eq(EarthOrbit.compute_apoapsis(pos, hyper_just_past), INF)
+	# Well past escape — strictly hyperbolic.
+	var hyper_well_past := Vector3(0.0, v_esc * 1.5, 0.0)
+	assert_eq(EarthOrbit.compute_apoapsis(pos, hyper_well_past), INF)
+
+
+func test_compute_apoapsis_returns_inf_for_radial_state() -> void:
+	# Rectilinear (no angular momentum): apoapsis is undefined as a
+	# turning radius for the conic. We return INF so any "would
+	# this orbit stay below max radius?" guard treats the case as
+	# unsafe.
+	var pos := Vector3(8000.0, 0.0, 0.0)
+	var vel := Vector3(1.0, 0.0, 0.0)  # purely radial, h = 0
+	assert_eq(EarthOrbit.compute_apoapsis(pos, vel), INF)
