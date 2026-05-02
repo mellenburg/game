@@ -613,66 +613,67 @@ func _on_orbit_field_changed(
 
 # ---------------------------------------------------------------- Surface Ops
 
-# Tab layout: left column shows the list of placed surface units (with
-# a remove button per row), centre column is a click-to-place world
-# map, right column carries notes. The placement map's `placed` signal
-# is wired straight to PlayerLoadout.add_surface_unit so the menu
-# state stays the single source of truth — clicking the map mutates
-# PlayerLoadout.surface_units, which is what the spawner reads on
-# Launch.
+# Tab layout: equirectangular world map up top (wrapped in an
+# AspectRatioContainer so it grows to fill the tab width while
+# preserving its 2:1 lon:lat aspect), placed-installations list below.
+# The placement map's `placed` signal is wired straight to
+# PlayerLoadout.add_surface_unit so the menu state stays the single
+# source of truth — clicking the map mutates PlayerLoadout.surface_units,
+# which is what the spawner reads on Launch.
 func _build_surface_ops_tab() -> Control:
-	var hbox := _padded_hbox()
-	var pad: Control = hbox.get_parent() as Control
+	var pad := MarginContainer.new()
+	pad.anchor_right = 1.0
+	pad.anchor_bottom = 1.0
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 12)
+	pad.add_theme_constant_override("margin_bottom", 12)
 
-	# Left column: placed-unit list.
-	var left := _section("Placed Installations", 320)
-	hbox.add_child(left[0])
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 12)
+	pad.add_child(col)
+
+	# Top: click-to-place equirectangular world map. The
+	# AspectRatioContainer keeps lon:lat at 2:1 — without it the map
+	# would stretch to the full available area and a click in the
+	# stretched basemap wouldn't land where the operator's eye expects.
+	var map_section := _section("Surface Map · Click to Place", 0)
+	col.add_child(map_section[0])
+	# The section panel itself shouldn't grow vertically past the
+	# aspect-ratio'd map — let the bottom section take the slack.
+	map_section[0].size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var aspect := AspectRatioContainer.new()
+	aspect.ratio = 2.0
+	aspect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	aspect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	aspect.stretch_mode = AspectRatioContainer.STRETCH_FIT
+	map_section[1].add_child(aspect)
+	_surface_placement = SurfacePlacementMap.new()
+	_surface_placement.placed.connect(_on_surface_placed)
+	aspect.add_child(_surface_placement)
+
+	# Bottom: placed-installations list. Expands to fill whatever
+	# vertical space the map didn't claim.
+	var list_section := _section("Placed Installations", 0)
+	col.add_child(list_section[0])
+	list_section[0].size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 	_surface_count_label = Label.new()
 	_surface_count_label.add_theme_color_override("font_color", COLOR_FG_DIM)
 	_surface_count_label.add_theme_font_size_override("font_size", 11)
-	left[1].add_child(_surface_count_label)
+	list_section[1].add_child(_surface_count_label)
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left[1].add_child(scroll)
+	list_section[1].add_child(scroll)
 
 	_surface_root = VBoxContainer.new()
 	_surface_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_surface_root.add_theme_constant_override("separation", 6)
 	scroll.add_child(_surface_root)
-
-	# Centre column: click-to-place equirectangular world map.
-	var center := _section("Surface Map · Click to Place", 0)
-	hbox.add_child(center[0])
-	_surface_placement = SurfacePlacementMap.new()
-	_surface_placement.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_surface_placement.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_surface_placement.placed.connect(_on_surface_placed)
-	center[1].add_child(_surface_placement)
-
-	# Right column: explanatory notes.
-	var right := _section("Surface Ops Notes", SIDE_PANEL_WIDTH)
-	hbox.add_child(right[0])
-	var notes := Label.new()
-	notes.text = (
-		"Click the world map to drop a fixed surface installation at\n"
-		+ "that lat / lon. Each unit defends the ground around it with\n"
-		+ "a laser turret, draws from its own energy reservoir, and\n"
-		+ "rotates with Earth's daily spin.\n\n"
-		+ "• Place as many as you like — there's no fleet cap here.\n"
-		+ "• Surface installations don't accept thrust input; they just\n"
-		+ "  fire when a hostile body crosses their engagement envelope.\n"
-		+ "• Their positions are reflected on the in-game minimap as\n"
-		+ "  green squares so you can correlate fire with ground cover.\n\n"
-		+ "Use the Remove button on a row to drop an installation before\n"
-		+ "Launch — once the stage is running the placement is locked in."
-	)
-	notes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	notes.add_theme_color_override("font_color", COLOR_FG_DIM)
-	notes.add_theme_font_size_override("font_size", 12)
-	right[1].add_child(notes)
 
 	_refresh_surface_list()
 	return pad
