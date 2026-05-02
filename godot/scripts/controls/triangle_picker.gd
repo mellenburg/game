@@ -21,8 +21,17 @@ const COLOR_HANDLE_OUTLINE := Color(0.04, 0.05, 0.07)
 const COLOR_GUIDE := Color(0.18, 0.20, 0.24)
 
 const HANDLE_RADIUS: float = 7.0
-const TRIANGLE_PAD: float = 18.0  # leaves room for vertex labels
-const VERTEX_LABEL_FONT_SIZE: int = 12
+const VERTEX_LABEL_FONT_SIZE: int = 11
+
+# Pixel margins reserved for vertex labels so the equilateral triangle
+# inscribed inside the rest stays inside the control's bounds. The
+# triangle's apex sits at TOP_RESERVED below the top edge; the base
+# sits BOTTOM_RESERVED above the bottom edge; SIDE_RESERVED keeps a
+# bottom-corner label centred under its vertex from falling off the
+# left or right edge.
+const TOP_RESERVED: float = 18.0
+const BOTTOM_RESERVED: float = 18.0
+const SIDE_RESERVED: float = 24.0
 
 @export var weight_small: float = 1.0 / 3.0
 @export var weight_medium: float = 1.0 / 3.0
@@ -32,7 +41,10 @@ var _dragging: bool = false
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(180, 180)
+	# Sized to comfortably fit an equilateral triangle plus 18 px of
+	# reserved label space top and bottom; smaller than ~180 px wide
+	# the bottom-corner labels start clipping.
+	custom_minimum_size = Vector2(200, 200)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	focus_mode = Control.FOCUS_ALL
 
@@ -48,25 +60,29 @@ func set_weights(s: float, m: float, l: float) -> void:
 	queue_redraw()
 
 
-# Vertices, in window space. Equilateral triangle inscribed in the
-# (size minus padding) rect with the small vertex at the top-left,
-# medium at the top-right, large at the bottom centre — chosen so the
-# label order reads left → right → bottom and matches the natural
-# "small / medium / large" progression most editors render.
+# Returns the three vertices of the largest equilateral triangle that
+# fits inside the control's reserved interior, with apex up and base
+# horizontal. Vertex assignment: SMALL = top, MEDIUM = bottom-left,
+# LARGE = bottom-right — same order the host editor expects.
 func _vertices() -> Array[Vector2]:
-	var w := size.x - TRIANGLE_PAD * 2.0
-	var h := size.y - TRIANGLE_PAD * 2.0
-	var ox := TRIANGLE_PAD
-	var oy := TRIANGLE_PAD
-	# Equilateral triangle centred horizontally, with one vertex at
-	# the top centre and the other two at the base. We rotate the
-	# convention so SMALL = top, MEDIUM = bottom-left, LARGE =
-	# bottom-right; that puts the "more dangerous" classes lower on
-	# screen, mirroring the radar-overlay convention.
-	var top := Vector2(ox + w * 0.5, oy)
-	var bl := Vector2(ox, oy + h)
-	var br := Vector2(ox + w, oy + h)
-	return [top, bl, br]
+	var avail_w: float = size.x - SIDE_RESERVED * 2.0
+	var avail_h: float = size.y - TOP_RESERVED - BOTTOM_RESERVED
+	if avail_w <= 1.0 or avail_h <= 1.0:
+		var c: Vector2 = size * 0.5
+		return [c, c, c]
+	# Equilateral: tri_h = side * sqrt(3) / 2. Pick the larger side
+	# that still fits both the available width and the available
+	# height, so the picker scales smoothly when the host resizes.
+	var side: float = minf(avail_w, avail_h * 2.0 / sqrt(3.0))
+	var tri_h: float = side * sqrt(3.0) * 0.5
+	var cx: float = size.x * 0.5
+	var top_y: float = TOP_RESERVED + (avail_h - tri_h) * 0.5
+	var bottom_y: float = top_y + tri_h
+	return [
+		Vector2(cx, top_y),
+		Vector2(cx - side * 0.5, bottom_y),
+		Vector2(cx + side * 0.5, bottom_y),
+	]
 
 
 func _draw() -> void:
@@ -87,27 +103,58 @@ func _draw() -> void:
 	draw_line(v[0], m_bl, COLOR_GUIDE, 1.0)
 	draw_line(v[1], m_br, COLOR_GUIDE, 1.0)
 	draw_line(v[2], m_top, COLOR_GUIDE, 1.0)
-	# Vertex labels.
+	# Vertex labels — sized to the actual rendered text and positioned
+	# so they sit just outside the vertex on the side facing away from
+	# the triangle's centre. The clamp keeps the bounding box strictly
+	# inside the control even on tight sizes.
 	var font := get_theme_default_font()
 	if font != null:
-		_draw_vertex_label(font, v[0], "S %d%%" % int(round(weight_small * 100.0)),
-			Vector2(-20, -6), COLOR_LABEL_DIM)
-		_draw_vertex_label(font, v[1], "M %d%%" % int(round(weight_medium * 100.0)),
-			Vector2(-44, 16), COLOR_LABEL_DIM)
-		_draw_vertex_label(font, v[2], "L %d%%" % int(round(weight_large * 100.0)),
-			Vector2(8, 16), COLOR_LABEL_DIM)
+		_draw_label_above(font, v[0],
+			"S %d%%" % int(round(weight_small * 100.0)))
+		_draw_label_below(font, v[1],
+			"M %d%%" % int(round(weight_medium * 100.0)))
+		_draw_label_below(font, v[2],
+			"L %d%%" % int(round(weight_large * 100.0)))
 	# Handle dot at the current barycentric position.
 	var p := _barycentric_to_pixel(weight_small, weight_medium, weight_large)
 	draw_circle(p, HANDLE_RADIUS + 1.0, COLOR_HANDLE_OUTLINE)
 	draw_circle(p, HANDLE_RADIUS, COLOR_HANDLE)
 
 
-func _draw_vertex_label(
-	font: Font, anchor: Vector2, text: String, offset: Vector2, color: Color
-) -> void:
+# Render `text` centred above `anchor`. Position is the text baseline
+# (Godot 4 convention); the clamp keeps the bounding box of the
+# rendered glyphs inside the control rect even at minimum size.
+func _draw_label_above(font: Font, anchor: Vector2, text: String) -> void:
+	var sz: Vector2 = font.get_string_size(
+		text, HORIZONTAL_ALIGNMENT_LEFT, -1, VERTEX_LABEL_FONT_SIZE
+	)
+	var pos: Vector2 = Vector2(
+		anchor.x - sz.x * 0.5,
+		anchor.y - 4.0,
+	)
+	pos.x = clampf(pos.x, 1.0, size.x - sz.x - 1.0)
+	pos.y = clampf(pos.y, sz.y, size.y - 1.0)
 	draw_string(
-		font, anchor + offset, text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, VERTEX_LABEL_FONT_SIZE, color,
+		font, pos, text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1,
+		VERTEX_LABEL_FONT_SIZE, COLOR_LABEL_DIM,
+	)
+
+
+func _draw_label_below(font: Font, anchor: Vector2, text: String) -> void:
+	var sz: Vector2 = font.get_string_size(
+		text, HORIZONTAL_ALIGNMENT_LEFT, -1, VERTEX_LABEL_FONT_SIZE
+	)
+	var pos: Vector2 = Vector2(
+		anchor.x - sz.x * 0.5,
+		anchor.y + sz.y + 2.0,
+	)
+	pos.x = clampf(pos.x, 1.0, size.x - sz.x - 1.0)
+	pos.y = clampf(pos.y, sz.y, size.y - 1.0)
+	draw_string(
+		font, pos, text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1,
+		VERTEX_LABEL_FONT_SIZE, COLOR_LABEL_DIM,
 	)
 
 

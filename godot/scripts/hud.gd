@@ -194,8 +194,21 @@ func _update_kill_stats(orbital_set: Node) -> void:
 	# needed; the HUD already polls orbital_set every tick anyway.
 	var shot: int = orbital_set.enemies_shot_down
 	var hit: int = orbital_set.meteorites_impacted
+	# Wave tracker prepended above the eliminated stats. Hidden when
+	# the controller has no live mission scheduler (direct main.tscn
+	# boot, debug sandbox) — the readout would always read "0/0" in
+	# that mode and give the operator nothing to act on.
+	var wave_block := ""
+	if orbital_set.mission != null and orbital_set.mission.total_waves() > 0:
+		var current: int = orbital_set.mission.current_wave_number()
+		var total: int = orbital_set.mission.total_waves()
+		wave_block = (
+			"[font_size=13][color=gray]Current wave[/color] "
+			+ "[color=#f5b455]%d/%d[/color][/font_size]\n" % [current, total]
+		)
 	kill_stats.text = (
-		"[font_size=13][color=gray]Enemies eliminated[/color]\n"
+		wave_block
+		+ "[font_size=13][color=gray]Enemies eliminated[/color]\n"
 		+ "[color=#7fcf7f]Shot down:[/color] %d\n" % shot
 		+ "[color=#ff8c5a]Impacted:[/color] %d[/font_size]" % hit
 	)

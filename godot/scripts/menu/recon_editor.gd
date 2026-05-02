@@ -127,17 +127,6 @@ func _build_classes_section() -> Control:
 	header.add_theme_font_size_override("font_size", 13)
 	col.add_child(header)
 
-	var note := Label.new()
-	note.text = (
-		"Each class drives one wave-unit. Object count / decaying ratio "
-		+ "are ranges (sampled per wave-unit at launch). Triangle picks "
-		+ "the per-object size mix; centre = 1/3 each, edge midpoint = 50/50/0."
-	)
-	note.add_theme_color_override("font_color", COLOR_FG_DIM)
-	note.add_theme_font_size_override("font_size", 11)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(note)
-
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL

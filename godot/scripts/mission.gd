@@ -173,6 +173,29 @@ func total_wave_units() -> int:
 	return _schedule.size()
 
 
+# Distinct wave count baked into the schedule. The HUD's "current
+# wave: x/y" tracker reads this for the denominator; cached at
+# start so the readout doesn't drift if the player edits the live
+# settings (Mission snapshots and never re-reads).
+func total_waves() -> int:
+	var seen: Dictionary = {}
+	for entry in _schedule:
+		seen[int(entry.get("wave_id", -1))] = true
+	return seen.size()
+
+
+# 1-based "current wave" number for the HUD: the wave_id of the most
+# recent emission tick() has handed out, plus one. A wave is current
+# once its first wave-unit has been spawned and stays current through
+# subsequent waves' first emissions. Returns 0 when no wave-unit has
+# fired yet.
+func current_wave_number() -> int:
+	if _next_idx <= 0:
+		return 0
+	var last: Dictionary = _schedule[_next_idx - 1]
+	return int(last.get("wave_id", -1)) + 1
+
+
 func mark_complete() -> void:
 	state = STATE_COMPLETE
 

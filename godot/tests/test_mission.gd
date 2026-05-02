@@ -220,6 +220,54 @@ func test_mark_complete_blocks_further_emissions() -> void:
 	assert_eq(m.tick(500.0).size(), 0)
 
 
+func test_total_waves_counts_distinct_wave_ids() -> void:
+	# Default ships 5 waves; the schedule's distinct wave_id count
+	# is what the HUD's denominator reads off.
+	var s := ReconSettings.default_settings()
+	var m := Mission.new()
+	m.start_from_settings(s, _seeded_rng())
+	assert_eq(m.total_waves(), 5)
+
+
+func test_current_wave_number_starts_at_zero() -> void:
+	# Before any wave-unit fires, the tracker reads 0 — the HUD shows
+	# "Current wave: 0/5" so the operator knows the schedule armed
+	# but no wave has begun yet.
+	var s := ReconSettings.default_settings()
+	var m := Mission.new()
+	m.start_from_settings(s, _seeded_rng())
+	assert_eq(m.current_wave_number(), 0)
+
+
+func test_current_wave_number_advances_with_first_in_wave() -> void:
+	# Step the mission forward through each wave's first wave-unit
+	# and confirm current_wave_number bumps to that wave's 1-based id.
+	var s := ReconSettings.default_settings()
+	var m := Mission.new()
+	m.start_from_settings(s, _seeded_rng())
+	# Wave 1 fires at t=3.
+	m.tick(3.5)
+	assert_eq(m.current_wave_number(), 1)
+	# Wave 2 fires at t=28 (delay 25 from wave 1's first unit).
+	m.tick(25.0)
+	assert_eq(m.current_wave_number(), 2)
+	# Drain the rest.
+	m.tick(500.0)
+	assert_eq(m.current_wave_number(), 5)
+
+
+func test_current_wave_number_persists_after_drain() -> void:
+	# Once every wave has fired, the tracker should stick at the
+	# final wave number rather than reverting to 0 — the HUD reads
+	# "Current wave: 5/5" until the run ends.
+	var s := ReconSettings.default_settings()
+	var m := Mission.new()
+	m.start_from_settings(s, _seeded_rng())
+	m.tick(500.0)
+	assert_true(m.all_waves_spawned())
+	assert_eq(m.current_wave_number(), 5)
+
+
 func test_seeded_rng_produces_stable_timeline() -> void:
 	# Same seed → same emission timestamps and same size-class order
 	# across runs, even with randomised waves and shuffled classes.
