@@ -635,30 +635,36 @@ func _build_surface_ops_tab() -> Control:
 	col.add_theme_constant_override("separation", 12)
 	pad.add_child(col)
 
-	# Top: click-to-place equirectangular world map. The
-	# AspectRatioContainer keeps lon:lat at 2:1 — without it the map
-	# would stretch to the full available area and a click in the
-	# stretched basemap wouldn't land where the operator's eye expects.
+	# Top: click-to-place equirectangular world map wrapped in an
+	# AspectRatioContainer so it preserves a 2:1 lon:lat ratio while
+	# growing into the tab width. The section panel and aspect
+	# container both keep size_flags_vertical=EXPAND_FILL so they fill
+	# whatever vertical the layout allocates; the AspectRatioContainer
+	# in STRETCH_FIT mode centers the 2:1 child inside that rect with
+	# letterboxing if the available area's aspect doesn't match. The
+	# placement map's custom_minimum_size sets a floor so the layout
+	# can't collapse the click target to zero height when nothing else
+	# in the section drives a minimum.
 	var map_section := _section("Surface Map · Click to Place", 0)
 	col.add_child(map_section[0])
-	# The section panel itself shouldn't grow vertically past the
-	# aspect-ratio'd map — let the bottom section take the slack.
-	map_section[0].size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	map_section[0].size_flags_stretch_ratio = 3.0
 	var aspect := AspectRatioContainer.new()
 	aspect.ratio = 2.0
 	aspect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	aspect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	aspect.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	aspect.stretch_mode = AspectRatioContainer.STRETCH_FIT
 	map_section[1].add_child(aspect)
 	_surface_placement = SurfacePlacementMap.new()
+	_surface_placement.custom_minimum_size = Vector2(640.0, 320.0)
 	_surface_placement.placed.connect(_on_surface_placed)
 	aspect.add_child(_surface_placement)
 
-	# Bottom: placed-installations list. Expands to fill whatever
-	# vertical space the map didn't claim.
+	# Bottom: placed-installations list. Fills whatever vertical space
+	# the map didn't claim — the map's higher stretch_ratio above keeps
+	# this section from dominating when there's plenty of room.
 	var list_section := _section("Placed Installations", 0)
 	col.add_child(list_section[0])
-	list_section[0].size_flags_vertical = Control.SIZE_EXPAND_FILL
+	list_section[0].size_flags_stretch_ratio = 1.0
 
 	_surface_count_label = Label.new()
 	_surface_count_label.add_theme_color_override("font_color", COLOR_FG_DIM)
