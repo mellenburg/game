@@ -79,6 +79,24 @@ const STAGES: Array = [
 
 const DEFAULT_UNIT_COUNT: int = 3
 
+
+# Look up the current launch cap from Research. Wrapped in a helper so
+# `reset_units` and `add_launch` agree on the cap source even when the
+# autoload isn't registered (early editor load) — in that case we fall
+# back to DEFAULT_UNIT_COUNT so the menu still works.
+func _launch_cap() -> int:
+	var node := get_node_or_null("/root/Research")
+	if node == null:
+		return DEFAULT_UNIT_COUNT
+	return int(node.launch_capacity())
+
+
+func _surface_cap() -> int:
+	var node := get_node_or_null("/root/Research")
+	if node == null:
+		return 0
+	return int(node.ground_defense_capacity())
+
 var selected_stage_id: String = "luna"
 var unit_pool: Array[UnitConfig] = []
 var launches: Array[Launch] = []
@@ -112,7 +130,11 @@ func reset_units() -> void:
 	launches.clear()
 	_next_unit_seq = 1
 	_next_launch_seq = 1
-	for i in range(DEFAULT_UNIT_COUNT):
+	# Seed at most as many launches as the current research tier
+	# permits — a player who's somehow lost capacity since the last run
+	# shouldn't end up with launches that immediately fail to schedule.
+	var seed_count: int = mini(DEFAULT_UNIT_COUNT, _launch_cap())
+	for i in range(seed_count):
 		var unit := _make_unit_with_id("T-%02d" % (i + 1))
 		# Default loadout mirrors the previous starting fleet: T-01 and
 		# T-02 carry a laser, T-03 carries a railgun. set_chassis() has
@@ -162,11 +184,22 @@ func unit_for_id(unit_id: String) -> UnitConfig:
 # rather than "untangle which preassigned unit got stolen from another
 # launch row".
 func add_launch() -> Launch:
+	# Refuse silently when the operator is at the research-gated cap.
+	# Returning null lets the menu treat "couldn't add" as a no-op
+	# without reaching into Research itself; callers that don't care
+	# about the gate (tests) still see a non-null launch when capacity
+	# allows.
+	if launches.size() >= _launch_cap():
+		return null
 	var launch := Launch.make(launches.size())
 	launch.name = "L-%02d" % _next_launch_seq
 	_next_launch_seq += 1
 	launches.append(launch)
 	return launch
+
+
+func can_add_launch() -> bool:
+	return launches.size() < _launch_cap()
 
 
 func remove_launch(index: int) -> void:
@@ -201,9 +234,18 @@ func has_assigned_launches() -> bool:
 # the Surface Ops map produce S-01, S-02, S-03 …. Caller (the menu)
 # refreshes its list display from `surface_units` after this returns.
 func add_surface_unit(lat_deg: float, lon_deg: float) -> SurfaceUnitConfig:
+	# Same gating story as add_launch: refuse silently when the player
+	# is at the ground-defense cap so the placement map's click handler
+	# can swallow the no-op without bypassing Research.
+	if surface_units.size() >= _surface_cap():
+		return null
 	var cfg := SurfaceUnitConfig.make(surface_units.size(), lat_deg, lon_deg)
 	surface_units.append(cfg)
 	return cfg
+
+
+func can_add_surface_unit() -> bool:
+	return surface_units.size() < _surface_cap()
 
 
 # Remove a surface unit by its index in `surface_units`. Out-of-range

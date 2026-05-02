@@ -1,13 +1,15 @@
 class_name UnitPart
 extends RefCounted
 ## Catalog of buildable parts. Every part falls into one of four kinds
-## (weapon / radiator / energy storage / reactor); each kind has a
-## "default" tier whose facet matches the previously hardcoded numbers
-## and an "advanced" tier with twice the facet. SpawnDirector reads
-## these multipliers when materialising a Satellite from a UnitConfig:
-## weapon damage scales on the weapon's own multiplier, radiator
-## multipliers feed each weapon's cool-rate, and energy-storage /
-## reactor multipliers feed the satellite's energy_max / energy_rate.
+## (weapon / radiator / energy storage / reactor); each kind has three
+## tiers — default (1.0× facet, the pre-existing hardcoded numbers),
+## advanced (2.0× facet), and elite (3.0× facet). The Research autoload
+## decides which tiers the player can equip at any given time; this
+## file just publishes the catalog. SpawnDirector reads the multipliers
+## when materialising a Satellite from a UnitConfig: weapon damage
+## scales on the weapon's own multiplier, radiator multipliers feed
+## each weapon's cool-rate, and energy-storage / reactor multipliers
+## feed the satellite's energy_max / energy_rate.
 
 const KIND_WEAPON: int = 0
 const KIND_RADIATOR: int = 1
@@ -28,12 +30,13 @@ const WCLASS_RAILGUN: String = "railgun"
 # Tier labels — purely cosmetic, drives the dropdown text.
 const TIER_DEFAULT: String = "default"
 const TIER_ADVANCED: String = "advanced"
+const TIER_ELITE: String = "elite"
 
 var id: String
 var kind: int
 var label: String
 # Tier multiplier on the part's facet. 1.0 = default tier (matches the
-# pre-existing hardcoded numbers), 2.0 = advanced tier. Spawn-time
+# pre-existing hardcoded numbers), 2.0 = advanced, 3.0 = elite. Spawn-time
 # materialisation multiplies the relevant facet by this value:
 #   weapon  → damage_per_second / damage_per_shot
 #   radiator → weapon cool_rate
@@ -93,20 +96,29 @@ static func make_thruster(
 	return p
 
 
-# Catalog is rebuilt on each call. Eight entries — the cost is trivial
-# and avoids static-init ordering hazards.
+# Catalog is rebuilt on each call. Cost is trivial and avoids
+# static-init ordering hazards. Three tiers per non-thruster kind
+# (default / advanced / elite) — Research gates which tiers the
+# operator can actually equip in the Hangar. Thrusters keep the
+# default + advanced split for now; an elite thruster needs balance
+# work alongside the propellant budget before it lands here.
 static func catalog() -> Array[UnitPart]:
 	var out: Array[UnitPart] = []
 	out.append(make("laser_default", KIND_WEAPON, "Laser", 1.0, WCLASS_LASER))
 	out.append(make("laser_advanced", KIND_WEAPON, "Laser (Advanced)", 2.0, WCLASS_LASER))
+	out.append(make("laser_elite", KIND_WEAPON, "Laser (Elite)", 3.0, WCLASS_LASER))
 	out.append(make("railgun_default", KIND_WEAPON, "Railgun", 1.0, WCLASS_RAILGUN))
 	out.append(make("railgun_advanced", KIND_WEAPON, "Railgun (Advanced)", 2.0, WCLASS_RAILGUN))
+	out.append(make("railgun_elite", KIND_WEAPON, "Railgun (Elite)", 3.0, WCLASS_RAILGUN))
 	out.append(make("radiator_default", KIND_RADIATOR, "Radiator", 1.0))
 	out.append(make("radiator_advanced", KIND_RADIATOR, "Radiator (Advanced)", 2.0))
+	out.append(make("radiator_elite", KIND_RADIATOR, "Radiator (Elite)", 3.0))
 	out.append(make("energy_storage_default", KIND_ENERGY_STORAGE, "Energy Storage", 1.0))
 	out.append(make("energy_storage_advanced", KIND_ENERGY_STORAGE, "Energy Storage (Advanced)", 2.0))
+	out.append(make("energy_storage_elite", KIND_ENERGY_STORAGE, "Energy Storage (Elite)", 3.0))
 	out.append(make("reactor_default", KIND_REACTOR, "Reactor", 1.0))
 	out.append(make("reactor_advanced", KIND_REACTOR, "Reactor (Advanced)", 2.0))
+	out.append(make("reactor_elite", KIND_REACTOR, "Reactor (Elite)", 3.0))
 	# Default thruster: kerolox-class — 20 kN, Isp 300 s, 300 kg of
 	# propellant. Advanced: hydrolox-class — 40 kN, Isp 450 s, 600 kg
 	# tank. Both numbers picked to land delta-v capacity in the

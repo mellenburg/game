@@ -90,11 +90,17 @@ var _budget_bar_fill: ColorRect
 var _launch_cost_labels: Array[Label] = []
 var _launch_apogee_labels: Array[Label] = []
 var _previous_tab_index: int = 0
+var _add_launch_btn: Button
+var _launch_capacity_label: Label
 
 # Surface Ops state
 var _surface_root: VBoxContainer
 var _surface_placement: SurfacePlacementMap
 var _surface_count_label: Label
+
+# Research state
+var _research_root: VBoxContainer
+var _research_points_label: Label
 
 
 func _ready() -> void:
@@ -801,13 +807,23 @@ func _build_slot_row(
 	label.add_theme_font_size_override("font_size", 11)
 	row.add_child(label)
 
+	# Locked tiers are still listed in the dropdown so the operator can
+	# see what's coming next, but their entries are disabled and tagged
+	# "(locked)" — clearer than hiding them entirely. The currently
+	# selected part always remains pickable even if research has since
+	# been reset, so an existing unit can never trap the editor in an
+	# unselectable state.
 	var picker := OptionButton.new()
 	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var current_id: String = unit.part_ids_for_kind(kind)[slot_index]
 	for i in range(available.size()):
 		var p: UnitPart = available[i]
-		picker.add_item(p.label)
+		var unlocked := Research.is_part_unlocked(p.id) or p.id == current_id
+		var item_label := p.label if unlocked else "%s (locked)" % p.label
+		picker.add_item(item_label)
 		picker.set_item_metadata(i, p.id)
+		if not unlocked:
+			picker.set_item_disabled(i, true)
 		if p.id == current_id:
 			picker.select(i)
 	picker.item_selected.connect(
@@ -883,11 +899,18 @@ func _build_orbital_ops_tab() -> Control:
 	actions.add_theme_constant_override("separation", 8)
 	left[1].add_child(actions)
 
-	var add_btn := Button.new()
-	add_btn.text = "+ Add Launch"
-	add_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_btn.pressed.connect(_on_add_launch_pressed)
-	actions.add_child(add_btn)
+	_add_launch_btn = Button.new()
+	_add_launch_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_launch_btn.pressed.connect(_on_add_launch_pressed)
+	actions.add_child(_add_launch_btn)
+
+	# Capacity readout sits next to the add button so the operator
+	# always sees the current cap. Updated alongside the rows in
+	# _rebuild_launch_rows().
+	_launch_capacity_label = Label.new()
+	_launch_capacity_label.add_theme_color_override("font_color", COLOR_FG_DIM)
+	_launch_capacity_label.add_theme_font_size_override("font_size", 11)
+	actions.add_child(_launch_capacity_label)
 
 	# Budget panel sits below the actions row so the running total of
 	# propellant draw across every assigned launch is always visible
@@ -923,6 +946,24 @@ func _rebuild_launch_rows() -> void:
 	if _orbit_preview != null:
 		_orbit_preview.refresh()
 	_refresh_launch_budget()
+	_refresh_launch_capacity_chrome()
+
+
+# Update the "+ Add Launch" button + the X / Y capacity counter.
+# Driven by Research's launch_capacity gate — independent from the
+# per-launch propellant budget refresh below.
+func _refresh_launch_capacity_chrome() -> void:
+	if _add_launch_btn == null or _launch_capacity_label == null:
+		return
+	var cap := Research.launch_capacity()
+	var used := PlayerLoadout.launches.size()
+	_launch_capacity_label.text = "%d / %d" % [used, cap]
+	var can_add := PlayerLoadout.can_add_launch()
+	_add_launch_btn.disabled = not can_add
+	if can_add:
+		_add_launch_btn.text = "+ Add Launch"
+	else:
+		_add_launch_btn.text = "Cap reached — research more"
 
 
 # Refresh just the per-launch cost / apogee labels — invoked from the
@@ -1048,7 +1089,13 @@ func _refresh_launch_budget() -> void:
 
 
 func _on_add_launch_pressed() -> void:
-	PlayerLoadout.add_launch()
+	# add_launch returns null when the operator's at the research cap;
+	# the button gate makes that path unreachable in normal use, but
+	# guard anyway in case the cap drops between the button repaint and
+	# the click.
+	if PlayerLoadout.add_launch() == null:
+		_refresh_launch_capacity_chrome()
+		return
 	_rebuild_launch_rows()
 	_refresh_stage_brief()
 
@@ -1349,7 +1396,12 @@ func _build_surface_ops_tab() -> Control:
 
 
 func _on_surface_placed(lat_deg: float, lon_deg: float) -> void:
-	PlayerLoadout.add_surface_unit(lat_deg, lon_deg)
+	# A click on the map at the research-gated cap is a no-op rather
+	# than an error — the count label below already tells the operator
+	# why nothing happened ("X / Y stations placed").
+	if PlayerLoadout.add_surface_unit(lat_deg, lon_deg) == null:
+		_refresh_surface_list()
+		return
 	_refresh_surface_list()
 	if _surface_placement != null:
 		_surface_placement.refresh()
@@ -1368,7 +1420,9 @@ func _refresh_surface_list() -> void:
 	var configs: Array[SurfaceUnitConfig] = PlayerLoadout.surface_units
 	if _surface_count_label != null:
 		_surface_count_label.text = (
-			"%d installation(s) placed" % configs.size()
+			"%d / %d station(s) placed" % [
+				configs.size(), Research.ground_defense_capacity(),
+			]
 		)
 	for i in range(configs.size()):
 		_surface_root.add_child(_build_surface_row(i, configs[i]))
@@ -1431,24 +1485,197 @@ static func _format_lon(lon: float) -> String:
 
 # ---------------------------------------------------------------- Research
 
+# Each chain renders as a labelled card stack. The card list is rebuilt
+# in full after every unlock — chains are short (3–4 tiers) and unlocks
+# happen at human pace, so the brute-force redraw keeps the row state
+# (button enabled / status colour / cost text) trivially in sync with
+# the underlying Research dictionary.
 func _build_research_tab() -> Control:
-	var hbox := _padded_hbox()
-	var pad: Control = hbox.get_parent() as Control
+	var pad := MarginContainer.new()
+	pad.anchor_right = 1.0
+	pad.anchor_bottom = 1.0
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 12)
+	pad.add_theme_constant_override("margin_bottom", 12)
 
-	var box := _section("Research", 0)
-	hbox.add_child(box[0])
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 12)
+	pad.add_child(col)
 
-	var msg := Label.new()
-	msg.text = "Research tree coming soon."
-	msg.add_theme_color_override("font_color", COLOR_FG_DIM)
-	msg.add_theme_font_size_override("font_size", 16)
-	msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	msg.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	msg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	msg.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	box[1].add_child(msg)
+	# Top: research point readout. The unlock buttons subtract from
+	# this; the label is refreshed alongside the chain rebuild so the
+	# operator sees the cost decrement immediately.
+	var header := PanelContainer.new()
+	header.add_theme_stylebox_override("panel", _flat_stylebox(COLOR_PANEL_DIM))
+	var header_pad := MarginContainer.new()
+	header_pad.add_theme_constant_override("margin_left", 12)
+	header_pad.add_theme_constant_override("margin_right", 12)
+	header_pad.add_theme_constant_override("margin_top", 8)
+	header_pad.add_theme_constant_override("margin_bottom", 8)
+	header.add_child(header_pad)
+	var header_box := HBoxContainer.new()
+	header_box.add_theme_constant_override("separation", 16)
+	header_pad.add_child(header_box)
 
+	var caption := Label.new()
+	caption.text = "RESEARCH POINTS"
+	caption.add_theme_color_override("font_color", COLOR_FG_DIM)
+	caption.add_theme_font_size_override("font_size", 11)
+	header_box.add_child(caption)
+
+	_research_points_label = Label.new()
+	_research_points_label.add_theme_color_override("font_color", COLOR_ACCENT)
+	_research_points_label.add_theme_font_size_override("font_size", 18)
+	header_box.add_child(_research_points_label)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_box.add_child(spacer)
+
+	var hint := Label.new()
+	hint.text = "Unlock components, launch capacity, and ground defense slots. 1:1 mapping for now."
+	hint.add_theme_color_override("font_color", COLOR_FG_DIM)
+	hint.add_theme_font_size_override("font_size", 11)
+	header_box.add_child(hint)
+
+	col.add_child(header)
+
+	# Body: scrollable list of chain cards.
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+
+	_research_root = VBoxContainer.new()
+	_research_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_research_root.add_theme_constant_override("separation", 10)
+	scroll.add_child(_research_root)
+
+	_rebuild_research_panel()
 	return pad
+
+
+func _rebuild_research_panel() -> void:
+	if _research_root == null or _research_points_label == null:
+		return
+	_research_points_label.text = "%d" % Research.research_points
+	for child in _research_root.get_children():
+		_research_root.remove_child(child)
+		child.queue_free()
+	for chain_def in Research.COMPONENT_CHAINS:
+		_research_root.add_child(_build_research_chain_card(
+			String(chain_def["category"]), chain_def["tiers"],
+		))
+	_research_root.add_child(_build_research_chain_card(
+		"Launch Capacity", Research.LAUNCH_CAPACITY_CHAIN,
+	))
+	_research_root.add_child(_build_research_chain_card(
+		"Ground Defense", Research.GROUND_DEFENSE_CHAIN,
+	))
+
+
+# A chain card is one panel with a category header and one row per tier.
+# Tier rows are produced by _build_research_tier_row; the card itself
+# only owns the header + separator.
+func _build_research_chain_card(category: String, tiers: Array) -> Control:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _flat_stylebox(COLOR_PANEL))
+
+	var card_pad := MarginContainer.new()
+	card_pad.add_theme_constant_override("margin_left", 12)
+	card_pad.add_theme_constant_override("margin_right", 12)
+	card_pad.add_theme_constant_override("margin_top", 10)
+	card_pad.add_theme_constant_override("margin_bottom", 10)
+	card.add_child(card_pad)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	card_pad.add_child(col)
+
+	var header := Label.new()
+	header.text = category.to_upper()
+	header.add_theme_color_override("font_color", COLOR_FG_DIM)
+	header.add_theme_font_size_override("font_size", 11)
+	col.add_child(header)
+	col.add_child(_hr())
+
+	for i in range(tiers.size()):
+		col.add_child(_build_research_tier_row(tiers, i))
+	return card
+
+
+# Single tier row: name on the left, status chip in the middle, cost +
+# unlock button on the right. Status is one of UNLOCKED (green) /
+# LOCKED (amber, prereq missing) / blank (available, prereq met).
+func _build_research_tier_row(tiers: Array, index: int) -> Control:
+	var tier: Dictionary = tiers[index]
+	var node_id := String(tier["id"])
+	var cost := int(tier.get("cost", 0))
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+
+	var name_label := Label.new()
+	name_label.text = String(tier["label"])
+	name_label.add_theme_color_override("font_color", COLOR_FG)
+	name_label.add_theme_font_size_override("font_size", 13)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(name_label)
+
+	var status := Label.new()
+	status.add_theme_font_size_override("font_size", 11)
+	status.custom_minimum_size = Vector2(110, 0)
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if Research.is_unlocked(node_id):
+		status.text = "UNLOCKED"
+		status.add_theme_color_override("font_color", COLOR_OK)
+	elif Research.prereq_for(node_id) != "" \
+			and not Research.is_unlocked(Research.prereq_for(node_id)):
+		status.text = "LOCKED"
+		status.add_theme_color_override("font_color", COLOR_FG_FAINT)
+	else:
+		status.text = "AVAILABLE"
+		status.add_theme_color_override("font_color", COLOR_ACCENT)
+	row.add_child(status)
+
+	var cost_label := Label.new()
+	cost_label.text = "" if cost == 0 else "%d RP" % cost
+	cost_label.custom_minimum_size = Vector2(70, 0)
+	cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	cost_label.add_theme_color_override("font_color", COLOR_FG_DIM)
+	cost_label.add_theme_font_size_override("font_size", 11)
+	row.add_child(cost_label)
+
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(96, 0)
+	btn.add_theme_font_size_override("font_size", 12)
+	if Research.is_unlocked(node_id):
+		btn.text = "✓"
+		btn.disabled = true
+	elif Research.can_unlock(node_id):
+		btn.text = "Unlock"
+		btn.pressed.connect(_on_research_unlock_pressed.bind(node_id))
+	else:
+		btn.text = "Unlock"
+		btn.disabled = true
+	row.add_child(btn)
+	return row
+
+
+func _on_research_unlock_pressed(node_id: String) -> void:
+	if not Research.unlock(node_id):
+		return
+	_rebuild_research_panel()
+	# Unlocking a component makes new entries in the Hangar dropdowns
+	# selectable; unlocking a capacity tier raises the gate on the
+	# Orbital / Surface Ops tabs. Refresh the affected views so a
+	# subsequent tab switch isn't needed to see the change.
+	_rebuild_unit_editor()
+	_rebuild_launch_rows()
+	_refresh_surface_list()
 
 
 # ---------------------------------------------------------------- helpers
