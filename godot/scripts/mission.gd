@@ -44,7 +44,7 @@ const MAX_WAVE_OBJECT_COUNT: int = 250
 #                   wave-unit). Lets the controller distinguish "fresh
 #                   wave starting" from "another wave-unit in the
 #                   ongoing wave".
-#   size_class    : int, ReconSettings.SIZE_SMALL / MEDIUM / LARGE —
+#   size_class    : int, ReconSettings.SIZE_ALPHA / BETA / GAMMA —
 #                   the WaveUnitClass to drive object sampling for
 #                   this wave-unit.
 # Sorted by t. tick() walks it monotonically.
@@ -133,18 +133,18 @@ func _sample_and_cap_wave_counts(
 	return raw
 
 
-# Build the size-class array for a wave (small_units of SMALL, etc.)
+# Build the size-class array for a wave (alpha_units of ALPHA, etc.)
 # and shuffle in place so the arrival order isn't stratified by class.
 func _shuffled_size_class_list(
 	w: WaveComposition, rng: RandomNumberGenerator
 ) -> Array[int]:
 	var out: Array[int] = []
-	for _i in range(maxi(w.small_units, 0)):
-		out.append(ReconSettings.SIZE_SMALL)
-	for _i in range(maxi(w.medium_units, 0)):
-		out.append(ReconSettings.SIZE_MEDIUM)
-	for _i in range(maxi(w.large_units, 0)):
-		out.append(ReconSettings.SIZE_LARGE)
+	for _i in range(maxi(w.alpha_units, 0)):
+		out.append(ReconSettings.SIZE_ALPHA)
+	for _i in range(maxi(w.beta_units, 0)):
+		out.append(ReconSettings.SIZE_BETA)
+	for _i in range(maxi(w.gamma_units, 0)):
+		out.append(ReconSettings.SIZE_GAMMA)
 	# Fisher-Yates against the supplied RNG keeps shuffle reproducible
 	# under a seeded run; Array.shuffle() uses the global RNG.
 	for i in range(out.size() - 1, 0, -1):

@@ -1,9 +1,12 @@
 class_name WaveComposition
 extends Resource
 ## One row in the campaign's wave list. Defines a single mission "wave"
-## as a tight cluster of N wave-units of mixed size classes:
-##   * `small_units` / `medium_units` / `large_units` — integer counts
-##     of how many wave-units of each size class spawn in this wave.
+## as a tight cluster of N wave-units of mixed classes:
+##   * `alpha_units` / `beta_units` / `gamma_units` — integer counts
+##     of how many wave-units of each class spawn in this wave. Class
+##     names are Greek to keep them distinct from the *object* mass
+##     bands (small / medium / large) that drive composition inside a
+##     single wave-unit.
 ##   * `duration_min` / `duration_max` — range from which the spawn
 ##     window is drawn at start. `randomized=false` distributes wave-
 ##     units evenly across the window; `true` draws each timestamp
@@ -12,14 +15,14 @@ extends Resource
 ##     previous wave's first wave-unit is drawn. The first wave's
 ##     delay is measured from mission start.
 ##
-## Pure data Resource, mutated by the Recon editor and consumed once at
-## Mission.start to fix the schedule for the run. Per-spec, edits made
-## while the mission is running don't re-roll — they queue for the next
-## launch.
+## Pure data Resource, mutated by the Recon editor and consumed once
+## at Mission.start to fix the schedule for the run. Per-spec, edits
+## made while the mission is running don't re-roll — they queue for
+## the next launch.
 
-@export var small_units: int = 0
-@export var medium_units: int = 0
-@export var large_units: int = 0
+@export var alpha_units: int = 0
+@export var beta_units: int = 0
+@export var gamma_units: int = 0
 @export var duration_min: float = 4.0
 @export var duration_max: float = 4.0
 @export var randomized: bool = false
@@ -28,7 +31,7 @@ extends Resource
 
 
 func unit_count() -> int:
-	return small_units + medium_units + large_units
+	return alpha_units + beta_units + gamma_units
 
 
 # Sample a concrete duration in seconds. Equal min/max collapses to a
@@ -47,9 +50,9 @@ func sample_delay(rng: RandomNumberGenerator) -> float:
 
 
 func clamp_unit_counts() -> void:
-	small_units = maxi(small_units, 0)
-	medium_units = maxi(medium_units, 0)
-	large_units = maxi(large_units, 0)
+	alpha_units = maxi(alpha_units, 0)
+	beta_units = maxi(beta_units, 0)
+	gamma_units = maxi(gamma_units, 0)
 
 
 func clamp_duration() -> void:
@@ -72,9 +75,9 @@ func clamp_delay() -> void:
 
 func duplicate_composition() -> WaveComposition:
 	var c := WaveComposition.new()
-	c.small_units = small_units
-	c.medium_units = medium_units
-	c.large_units = large_units
+	c.alpha_units = alpha_units
+	c.beta_units = beta_units
+	c.gamma_units = gamma_units
 	c.duration_min = duration_min
 	c.duration_max = duration_max
 	c.randomized = randomized

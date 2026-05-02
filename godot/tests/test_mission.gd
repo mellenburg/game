@@ -22,17 +22,17 @@ func _seeded_rng(seed_value: int = 1) -> RandomNumberGenerator:
 # ranges through `sample_*` helpers; equal min/max collapses to a
 # fixed value, which is what the default ReconSettings ships with.
 func _wave(
-	small_n: int,
-	medium_n: int,
-	large_n: int,
+	alpha_n: int,
+	beta_n: int,
+	gamma_n: int,
 	duration: float,
 	randomized: bool,
 	delay: float,
 ) -> WaveComposition:
 	var w := WaveComposition.new()
-	w.small_units = small_n
-	w.medium_units = medium_n
-	w.large_units = large_n
+	w.alpha_units = alpha_n
+	w.beta_units = beta_n
+	w.gamma_units = gamma_n
 	w.duration_min = duration
 	w.duration_max = duration
 	w.randomized = randomized
@@ -107,16 +107,16 @@ func test_emission_size_class_counts_match_settings() -> void:
 	for e: Dictionary in emissions:
 		var sc := int(e["size_class"])
 		counts[sc] = int(counts.get(sc, 0)) + 1
-	var expected_small := 0
-	var expected_medium := 0
-	var expected_large := 0
+	var expected_alpha := 0
+	var expected_beta := 0
+	var expected_gamma := 0
 	for w: WaveComposition in s.waves:
-		expected_small += w.small_units
-		expected_medium += w.medium_units
-		expected_large += w.large_units
-	assert_eq(int(counts.get(ReconSettings.SIZE_SMALL, 0)), expected_small)
-	assert_eq(int(counts.get(ReconSettings.SIZE_MEDIUM, 0)), expected_medium)
-	assert_eq(int(counts.get(ReconSettings.SIZE_LARGE, 0)), expected_large)
+		expected_alpha += w.alpha_units
+		expected_beta += w.beta_units
+		expected_gamma += w.gamma_units
+	assert_eq(int(counts.get(ReconSettings.SIZE_ALPHA, 0)), expected_alpha)
+	assert_eq(int(counts.get(ReconSettings.SIZE_BETA, 0)), expected_beta)
+	assert_eq(int(counts.get(ReconSettings.SIZE_GAMMA, 0)), expected_gamma)
 
 
 func test_evenly_spaced_wave_emits_on_grid() -> void:
@@ -291,11 +291,11 @@ func test_per_wave_object_total_capped_at_250() -> void:
 	# confirm the schedule scales each wave-unit down so the total
 	# stays at or under MAX_WAVE_OBJECT_COUNT.
 	var s := ReconSettings.new()
-	# Saturate the large class to its cap so the raw total is large.
-	s.large_class.count_min = 50
-	s.large_class.count_max = 50
+	# Saturate the gamma class to its cap so the raw total is large.
+	s.gamma_class.count_min = 50
+	s.gamma_class.count_max = 50
 	var w := WaveComposition.new()
-	w.large_units = 10
+	w.gamma_units = 10
 	w.duration_min = 5.0
 	w.duration_max = 5.0
 	w.delay_min = 0.0
@@ -323,10 +323,10 @@ func test_per_wave_total_unchanged_when_already_under_cap() -> void:
 	# A wave whose raw sampled total fits inside MAX_WAVE_OBJECT_COUNT
 	# should pass through unscaled — only oversize waves get scaled.
 	var s := ReconSettings.new()
-	s.small_class.count_min = 10
-	s.small_class.count_max = 10
+	s.alpha_class.count_min = 10
+	s.alpha_class.count_max = 10
 	var w := WaveComposition.new()
-	w.small_units = 5
+	w.alpha_units = 5
 	w.duration_min = 2.0
 	w.duration_max = 2.0
 	w.delay_min = 0.0

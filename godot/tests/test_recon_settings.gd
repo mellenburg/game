@@ -18,24 +18,24 @@ func _seeded_rng(seed_value: int = 1) -> RandomNumberGenerator:
 # ---------- WaveUnitClass ----------
 
 func test_default_classes_have_distinct_progression() -> void:
-	# Small / medium / large defaults should escalate in count, in
+	# Alpha / beta / gamma defaults should escalate in count, in
 	# decaying ratio, and in heavy-object share. If a balance pass
 	# blurs that ordering the test will catch it.
-	var s := WaveUnitClass.default_small()
-	var m := WaveUnitClass.default_medium()
-	var l := WaveUnitClass.default_large()
-	assert_true(m.count_max >= s.count_max,
-		"medium count cap should not regress below small")
-	assert_true(l.count_max >= m.count_max,
-		"large count cap should not regress below medium")
-	assert_true(m.decaying_ratio_max > s.decaying_ratio_max,
-		"medium decaying share should exceed small")
-	assert_true(l.decaying_ratio_max > m.decaying_ratio_max,
-		"large decaying share should exceed medium")
-	assert_true(m.size_large >= s.size_large,
-		"medium should have at least as many large objects as small")
-	assert_true(l.size_large >= m.size_large,
-		"large should have the most large-object share")
+	var a := WaveUnitClass.default_alpha()
+	var b := WaveUnitClass.default_beta()
+	var g := WaveUnitClass.default_gamma()
+	assert_true(b.count_max >= a.count_max,
+		"beta count cap should not regress below alpha")
+	assert_true(g.count_max >= b.count_max,
+		"gamma count cap should not regress below beta")
+	assert_true(b.decaying_ratio_max > a.decaying_ratio_max,
+		"beta decaying share should exceed alpha")
+	assert_true(g.decaying_ratio_max > b.decaying_ratio_max,
+		"gamma decaying share should exceed beta")
+	assert_true(b.size_large >= a.size_large,
+		"beta should have at least as many large objects as alpha")
+	assert_true(g.size_large >= b.size_large,
+		"gamma should have the most large-object share")
 
 
 func test_sample_count_returns_value_in_range() -> void:
@@ -139,7 +139,7 @@ func test_clamp_decaying_range_clamps_to_unit_interval() -> void:
 
 
 func test_duplicate_class_makes_independent_copy() -> void:
-	var c := WaveUnitClass.default_medium()
+	var c := WaveUnitClass.default_beta()
 	var d := c.duplicate_class()
 	d.count_min = 999
 	d.location_arc_deg = 1.0
@@ -201,9 +201,9 @@ func test_count_max_capped_at_fifty() -> void:
 
 func test_composition_unit_count_sums_classes() -> void:
 	var w := WaveComposition.new()
-	w.small_units = 3
-	w.medium_units = 2
-	w.large_units = 1
+	w.alpha_units = 3
+	w.beta_units = 2
+	w.gamma_units = 1
 	assert_eq(w.unit_count(), 6)
 
 
@@ -235,24 +235,24 @@ func test_default_settings_has_five_waves() -> void:
 
 
 func test_default_settings_total_unit_counts() -> void:
-	# Sum of small/medium/large unit counts across all five default
-	# waves: 20 small (3+5+4+5+3), 11 medium (0+0+4+3+4), 5 large (0+0+0+2+3).
+	# Sum of alpha/beta/gamma unit counts across all five default
+	# waves: 20 alpha (3+5+4+5+3), 11 beta (0+0+4+3+4), 5 gamma (0+0+0+2+3).
 	var s := ReconSettings.default_settings()
-	var totals := {"small": 0, "medium": 0, "large": 0}
+	var totals := {"alpha": 0, "beta": 0, "gamma": 0}
 	for w in s.waves:
-		totals["small"] += w.small_units
-		totals["medium"] += w.medium_units
-		totals["large"] += w.large_units
-	assert_eq(int(totals["small"]), 20)
-	assert_eq(int(totals["medium"]), 11)
-	assert_eq(int(totals["large"]), 5)
+		totals["alpha"] += w.alpha_units
+		totals["beta"] += w.beta_units
+		totals["gamma"] += w.gamma_units
+	assert_eq(int(totals["alpha"]), 20)
+	assert_eq(int(totals["beta"]), 11)
+	assert_eq(int(totals["gamma"]), 5)
 
 
 func test_class_for_dispatches_by_size_class() -> void:
 	var s := ReconSettings.default_settings()
-	assert_eq(s.class_for(ReconSettings.SIZE_SMALL), s.small_class)
-	assert_eq(s.class_for(ReconSettings.SIZE_MEDIUM), s.medium_class)
-	assert_eq(s.class_for(ReconSettings.SIZE_LARGE), s.large_class)
+	assert_eq(s.class_for(ReconSettings.SIZE_ALPHA), s.alpha_class)
+	assert_eq(s.class_for(ReconSettings.SIZE_BETA), s.beta_class)
+	assert_eq(s.class_for(ReconSettings.SIZE_GAMMA), s.gamma_class)
 
 
 func test_add_wave_appends_to_end() -> void:
@@ -281,9 +281,9 @@ func test_remove_wave_at_ignores_out_of_range() -> void:
 func test_duplicate_settings_makes_independent_copy() -> void:
 	var s := ReconSettings.default_settings()
 	var d := s.duplicate_settings()
-	d.small_class.count_min = 999
-	d.waves[0].small_units = 999
-	assert_true(s.small_class.count_min != 999,
+	d.alpha_class.count_min = 999
+	d.waves[0].alpha_units = 999
+	assert_true(s.alpha_class.count_min != 999,
 		"duplicate's class mutation must not bleed to source")
-	assert_true(s.waves[0].small_units != 999,
+	assert_true(s.waves[0].alpha_units != 999,
 		"duplicate's wave mutation must not bleed to source")

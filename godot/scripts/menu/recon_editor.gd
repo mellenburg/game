@@ -7,14 +7,16 @@ extends VBoxContainer
 ##
 ## Two sections, stacked vertically:
 ##
-##   1. Wave-Unit Classes — three per-class panels (small / medium /
-##      large) side-by-side, each containing a RangeSlider for the
+##   1. Wave-Unit Classes — three per-class panels (alpha / beta /
+##      gamma) side-by-side, each containing a RangeSlider for the
 ##      object count, a RangeSlider for the decaying ratio, and a
-##      TrianglePicker for the per-object size mix.
+##      TrianglePicker for the per-object size mix (the triangle's
+##      S/M/L corners pick *object* mass bands inside one wave-unit;
+##      the alpha/beta/gamma label belongs to the wave-unit itself).
 ##
 ##   2. Wave Composition — a vertical list of waves, one row per
-##      wave. Each row carries spinboxes for the number of small /
-##      medium / large wave-units, a RangeSlider for the wave's
+##      wave. Each row carries spinboxes for the number of alpha /
+##      beta / gamma wave-units, a RangeSlider for the wave's
 ##      duration, a RangeSlider for the inter-wave delay, and a
 ##      "Random" checkbox toggling even-vs-random distribution.
 ##      Buttons at the bottom add or remove waves; deletes apply
@@ -137,9 +139,9 @@ func _build_classes_section() -> Control:
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(row)
 
-	row.add_child(_build_class_panel("Small", _settings.small_class))
-	row.add_child(_build_class_panel("Medium", _settings.medium_class))
-	row.add_child(_build_class_panel("Large", _settings.large_class))
+	row.add_child(_build_class_panel("Alpha", _settings.alpha_class))
+	row.add_child(_build_class_panel("Beta", _settings.beta_class))
+	row.add_child(_build_class_panel("Gamma", _settings.gamma_class))
 	return panel
 
 
@@ -380,12 +382,12 @@ func _build_wave_row(idx: int) -> Control:
 	idx_label.custom_minimum_size = Vector2(36, 0)
 	hbox.add_child(idx_label)
 
-	hbox.add_child(_unit_count_column("Small", w.small_units,
-		func(v: int) -> void: w.small_units = v))
-	hbox.add_child(_unit_count_column("Medium", w.medium_units,
-		func(v: int) -> void: w.medium_units = v))
-	hbox.add_child(_unit_count_column("Large", w.large_units,
-		func(v: int) -> void: w.large_units = v))
+	hbox.add_child(_unit_count_column("Alpha", w.alpha_units,
+		func(v: int) -> void: w.alpha_units = v))
+	hbox.add_child(_unit_count_column("Beta", w.beta_units,
+		func(v: int) -> void: w.beta_units = v))
+	hbox.add_child(_unit_count_column("Gamma", w.gamma_units,
+		func(v: int) -> void: w.gamma_units = v))
 
 	hbox.add_child(_wave_range_column("Duration (s)",
 		w.duration_min, w.duration_max,
@@ -494,9 +496,9 @@ func _on_reset_pressed() -> void:
 	# Mutate in place so any host code holding a ref to the settings
 	# (PlayerLoadout, the in-game pause menu) doesn't lose its handle.
 	var fresh := ReconSettings.default_settings()
-	_settings.small_class = fresh.small_class
-	_settings.medium_class = fresh.medium_class
-	_settings.large_class = fresh.large_class
+	_settings.alpha_class = fresh.alpha_class
+	_settings.beta_class = fresh.beta_class
+	_settings.gamma_class = fresh.gamma_class
 	_settings.waves = fresh.waves
 	_rebuild_ui()
 

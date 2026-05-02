@@ -173,13 +173,14 @@ func lateral_spread_for_altitude(altitude_km: float) -> float:
 	return absf(altitude_km) * sin(rad)
 
 
-# Default factory for the three ship-class progression. Tunes are
-# chosen so a small wave-unit reads as "scattered fast impactors", a
-# medium as "mixed bag with some decaying threats", and a large as
-# "heavyweight assault with lots of decaying spirals". All three start
-# with count locked at 20 so the legacy 20-body wave behaviour reads
-# unchanged before the player touches the editor.
-static func default_small() -> WaveUnitClass:
+# Default factory for the three wave-unit class progression. Tunes
+# escalate in object count, decaying share, and heavy-object weight as
+# you move alpha → beta → gamma — alpha reads as "scattered fast
+# impactors", beta as "mixed bag with some decaying threats", gamma as
+# "heavyweight assault with lots of decaying spirals". The Greek
+# names disambiguate them from the *object* mass bands (small / medium
+# / large) that drive composition inside a single wave-unit.
+static func default_alpha() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
 	c.count_min = 15
 	c.count_max = 20
@@ -193,7 +194,7 @@ static func default_small() -> WaveUnitClass:
 	return c
 
 
-static func default_medium() -> WaveUnitClass:
+static func default_beta() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
 	c.count_min = 22
 	c.count_max = 28
@@ -207,7 +208,7 @@ static func default_medium() -> WaveUnitClass:
 	return c
 
 
-static func default_large() -> WaveUnitClass:
+static func default_gamma() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
 	c.count_min = 35
 	c.count_max = 45

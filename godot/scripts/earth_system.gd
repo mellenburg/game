@@ -346,7 +346,7 @@ func _tick_mission(delta: float) -> void:
 		if not _mission_wave_bases.has(wave_id):
 			_mission_wave_bases[wave_id] = spawn_director.sample_unit_vector()
 		var base: Vector3 = _mission_wave_bases[wave_id]
-		var size_class := int(emission.get("size_class", ReconSettings.SIZE_SMALL))
+		var size_class := int(emission.get("size_class", ReconSettings.SIZE_ALPHA))
 		var unit_class: WaveUnitClass = null
 		if _mission_settings != null:
 			unit_class = _mission_settings.class_for(size_class)
