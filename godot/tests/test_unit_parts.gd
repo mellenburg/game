@@ -8,6 +8,9 @@ extends "res://tests/framework.gd"
 const UnitChassis = preload("res://scripts/unit_chassis.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
+const Satellite = preload("res://scripts/satellite.gd")
+const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
+const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 
 
 func test_default_chassis_has_one_slot_per_kind() -> void:
@@ -79,6 +82,82 @@ func test_total_multiplier_sums_across_slots() -> void:
 	u.set_part_id(UnitPart.KIND_RADIATOR, 0, "radiator_advanced")
 	u.set_part_id(UnitPart.KIND_RADIATOR, 1, "radiator_advanced")
 	assert_close(u.total_multiplier_for_kind(UnitPart.KIND_RADIATOR), 4.0)
+
+
+func test_summary_stats_default_unit_matches_baseline_constants() -> void:
+	# Default chassis with default-tier parts in every slot ⇒ stats
+	# track the un-multiplied weapon constants and the satellite's
+	# legacy ENERGY_MAX / ENERGY_RATE_PER_SIM_SEC. Pinning this here so
+	# a future tweak to the default tier (or to the constants those
+	# defaults derive from) is loud rather than silent.
+	var u := UnitConfig.make_default("U-1", "T-01")
+	var s := u.summary_stats()
+	assert_close(float(s["hp"]), Satellite.MAX_HP)
+	assert_close(float(s["mass_kg"]), Satellite.DEFAULT_MASS_KG)
+	assert_eq(int(s["laser_count"]), 1)
+	assert_close(float(s["laser_dps_total"]), LaserWeapon.DAMAGE_PER_SEC)
+	assert_close(float(s["laser_max_range"]), LaserWeapon.MAX_RANGE_KM)
+	assert_eq(int(s["railgun_count"]), 0)
+	assert_close(float(s["energy_storage"]), Satellite.ENERGY_MAX)
+	assert_close(
+		float(s["energy_production"]), Satellite.ENERGY_RATE_PER_SIM_SEC,
+	)
+
+
+func test_summary_stats_advanced_parts_double_facets() -> void:
+	# Advanced laser, advanced storage, advanced reactor ⇒ DPS,
+	# capacity, and regen all 2× their default-tier values. This is
+	# the spec the menu's Unit Summary panel renders, and it's the
+	# spec SpawnDirector implements when scaling Satellite fields.
+	var u := UnitConfig.make_default("U-1", "T-01")
+	u.set_part_id(UnitPart.KIND_WEAPON, 0, "laser_advanced")
+	u.set_part_id(UnitPart.KIND_ENERGY_STORAGE, 0, "energy_storage_advanced")
+	u.set_part_id(UnitPart.KIND_REACTOR, 0, "reactor_advanced")
+	var s := u.summary_stats()
+	assert_close(
+		float(s["laser_dps_total"]), 2.0 * LaserWeapon.DAMAGE_PER_SEC,
+	)
+	assert_close(float(s["energy_storage"]), 2.0 * Satellite.ENERGY_MAX)
+	assert_close(
+		float(s["energy_production"]),
+		2.0 * Satellite.ENERGY_RATE_PER_SIM_SEC,
+	)
+
+
+func test_summary_stats_railgun_fire_rate_scales_with_radiator() -> void:
+	# Default railgun + advanced radiator ⇒ cool_rate doubles, so the
+	# reported fire rate doubles. Verifies the radiator multiplier
+	# flows through to the railgun's cooldown stat (the same mult
+	# SpawnDirector applies to RailgunWeapon.cool_mult at spawn).
+	var u := UnitConfig.make_default("U-1", "T-01")
+	u.set_part_id(UnitPart.KIND_WEAPON, 0, "railgun_default")
+	u.set_part_id(UnitPart.KIND_RADIATOR, 0, "radiator_advanced")
+	var s := u.summary_stats()
+	assert_eq(int(s["railgun_count"]), 1)
+	assert_close(
+		float(s["railgun_damage_total"]), RailgunWeapon.DAMAGE_PER_SHOT,
+	)
+	assert_close(
+		float(s["railgun_fire_rate"]), 2.0 * RailgunWeapon.COOL_PER_SEC,
+	)
+
+
+func test_summary_stats_heavy_dual_weapon_sums_damage() -> void:
+	# Heavy chassis with both weapon slots filled by lasers ⇒ DPS sums
+	# across the two slots (6 advanced + 5 default = 11 base DPS-units
+	# at default ranges). This is the visible balance dial the
+	# Hangar's right column surfaces, so a regression here shows up
+	# loud.
+	var u := UnitConfig.make_default("U-1", "T-01")
+	u.set_chassis(UnitChassis.ID_HEAVY)
+	u.set_part_id(UnitPart.KIND_WEAPON, 0, "laser_advanced")
+	u.set_part_id(UnitPart.KIND_WEAPON, 1, "laser_default")
+	var s := u.summary_stats()
+	assert_eq(int(s["laser_count"]), 2)
+	assert_close(
+		float(s["laser_dps_total"]),
+		LaserWeapon.DAMAGE_PER_SEC * (2.0 + 1.0),
+	)
 
 
 func test_unknown_part_id_resolves_to_zero_multiplier() -> void:

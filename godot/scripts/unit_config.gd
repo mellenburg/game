@@ -8,6 +8,9 @@ extends RefCounted
 
 const UnitChassis = preload("res://scripts/unit_chassis.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
+const Satellite = preload("res://scripts/satellite.gd")
+const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
+const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 
 var id: String = ""
 var name: String = "T-01"
@@ -89,6 +92,70 @@ func total_multiplier_for_kind(kind: int) -> float:
 	for part_id in part_ids_for_kind(kind):
 		total += UnitPart.get_by_id(part_id).multiplier
 	return total
+
+
+# Predicted satellite stats for the unit's current chassis + parts,
+# returned as a Dictionary the Hangar tab's summary panel renders. The
+# numbers here are the spec SpawnDirector implements: weapon damage
+# scales on the weapon part's tier; cool rate (and therefore railgun
+# fire rate) scales on the aggregate radiator multiplier; energy_max /
+# energy_rate scale on the storage / reactor rows. Units stay raw —
+# the menu does its own formatting.
+#
+# Keys:
+#   "hp"               — initial / max hit points (kg·units of damage)
+#   "mass_kg"          — unit mass (railgun recoil math)
+#   "laser_count"      — number of laser slots filled
+#   "laser_dps_total"  — sum of laser damage_per_second at full pool
+#   "laser_max_range"  — laser engagement ceiling, km
+#   "railgun_count"    — number of railgun slots filled
+#   "railgun_damage_total"  — sum of per-shot damage across railguns
+#   "railgun_fire_rate" — shots per simulated second (per railgun)
+#   "energy_storage"   — pool capacity (fraction units)
+#   "energy_production" — pool fill rate per simulated second
+func summary_stats() -> Dictionary:
+	var radiator_mult := total_multiplier_for_kind(UnitPart.KIND_RADIATOR)
+	var storage_mult := total_multiplier_for_kind(UnitPart.KIND_ENERGY_STORAGE)
+	var reactor_mult := total_multiplier_for_kind(UnitPart.KIND_REACTOR)
+
+	var laser_count: int = 0
+	var laser_dps_total: float = 0.0
+	var railgun_count: int = 0
+	var railgun_damage_total: float = 0.0
+	for part_id in weapon_part_ids:
+		var part := UnitPart.get_by_id(part_id)
+		match part.weapon_class:
+			UnitPart.WCLASS_LASER:
+				laser_count += 1
+				laser_dps_total += LaserWeapon.DAMAGE_PER_SEC * part.multiplier
+			UnitPart.WCLASS_RAILGUN:
+				railgun_count += 1
+				railgun_damage_total += RailgunWeapon.DAMAGE_PER_SHOT * part.multiplier
+
+	# Railgun fire rate is shots/sec, derived from cool_rate. Each shot
+	# locks the weapon out until ready_fraction climbs back to 1.0; the
+	# slope is COOL_PER_SEC × cool_mult, so per-weapon fire rate is the
+	# same slope (cool_mult is applied to every railgun on the hull).
+	# Reported as 0 when there's no radiator (cool_mult would be zero,
+	# the weapon could fire once and never recover) — surfacing this
+	# directly in the summary deters the operator from shipping a unit
+	# they couldn't sustain fire from.
+	var railgun_fire_rate: float = 0.0
+	if radiator_mult > 0.0:
+		railgun_fire_rate = RailgunWeapon.COOL_PER_SEC * radiator_mult
+
+	return {
+		"hp": Satellite.MAX_HP,
+		"mass_kg": Satellite.DEFAULT_MASS_KG,
+		"laser_count": laser_count,
+		"laser_dps_total": laser_dps_total,
+		"laser_max_range": LaserWeapon.MAX_RANGE_KM,
+		"railgun_count": railgun_count,
+		"railgun_damage_total": railgun_damage_total,
+		"railgun_fire_rate": railgun_fire_rate,
+		"energy_storage": Satellite.ENERGY_MAX * storage_mult,
+		"energy_production": Satellite.ENERGY_RATE_PER_SIM_SEC * reactor_mult,
+	}
 
 
 # Short single-line summary, e.g. "Default · Laser + Radiator + Storage

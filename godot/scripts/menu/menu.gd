@@ -68,6 +68,7 @@ var _launch_button: Button
 # Hangar state
 var _unit_list: ItemList
 var _unit_editor: VBoxContainer
+var _hangar_summary: VBoxContainer
 var _selected_unit_id: String = ""
 
 # Orbital Ops state
@@ -445,33 +446,23 @@ func _build_hangar_tab() -> Control:
 	_unit_editor.add_theme_constant_override("separation", 10)
 	scroll.add_child(_unit_editor)
 
-	# Right: design notes
-	var right := _section("Loadout Notes", SIDE_PANEL_WIDTH)
+	# Right: live unit summary. Rebuilt on every selection / part /
+	# chassis / name change so the operator can see in real time how a
+	# part swap shifts the unit's stats.
+	var right := _section("Unit Summary", SIDE_PANEL_WIDTH)
 	hbox.add_child(right[0])
-	var notes := Label.new()
-	notes.text = (
-		"Each unit picks a CHASSIS that fixes its slot layout.\n\n"
-		+ "• Default — 1 weapon · 1 radiator · 1 storage · 1 reactor.\n"
-		+ "• Heavy — 2 weapons · 2 radiators · 1 storage · 1 reactor.\n\n"
-		+ "Every slot accepts a DEFAULT or ADVANCED part. Advanced parts\n"
-		+ "double the part's facet:\n\n"
-		+ "• Weapon — doubled damage per shot / per second.\n"
-		+ "• Radiator — doubled cooldown rate, so weapons recover faster.\n"
-		+ "• Energy Storage — doubled reservoir capacity.\n"
-		+ "• Reactor — doubled energy regen.\n\n"
-		+ "Schedule launches on the Orbital Ops tab — each launch must be\n"
-		+ "assigned a unit from the pool before the run starts."
-	)
-	notes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	notes.add_theme_color_override("font_color", COLOR_FG_DIM)
-	notes.add_theme_font_size_override("font_size", 12)
-	right[1].add_child(notes)
+	_hangar_summary = VBoxContainer.new()
+	_hangar_summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_hangar_summary.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_hangar_summary.add_theme_constant_override("separation", 4)
+	right[1].add_child(_hangar_summary)
 
 	_rebuild_unit_list()
 	if _selected_unit_id == "" and not PlayerLoadout.unit_pool.is_empty():
 		_selected_unit_id = PlayerLoadout.unit_pool[0].id
 		_unit_list.select(0)
 	_rebuild_unit_editor()
+	_rebuild_unit_summary()
 
 	return pad
 
@@ -495,6 +486,7 @@ func _on_unit_selected(idx: int) -> void:
 		return
 	_selected_unit_id = PlayerLoadout.unit_pool[idx].id
 	_rebuild_unit_editor()
+	_rebuild_unit_summary()
 
 
 func _on_build_unit_pressed() -> void:
@@ -502,6 +494,7 @@ func _on_build_unit_pressed() -> void:
 	_selected_unit_id = unit.id
 	_rebuild_unit_list()
 	_rebuild_unit_editor()
+	_rebuild_unit_summary()
 
 
 func _on_remove_unit_pressed() -> void:
@@ -513,6 +506,7 @@ func _on_remove_unit_pressed() -> void:
 		_selected_unit_id = PlayerLoadout.unit_pool[0].id
 	_rebuild_unit_list()
 	_rebuild_unit_editor()
+	_rebuild_unit_summary()
 	# Removing a unit may have left launches unassigned; the launch
 	# rows reflect that on the next tab visit, but proactively rebuild
 	# in case the operator switches tabs without us hearing about it.
@@ -535,17 +529,29 @@ func _rebuild_unit_editor() -> void:
 	if unit == null:
 		return
 
-	# Header row: name + chassis picker.
+	# Header row: editable name + chassis picker. The name is the
+	# string the Orbital Ops tab shows in its launch dropdown, so the
+	# edit propagates: text_changed updates unit.name and refreshes the
+	# pool list label so the row visually agrees with the editor before
+	# the operator switches tabs.
 	var header := HBoxContainer.new()
 	header.add_theme_constant_override("separation", 10)
 	_unit_editor.add_child(header)
 
-	var name_label := Label.new()
-	name_label.text = unit.name
-	name_label.add_theme_color_override("font_color", COLOR_ACCENT)
-	name_label.add_theme_font_size_override("font_size", 16)
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(name_label)
+	var name_caption := Label.new()
+	name_caption.text = "Name"
+	name_caption.add_theme_color_override("font_color", COLOR_FG_DIM)
+	name_caption.add_theme_font_size_override("font_size", 11)
+	header.add_child(name_caption)
+
+	var name_field := LineEdit.new()
+	name_field.text = unit.name
+	name_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_field.placeholder_text = "Unit name"
+	name_field.add_theme_color_override("font_color", COLOR_ACCENT)
+	name_field.add_theme_font_size_override("font_size", 16)
+	name_field.text_changed.connect(_on_unit_name_changed)
+	header.add_child(name_field)
 
 	var chassis_label := Label.new()
 	chassis_label.text = "Chassis"
@@ -575,6 +581,103 @@ func _rebuild_unit_editor() -> void:
 	# One section per kind, listing each slot's part dropdown.
 	for kind in KINDS:
 		_unit_editor.add_child(_build_kind_section(unit, kind))
+
+
+# Rebuild the right-column stat readout for the currently-selected
+# unit. Cheap — pulls a Dictionary from UnitConfig.summary_stats() and
+# emits one labelled row per stat. Called after any change that could
+# move the numbers (chassis swap, part swap, selection change). Laser
+# and railgun rows are suppressed when the unit carries none of that
+# weapon class, so a railgun-only ship doesn't show "Laser DPS: 0".
+func _rebuild_unit_summary() -> void:
+	if _hangar_summary == null:
+		return
+	for child in _hangar_summary.get_children():
+		_hangar_summary.remove_child(child)
+		child.queue_free()
+	if _selected_unit_id == "":
+		var empty := Label.new()
+		empty.text = "Select a unit to see its stats."
+		empty.add_theme_color_override("font_color", COLOR_FG_DIM)
+		empty.add_theme_font_size_override("font_size", 12)
+		_hangar_summary.add_child(empty)
+		return
+	var unit := PlayerLoadout.unit_for_id(_selected_unit_id)
+	if unit == null:
+		return
+	var stats := unit.summary_stats()
+
+	_hangar_summary.add_child(_summary_row("HP", "%.0f" % float(stats["hp"])))
+	_hangar_summary.add_child(_summary_row(
+		"Mass", "%.0f kg" % float(stats["mass_kg"])
+	))
+
+	if int(stats["laser_count"]) > 0:
+		_hangar_summary.add_child(_summary_section("LASERS"))
+		_hangar_summary.add_child(_summary_row(
+			"Max DPS", "%.1f /s" % float(stats["laser_dps_total"])
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Max range", "%.0f km" % float(stats["laser_max_range"])
+		))
+
+	if int(stats["railgun_count"]) > 0:
+		_hangar_summary.add_child(_summary_section("RAILGUNS"))
+		_hangar_summary.add_child(_summary_row(
+			"Damage / shot", "%.1f" % float(stats["railgun_damage_total"])
+		))
+		var rate: float = float(stats["railgun_fire_rate"])
+		var rate_text: String = "n/a"
+		if rate > 0.0:
+			# Sim-seconds per shot is the natural unit at this scale —
+			# the raw shots/sec is ~1e-3 with the default radiator and
+			# reads as a string of zeroes. The cooldown number (and
+			# how it halves with an advanced radiator) communicates
+			# the change without scientific notation.
+			rate_text = "1 shot / %.0f s" % (1.0 / rate)
+		_hangar_summary.add_child(_summary_row("Fire rate", rate_text))
+
+	_hangar_summary.add_child(_summary_section("ENERGY"))
+	_hangar_summary.add_child(_summary_row(
+		"Storage", "%.2f" % float(stats["energy_storage"])
+	))
+	_hangar_summary.add_child(_summary_row(
+		"Production", "%.5f /s" % float(stats["energy_production"])
+	))
+
+
+# Single key/value row in the summary panel. Right-aligned value so the
+# numeric column reads as a table.
+func _summary_row(key: String, value: String) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+
+	var k := Label.new()
+	k.text = key
+	k.add_theme_color_override("font_color", COLOR_FG_DIM)
+	k.add_theme_font_size_override("font_size", 12)
+	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(k)
+
+	var v := Label.new()
+	v.text = value
+	v.add_theme_color_override("font_color", COLOR_FG)
+	v.add_theme_font_size_override("font_size", 12)
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(v)
+	return row
+
+
+func _summary_section(title: String) -> Control:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	col.add_child(_hr())
+	var lbl := Label.new()
+	lbl.text = title
+	lbl.add_theme_color_override("font_color", COLOR_ACCENT)
+	lbl.add_theme_font_size_override("font_size", 11)
+	col.add_child(lbl)
+	return col
 
 
 func _build_kind_section(unit: UnitConfig, kind: int) -> Control:
@@ -658,6 +761,7 @@ func _on_chassis_selected(chassis_id: String) -> void:
 	unit.set_chassis(chassis_id)
 	_rebuild_unit_list()
 	_rebuild_unit_editor()
+	_rebuild_unit_summary()
 
 
 func _on_part_picked(kind: int, slot_index: int, part_id: Variant) -> void:
@@ -668,6 +772,25 @@ func _on_part_picked(kind: int, slot_index: int, part_id: Variant) -> void:
 		return
 	unit.set_part_id(kind, slot_index, String(part_id))
 	_rebuild_unit_list()
+	_rebuild_unit_summary()
+
+
+# Live name edit. Updates the unit and the pool-list label without
+# rebuilding the editor (which would yank focus mid-edit). The launch
+# dropdowns on the Orbital Ops tab pull from `unit.name` directly, so
+# they pick up the new label on the next tab visit / row rebuild.
+func _on_unit_name_changed(new_text: String) -> void:
+	if _selected_unit_id == "":
+		return
+	var unit := PlayerLoadout.unit_for_id(_selected_unit_id)
+	if unit == null:
+		return
+	unit.name = new_text
+	if _unit_list != null:
+		for i in range(PlayerLoadout.unit_pool.size()):
+			if PlayerLoadout.unit_pool[i].id == _selected_unit_id:
+				_unit_list.set_item_text(i, "%s\n%s" % [unit.name, unit.summary()])
+				break
 
 
 # ---------------------------------------------------------------- Orbital Ops
