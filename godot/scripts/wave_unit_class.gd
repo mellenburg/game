@@ -180,24 +180,29 @@ func lateral_spread_for_altitude(altitude_km: float) -> float:
 # "heavyweight assault with lots of decaying spirals". The Greek
 # names disambiguate them from the *object* mass bands (small / medium
 # / large) that drive composition inside a single wave-unit.
+# Spread defaults run inversely to size: alpha is the "scattered
+# swarm" archetype (broad arc, slow drip), gamma is the "tight strike"
+# archetype (narrow arc, sharp burst). Counts and decaying share
+# still escalate alpha → gamma so the heavyweight class stays the
+# bigger threat per wave-unit even though it takes up less sky.
 static func default_alpha() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
-	c.count_min = 15
-	c.count_max = 20
+	c.count_min = 10
+	c.count_max = 15
 	c.decaying_ratio_min = 0.10
 	c.decaying_ratio_max = 0.20
 	c.size_small = 0.80
 	c.size_medium = 0.15
 	c.size_large = 0.05
-	c.location_arc_deg = 25.0
-	c.time_spread_sec = 8.0
+	c.location_arc_deg = 120.0
+	c.time_spread_sec = 16.0
 	return c
 
 
 static func default_beta() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
-	c.count_min = 22
-	c.count_max = 28
+	c.count_min = 15
+	c.count_max = 20
 	c.decaying_ratio_min = 0.20
 	c.decaying_ratio_max = 0.35
 	c.size_small = 0.45
@@ -210,15 +215,15 @@ static func default_beta() -> WaveUnitClass:
 
 static func default_gamma() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
-	c.count_min = 35
-	c.count_max = 45
+	c.count_min = 20
+	c.count_max = 25
 	c.decaying_ratio_min = 0.30
 	c.decaying_ratio_max = 0.50
 	c.size_small = 0.20
 	c.size_medium = 0.40
 	c.size_large = 0.40
-	c.location_arc_deg = 120.0
-	c.time_spread_sec = 16.0
+	c.location_arc_deg = 25.0
+	c.time_spread_sec = 8.0
 	return c
 
 

@@ -139,13 +139,15 @@ func _build_classes_section() -> Control:
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(row)
 
-	row.add_child(_build_class_panel("α", _settings.alpha_class))
-	row.add_child(_build_class_panel("β", _settings.beta_class))
-	row.add_child(_build_class_panel("γ", _settings.gamma_class))
+	row.add_child(_build_class_panel("α", "Alpha", _settings.alpha_class))
+	row.add_child(_build_class_panel("β", "Beta", _settings.beta_class))
+	row.add_child(_build_class_panel("γ", "Gamma", _settings.gamma_class))
 	return panel
 
 
-func _build_class_panel(title: String, c: WaveUnitClass) -> Control:
+func _build_class_panel(
+	glyph: String, name: String, c: WaveUnitClass
+) -> Control:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", _flat_stylebox(COLOR_PANEL_DIM))
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -162,15 +164,27 @@ func _build_class_panel(title: String, c: WaveUnitClass) -> Control:
 	col.add_theme_constant_override("separation", 8)
 	pad.add_child(col)
 
+	# Greek glyph + roman name as two side-by-side labels so the glyph
+	# can dominate (it's the editor-wide identifier) while the spelled
+	# name reads as a quieter affordance. A single Label with both
+	# substrings would force one font size on both.
+	var title_row := HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 8)
+	col.add_child(title_row)
+
+	var glyph_lbl := Label.new()
+	glyph_lbl.text = glyph
+	glyph_lbl.add_theme_color_override("font_color", COLOR_FG)
+	glyph_lbl.add_theme_font_size_override("font_size", 22)
+	title_row.add_child(glyph_lbl)
+
 	var name_lbl := Label.new()
-	# Greek glyphs already read as a class identifier — capitalising
-	# them would map most fonts' Α / Β to Latin A / B and undo the
-	# disambiguation we picked them for. Slightly bumped font size
-	# instead so the single-letter title still anchors the column.
-	name_lbl.text = title
-	name_lbl.add_theme_color_override("font_color", COLOR_FG)
-	name_lbl.add_theme_font_size_override("font_size", 18)
-	col.add_child(name_lbl)
+	name_lbl.text = name
+	name_lbl.add_theme_color_override("font_color", COLOR_FG_DIM)
+	name_lbl.add_theme_font_size_override("font_size", 13)
+	# Anchor the spelled name vertically against the glyph's baseline.
+	name_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	title_row.add_child(name_lbl)
 
 	col.add_child(_field_label("Object count"))
 	var count_slider := RangeSlider.new()
@@ -419,7 +433,16 @@ func _unit_count_column(
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 2)
 	col.custom_minimum_size = Vector2(72, 0)
-	col.add_child(_field_label(title))
+	# Class glyph rendered larger and brighter than the dim 10pt
+	# `_field_label` style that captions the surrounding range
+	# columns — these single-character class identifiers are the
+	# wave row's anchor and need to read at a glance.
+	var glyph_lbl := Label.new()
+	glyph_lbl.text = title
+	glyph_lbl.add_theme_color_override("font_color", COLOR_FG)
+	glyph_lbl.add_theme_font_size_override("font_size", 18)
+	glyph_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(glyph_lbl)
 
 	var sb := SpinBox.new()
 	sb.min_value = 0
