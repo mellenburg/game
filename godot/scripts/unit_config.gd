@@ -182,6 +182,16 @@ func effective_isp_s() -> float:
 #   "laser_cooldown_sec" — sim-sec for an overheated laser to fully
 #                          cool back to ready. INF when the unit has
 #                          no radiator (the weapon could never recover).
+#   "laser_radiated_power_w"   — beam power at the emitter aperture,
+#                                 per gun, watts
+#   "laser_pool_draw_w"        — per-gun joules drawn from the bus per
+#                                 sim-second of fire (radiated /
+#                                 wall-plug efficiency)
+#   "laser_wallplug_efficiency" — fraction of pool draw that becomes
+#                                  radiated beam (rest is heat the
+#                                  radiator dumps)
+#   "laser_target_coupling"    — fraction of radiated beam absorbed
+#                                  as damage on a default target
 #   "railgun_count"    — number of railgun slots filled
 #   "railgun_damage_total"  — sum of per-shot damage across railguns
 #   "railgun_cooldown_sec" — sim-sec between railgun shots. INF when
@@ -279,6 +289,10 @@ func summary_stats() -> Dictionary:
 		"laser_dps_total": laser_dps_total,
 		"laser_max_range": LaserWeapon.MAX_RANGE_KM,
 		"laser_cooldown_sec": laser_cooldown,
+		"laser_radiated_power_w": LaserWeapon.RADIATED_POWER_W,
+		"laser_pool_draw_w": LaserWeapon.POOL_DRAIN_W,
+		"laser_wallplug_efficiency": LaserWeapon.WALLPLUG_EFFICIENCY,
+		"laser_target_coupling": LaserWeapon.TARGET_COUPLING_DEFAULT,
 		"railgun_count": railgun_count,
 		"railgun_damage_total": railgun_damage_total,
 		"railgun_cooldown_sec": railgun_cooldown,

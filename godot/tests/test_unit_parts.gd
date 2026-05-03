@@ -209,6 +209,31 @@ func test_summary_stats_railgun_physical_fields() -> void:
 	assert_close(float(s["railgun_recoil_dv_ms"]), expected_recoil, 1.0e-6)
 
 
+func test_summary_stats_laser_physical_fields() -> void:
+	# Pins the new physical readouts the Hangar's LASERS section
+	# renders: radiated power, pool draw, wall-plug efficiency, and
+	# target coupling. Tier-independent (the multiplier only scales
+	# damage), so a default-tier laser is the right fixture for the
+	# bare physics constants.
+	var u := UnitConfig.make_default("U-1", "T-01")
+	u.set_part_id(UnitPart.KIND_WEAPON, 0, "laser_default")
+	var s := u.summary_stats()
+	assert_close(
+		float(s["laser_radiated_power_w"]), LaserWeapon.RADIATED_POWER_W, 1.0,
+	)
+	assert_close(
+		float(s["laser_pool_draw_w"]), LaserWeapon.POOL_DRAIN_W, 1.0,
+	)
+	assert_close(
+		float(s["laser_wallplug_efficiency"]),
+		LaserWeapon.WALLPLUG_EFFICIENCY,
+	)
+	assert_close(
+		float(s["laser_target_coupling"]),
+		LaserWeapon.TARGET_COUPLING_DEFAULT,
+	)
+
+
 func test_summary_stats_no_radiator_yields_infinite_cooldown() -> void:
 	# Strip the radiator slot's part. With cool_rate driven entirely
 	# by the radiator complement, an empty radiator row means weapons

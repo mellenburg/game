@@ -671,6 +671,27 @@ func _rebuild_unit_summary() -> void:
 			"Cooldown",
 			_format_cooldown(float(stats["laser_cooldown_sec"])),
 		))
+		# Energy chain: pool draw → wall-plug efficiency → radiated
+		# beam → target coupling → absorbed damage. Showing each stage
+		# explicitly so the operator can trace why a 100 MW emitter
+		# only deals ~8 HP/s at zero range (30% bus → beam, 40% beam →
+		# damage, 5 MJ/HP).
+		_hangar_summary.add_child(_summary_row(
+			"Energy / sec",
+			"%s /s" % _format_joules(float(stats["laser_pool_draw_w"])),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Radiated power",
+			_format_watts(float(stats["laser_radiated_power_w"])),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Wall-plug efficiency",
+			"%.0f%%" % (float(stats["laser_wallplug_efficiency"]) * 100.0),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Energy coupling on target",
+			"%.0f%%" % (float(stats["laser_target_coupling"]) * 100.0),
+		))
 
 	if int(stats["railgun_count"]) > 0:
 		_hangar_summary.add_child(_summary_section("RAILGUNS"))
@@ -714,17 +735,14 @@ func _rebuild_unit_summary() -> void:
 			"Recoil / shot (full mag)",
 			"%.1f m/s" % float(stats["railgun_recoil_dv_ms"]),
 		))
-		# Coupling on target. Energy coupling drives damage (slug KE →
-		# absorbed → HP); momentum is full Newton's third regardless,
-		# so the target gets the full slug momentum vector as a Δv push.
-		# Showing both keeps the two concepts distinct — "this number
-		# is 50%, but it's not the momentum knob".
+		# Energy coupling = fraction of slug KE absorbed as damage. The
+		# rest fragments / passes through / spalls off the back face.
+		# Momentum transfer is full Newton's third regardless of this
+		# number; the target catches the slug's full momentum vector
+		# whether 10% or 100% of the KE deposits as HP damage.
 		_hangar_summary.add_child(_summary_row(
 			"Energy coupling on target",
 			"%.0f%%" % (float(stats["railgun_target_coupling"]) * 100.0),
-		))
-		_hangar_summary.add_child(_summary_row(
-			"Momentum to target", "100%% (Newton's 3rd)"
 		))
 
 	_hangar_summary.add_child(_summary_section("ENERGY"))
