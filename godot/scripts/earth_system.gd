@@ -407,11 +407,11 @@ func _physics_process(delta: float) -> void:
 		else:
 			sat.advance_time(sim_delta)
 	combat_controller.process_combat(real_satellites, sim_time, sim_delta)
-	# Advance any in-flight railgun slugs on the same sim clock the
-	# combat tick just advanced — register_fire calls inside
-	# process_combat above stamp new slugs with this sim_time, so the
-	# tick() right after sees them at progress 0 (no missed frames).
-	slug_renderer.tick(sim_time)
+	# Advance any in-flight railgun slugs by the same sim-delta the
+	# combat tick just used. The slug homes on its target's *current*
+	# position each frame — non-physical but the tracer stays pointed
+	# at something the operator can recognise.
+	slug_renderer.tick(sim_delta)
 	_remove_dead_satellites()
 
 	if planning_mode:
