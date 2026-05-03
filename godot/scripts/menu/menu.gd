@@ -681,6 +681,51 @@ func _rebuild_unit_summary() -> void:
 			"Cooldown",
 			_format_cooldown(float(stats["railgun_cooldown_sec"])),
 		))
+		# Slug + magazine: physical inputs the player can reason about.
+		# Velocity prints in km/s for readability (10 km/s reads cleaner
+		# than 10000 m/s); slug KE and pool draw use the joule formatter
+		# so MJ/GJ prefixes line up with the ENERGY section above.
+		_hangar_summary.add_child(_summary_row(
+			"Slug mass",
+			"%.0f kg" % float(stats["railgun_slug_mass_kg"]),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Muzzle velocity",
+			"%.1f km/s" % (
+				float(stats["railgun_muzzle_velocity_m_s"]) * 1.0e-3
+			),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Slug KE",
+			_format_joules(float(stats["railgun_slug_ke_j"])),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Energy / shot",
+			_format_joules(float(stats["railgun_energy_per_shot_j"])),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Magazine",
+			"%d rounds" % int(stats["railgun_magazine_size"]),
+		))
+		# Recoil at full wet mass — the floor; the operator should know
+		# their first shot of an engagement is the gentlest, and that
+		# every subsequent shot kicks harder as the magazine empties.
+		_hangar_summary.add_child(_summary_row(
+			"Recoil / shot (full mag)",
+			"%.1f m/s" % float(stats["railgun_recoil_dv_ms"]),
+		))
+		# Coupling on target. Energy coupling drives damage (slug KE →
+		# absorbed → HP); momentum is full Newton's third regardless,
+		# so the target gets the full slug momentum vector as a Δv push.
+		# Showing both keeps the two concepts distinct — "this number
+		# is 50%, but it's not the momentum knob".
+		_hangar_summary.add_child(_summary_row(
+			"Energy coupling on target",
+			"%.0f%%" % (float(stats["railgun_target_coupling"]) * 100.0),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Momentum to target", "100%% (Newton's 3rd)"
+		))
 
 	_hangar_summary.add_child(_summary_section("ENERGY"))
 	_hangar_summary.add_child(_summary_row(

@@ -186,6 +186,22 @@ func effective_isp_s() -> float:
 #   "railgun_damage_total"  — sum of per-shot damage across railguns
 #   "railgun_cooldown_sec" — sim-sec between railgun shots. INF when
 #                            the unit has no radiator.
+#   "railgun_slug_mass_kg"      — mass of one slug
+#   "railgun_muzzle_velocity_m_s" — slug exit velocity
+#   "railgun_slug_ke_j"         — slug kinetic energy on exit
+#                                  (½·m·v² — independent of damage scale)
+#   "railgun_energy_per_shot_j" — joules drawn from the bus per shot
+#                                  (slug KE / wall-plug efficiency)
+#   "railgun_magazine_size"     — rounds per magazine (per gun)
+#   "railgun_recoil_dv_ms"      — Δv (m/s) the shooter takes per shot
+#                                  at full wet mass; recoil grows as
+#                                  ammo depletes since mass shrinks
+#   "railgun_target_coupling"   — fraction of slug KE that becomes
+#                                  absorbed damage (default 0.5).
+#                                  Momentum transfer is full Newton's-
+#                                  third — the target gets the slug's
+#                                  full momentum vector regardless of
+#                                  this number.
 #   "energy_storage"   — pool capacity, joules
 #   "energy_production" — reactor output, watts (joules per sim-second)
 #   "thrust_n"         — total thruster thrust in newtons
@@ -266,6 +282,22 @@ func summary_stats() -> Dictionary:
 		"railgun_count": railgun_count,
 		"railgun_damage_total": railgun_damage_total,
 		"railgun_cooldown_sec": railgun_cooldown,
+		"railgun_slug_mass_kg": RailgunWeapon.SLUG_MASS_KG,
+		"railgun_muzzle_velocity_m_s": RailgunWeapon.MUZZLE_VELOCITY_M_S,
+		"railgun_slug_ke_j": RailgunWeapon.SLUG_MUZZLE_KE_J,
+		"railgun_energy_per_shot_j": RailgunWeapon.ENERGY_PER_SHOT_J,
+		"railgun_magazine_size": RailgunWeapon.MAGAZINE_SIZE,
+		# Recoil at the unit's *current* full wet mass — what the operator
+		# pays in Δv on the very first shot of an engagement. As the
+		# magazine empties this number climbs (mass shrinks); the menu
+		# only shows the full-load value since that's the floor.
+		# RailgunWeapon.SLUG_MOMENTUM_KG_KM_S is in km/s, so multiply by
+		# 1000 to land back in m/s for the operator's existing mental model.
+		"railgun_recoil_dv_ms": (
+			RailgunWeapon.SLUG_MOMENTUM_KG_KM_S * 1000.0 / wet_mass
+			if wet_mass > 0.0 else 0.0
+		),
+		"railgun_target_coupling": RailgunWeapon.TARGET_COUPLING_DEFAULT,
 		"energy_storage": Satellite.DEFAULT_ENERGY_MAX_J * storage_mult,
 		"energy_production": Satellite.DEFAULT_REACTOR_POWER_W * reactor_mult,
 		"thrust_n": thrust_n,

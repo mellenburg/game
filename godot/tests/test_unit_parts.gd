@@ -159,6 +159,56 @@ func test_summary_stats_railgun_cooldown_scales_with_radiator() -> void:
 	)
 
 
+func test_summary_stats_railgun_physical_fields() -> void:
+	# Pins the new physical readouts the Hangar's RAILGUNS section
+	# renders: slug mass, muzzle velocity, slug KE, wall-plug energy
+	# per shot, magazine size, and the recoil Δv against full wet mass.
+	# All independent of the weapon's tier multiplier (which only
+	# scales damage), so a default-tier railgun pins the bare physics.
+	var u := UnitConfig.make_default("U-1", "T-01")
+	u.set_part_id(UnitPart.KIND_WEAPON, 0, "railgun_default")
+	var s := u.summary_stats()
+	assert_close(
+		float(s["railgun_slug_mass_kg"]), RailgunWeapon.SLUG_MASS_KG,
+	)
+	assert_close(
+		float(s["railgun_muzzle_velocity_m_s"]),
+		RailgunWeapon.MUZZLE_VELOCITY_M_S,
+	)
+	assert_close(
+		float(s["railgun_slug_ke_j"]), RailgunWeapon.SLUG_MUZZLE_KE_J, 1.0,
+	)
+	assert_close(
+		float(s["railgun_energy_per_shot_j"]),
+		RailgunWeapon.ENERGY_PER_SHOT_J, 1.0,
+	)
+	assert_eq(
+		int(s["railgun_magazine_size"]), RailgunWeapon.MAGAZINE_SIZE,
+	)
+	assert_close(
+		float(s["railgun_target_coupling"]),
+		RailgunWeapon.TARGET_COUPLING_DEFAULT,
+	)
+	# Recoil Δv = momentum / wet_mass. Default railgun magazine adds
+	# 20 t to the 1 t airframe ⇒ ~21 t wet, so 200 kg·km/s of
+	# momentum lands as ~9.5 m/s of recoil per shot. Tighter
+	# tolerance against the analytic value rather than a hard-coded
+	# 9.524 so a future thruster / chassis tweak doesn't silently
+	# shift the assertion.
+	var ammo_mass: float = (
+		float(RailgunWeapon.MAGAZINE_SIZE) * RailgunWeapon.SLUG_MASS_KG
+	)
+	var wet: float = (
+		Satellite.DEFAULT_DRY_MASS_KG
+		+ Satellite.DEFAULT_PROPELLANT_KG
+		+ ammo_mass
+	)
+	var expected_recoil := (
+		RailgunWeapon.SLUG_MOMENTUM_KG_KM_S * 1000.0 / wet
+	)
+	assert_close(float(s["railgun_recoil_dv_ms"]), expected_recoil, 1.0e-6)
+
+
 func test_summary_stats_no_radiator_yields_infinite_cooldown() -> void:
 	# Strip the radiator slot's part. With cool_rate driven entirely
 	# by the radiator complement, an empty radiator row means weapons
