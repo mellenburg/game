@@ -42,11 +42,15 @@ const COLOR_ENEMY_PATH_FAR := Color(1.0, 0.95, 0.25)
 const COLOR_ENEMY_PATH_NEAR := Color(1.0, 0.2, 0.15)
 # ETA bounds for the enemy-path gradient. <= NEAR seconds reads as full
 # red; >= FAR seconds (or non-impacting orbits, where eta == INF) reads
-# as full yellow. The window between scales linearly. 90s is roughly
-# "next perigee burn or sooner" for decaying threats and the inbound
-# leg of a meteorite; 30 min covers most stable / pre-spiral states.
-const ENEMY_PATH_ETA_RED_S: float = 90.0
-const ENEMY_PATH_ETA_YELLOW_S: float = 1800.0
+# as full yellow. The window between is square-rooted to bias the color
+# toward red — meteorites spawn 40-70k km out with naive ttf running
+# 5000-8000 s, so a linear ramp would leave them visually yellow for
+# the entire descent. The sqrt curve lifts mid-flight bodies into
+# orange / red while still leaving stable orbits (eta == INF) at full
+# yellow and decaying threats yellow → red across their multi-hour
+# spiral.
+const ENEMY_PATH_ETA_RED_S: float = 60.0
+const ENEMY_PATH_ETA_YELLOW_S: float = 7200.0
 # HP-driven path-style envelope. The line's *initial* thickness and
 # opacity are baked from max_hp at spawn (or clone) time and never
 # updated as the body takes damage — by design, per the original spec.
@@ -830,9 +834,13 @@ func _enemy_path_gradient_color(current_sim_time: float) -> Color:
 		var t_full: float = 1.0 if eta <= 0.0 else 0.0
 		return COLOR_ENEMY_PATH_FAR.lerp(COLOR_ENEMY_PATH_NEAR, t_full)
 	var span := ENEMY_PATH_ETA_YELLOW_S - ENEMY_PATH_ETA_RED_S
-	var t := clampf(
+	var t_linear := clampf(
 		(ENEMY_PATH_ETA_YELLOW_S - eta) / span, 0.0, 1.0
 	)
+	# sqrt bias — see ENEMY_PATH_ETA_*_S. Pulls the ramp toward red so
+	# a 60-min ETA meteorite reads ~70% red rather than the 50% a
+	# linear interpolation would give.
+	var t := sqrt(t_linear)
 	return COLOR_ENEMY_PATH_FAR.lerp(COLOR_ENEMY_PATH_NEAR, t)
 
 
