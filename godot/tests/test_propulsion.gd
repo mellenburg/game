@@ -202,8 +202,13 @@ func test_satellite_burn_consumes_propellant() -> void:
 	# by the Tsiolkovsky-predicted amount and `mass` tracked it. The
 	# DELTA_V_MAGNITUDE constant (50 m/s per tick) lands well below
 	# the default tank's capacity, so the burn applies in full and
-	# we can predict the exact debit.
+	# we can predict the exact debit. Strip weapons first so the
+	# default railgun magazine (20 t of ammo) doesn't dominate the
+	# wet mass — this test is about propellant accounting, not the
+	# magazine-mass mechanic.
 	var sat: Satellite = Satellite.new()
+	sat.weapons.clear()
+	sat.recompute_mass()
 	var initial_prop: float = sat.propellant_kg
 	var initial_mass: float = sat.mass
 	# Pure prograde (+x in the local frame).
@@ -214,7 +219,14 @@ func test_satellite_burn_consumes_propellant() -> void:
 		dv_ms, initial_mass, sat.isp_s
 	)
 	assert_close(sat.propellant_kg, initial_prop - expected_burn, 1.0e-4)
-	assert_close(sat.mass, sat.dry_mass_kg + sat.propellant_kg, 1.0e-6)
+	# Wet mass = dry + propellant + ammo. Weapons cleared above ⇒
+	# ammo contribution is zero, so the assertion still reads as
+	# "mass tracks propellant" without having to whitelist the magazine.
+	assert_close(
+		sat.mass,
+		sat.dry_mass_kg + sat.propellant_kg + sat.total_ammo_mass_kg(),
+		1.0e-6,
+	)
 	sat.queue_free()
 
 

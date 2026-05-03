@@ -292,8 +292,8 @@ func test_damage_scales_with_distance() -> void:
 	var w_far := LaserWeapon.new()
 	var atk_near := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
 	var atk_far := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
-	atk_near.energy = 1.0
-	atk_far.energy = 1.0
+	atk_near.energy = STARTING_ENERGY_J
+	atk_far.energy = STARTING_ENERGY_J
 	# 2000 km vs 8000 km lateral offset — both well clear of LOS
 	# blockage at this altitude, both well inside MAX_RANGE_KM.
 	var tgt_near := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 2000.0, 0.0))
