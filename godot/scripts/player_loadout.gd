@@ -28,12 +28,16 @@ const ReconSettings = preload("res://scripts/recon_settings.gd")
 # cost zero. The fleet won't launch if the cumulative debit exceeds
 # this number; the menu's LAUNCH button gates on can_launch().
 #
-# 4000 kg fits the default 3-unit roster (T-01..T-03 at 0°/25°/50°
-# inclination, all 500 km circular) with comfortable headroom for a
-# player who tilts one launch up to GEO or pushes a unit into a polar
-# slot. Players who load the fleet into a polar GEO orbit will run
-# the budget out and have to scale back — that's the intended tension.
-const LAUNCH_PROPELLANT_BUDGET_KG: float = 4000.0
+# 50 000 kg fits the new default 3-unit roster (T-01..T-03 at 0°/25°/
+# 50° inclination, all 500 km circular). The railgun magazine now
+# dominates wet mass (1000 × 20 kg = 20 t per gun ≫ 700 kg airframe),
+# which pushes T-03's draw to ~17.8 t alone; total fleet draw lands
+# near 18.4 t. The remaining ~32 t of headroom lets the player add
+# another railgun unit, tilt a launch into a polar slot, or push one
+# unit out to GEO without busting the cap. Loading every slot with a
+# railgun and pushing them all to high-inclination GEO will still run
+# the budget out — that's the intended tension.
+const LAUNCH_PROPELLANT_BUDGET_KG: float = 50000.0
 
 # Stage catalogue. `id` is the stable key the menu writes to
 # selected_stage_id; only entries with playable=true permit Launch.
