@@ -4,36 +4,57 @@ extends MeshInstance3D
 ## its vertex buffer in place when the orbit changes — avoids the per-frame
 ## ImmediateMesh / StandardMaterial3D allocation that crashed the previous
 ## port after ~1 minute.
+##
+## The ribbon is rendered as a billboarded triangle strip: each of the N
+## base ring points expands to two vertices (left / right side), and a
+## custom shader offsets them perpendicular to the line direction in
+## screen space so width is uniform pixels regardless of camera zoom.
+## Width and color (with alpha) are ShaderMaterial uniforms so the
+## owning Satellite can drive thickness from initial HP and tint from
+## impact-proximity without ever rebuilding geometry.
 
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 const POINTS: int = 360
 const SCENE_SCALE: float = 1.0 / 1000.0  # km -> scene units
+const _LINE_SHADER: Shader = preload("res://shaders/orbit_line.gdshader")
 
 var _array_mesh: ArrayMesh
-var _material: StandardMaterial3D
+var _material: ShaderMaterial
+# Base ring points in scene units. One Vector3 per ring; the ribbon's
+# two-sided expansion happens at upload time.
 var _points: PackedVector3Array
-# Vertex count of the surface currently uploaded to the GPU. -1 means
-# "no surface yet"; mismatches against `_points.size()` force a full
-# add_surface_from_arrays rebuild instead of an in-place vertex update.
-var _surface_vertex_count: int = -1
 var _last_signature := Vector4(NAN, NAN, NAN, NAN)
 var _last_inc := NAN
 var _last_argp := NAN
-var _last_color := Color.TRANSPARENT
-var color := Color.BLUE
+
+# Public uniforms — mirrored to the ShaderMaterial via setters so a
+# caller can just write `path.color = ...` and the GPU sees it next
+# frame without touching geometry.
+var color := Color.BLUE:
+	set(v):
+		if v == color:
+			return
+		color = v
+		if _material != null:
+			_material.set_shader_parameter("line_color", v)
+var line_width_px: float = 1.5:
+	set(v):
+		var clamped: float = maxf(v, 0.1)
+		if absf(clamped - line_width_px) < 1.0e-3:
+			return
+		line_width_px = clamped
+		if _material != null:
+			_material.set_shader_parameter("line_width_px", clamped)
 
 
 func _ready() -> void:
 	_array_mesh = ArrayMesh.new()
 	mesh = _array_mesh
 
-	_material = StandardMaterial3D.new()
-	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	# Single uniform color drives the line — the previous port stored a
-	# PackedColorArray of N copies of the same color; that was pure waste
-	# (an extra GPU buffer + per-frame upload) since every vertex shared
-	# the line's tint. Material's albedo_color is the source of truth now.
-	_material.albedo_color = color
+	_material = ShaderMaterial.new()
+	_material.shader = _LINE_SHADER
+	_material.set_shader_parameter("line_color", color)
+	_material.set_shader_parameter("line_width_px", line_width_px)
 	material_override = _material
 
 	_points = PackedVector3Array()
@@ -51,10 +72,10 @@ func update_orbit(orbit: EarthOrbit) -> void:
 		return
 
 	var sig := Vector4(orbit.a, orbit.ecc, orbit.raan, orbit.inc)
-	# Skip rebuild if nothing meaningful changed.
+	# Skip rebuild if nothing meaningful changed. Color / width changes
+	# are uniform-only and don't invalidate the cached geometry.
 	if (
-		_last_color == color
-		and _signature_close(sig, _last_signature)
+		_signature_close(sig, _last_signature)
 		and _angle_close(orbit.argp, _last_argp)
 		and _angle_close(orbit.inc, _last_inc)
 		and _array_mesh.get_surface_count() > 0
@@ -67,8 +88,6 @@ func update_orbit(orbit: EarthOrbit) -> void:
 	_last_signature = sig
 	_last_argp = orbit.argp
 	_last_inc = orbit.inc
-	_last_color = color
-	_material.albedo_color = color
 
 
 ## Build orbit points in the perifocal (PQW) frame and rotate into ECI.
@@ -88,6 +107,8 @@ func _compute_points(orbit: EarthOrbit) -> void:
 	var pqw_x := Vector3(co * cw - so * sw * ci,  so * cw + co * sw * ci,  sw * si)
 	var pqw_y := Vector3(-co * sw - so * cw * ci, -so * sw + co * cw * ci, cw * si)
 
+	if _points.size() != POINTS + 1:
+		_points.resize(POINTS + 1)
 	for i in range(POINTS + 1):
 		var ang := TAU * float(i % POINTS) / float(POINTS)
 		var p := a * (cos(ang) - e)
@@ -161,12 +182,10 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 		_points[i] = (pqw_x * p_local + pqw_y * q_local) * SCENE_SCALE
 
 	_upload_surface()
-	_material.albedo_color = color
 	# Trajectory geometry changes every tick (nu0 sweeps); invalidate
 	# the orbit-cache signature so a later switch back to update_orbit
 	# triggers a rebuild instead of trusting stale cached state.
 	_last_signature = Vector4(NAN, NAN, NAN, NAN)
-	_last_color = color
 
 
 # Maximum number of perigee-burn segments to walk before giving up. Real
@@ -265,13 +284,11 @@ func update_decaying_spiral(orbit: EarthOrbit) -> void:
 			write_idx += 1
 
 	_upload_surface()
-	_material.albedo_color = color
 	# Spiral geometry changes every tick (nu0 of segment 0 sweeps with
 	# the body, segments compress after each burn); invalidate the
 	# orbit-cache signature so update_orbit rebuilds correctly if ever
 	# called on a former decaying body.
 	_last_signature = Vector4(NAN, NAN, NAN, NAN)
-	_last_color = color
 
 
 # Forward-simulate the perigee-burn sequence and return one dictionary
@@ -405,31 +422,70 @@ static func _next_surface_crossing(
 
 func _clear_surfaces() -> void:
 	_array_mesh.clear_surfaces()
-	_surface_vertex_count = -1
 
 
+# Ribbon expansion: each base ring point becomes two vertices (left/right
+# side), drawn as a triangle strip whose triangles are (v_2i, v_2i+1,
+# v_2i+2) and (v_2i+2, v_2i+1, v_2i+3). The shader offsets each pair
+# perpendicular to the line direction in screen space, so width is
+# uniform pixels regardless of camera zoom. Tangent direction stored in
+# ARRAY_NORMAL — we don't need its magnitude (the shader normalises in
+# screen space), and unshaded materials don't read NORMAL for lighting,
+# so oct-encoding's loss of length is harmless.
 func _upload_surface() -> void:
-	# Fast path: vertex count is unchanged, so the GPU buffer is the
-	# right size — rewrite positions in place instead of re-creating
-	# the surface. Matters most for meteorite trajectories and the
-	# decaying spiral, both of which rebuild every render tick (their
-	# nu sweeps with the body), so the slow path was 1+ surface
-	# re-allocation per body per frame at MVP wave sizes.
-	if (
-		_array_mesh.get_surface_count() == 1
-		and _surface_vertex_count == _points.size()
-	):
-		_array_mesh.surface_update_vertex_region(
-			0, 0, _points.to_byte_array()
-		)
+	var ring_count := _points.size()
+	if ring_count < 2:
+		_clear_surfaces()
 		return
+	var vert_count := ring_count * 2
+
+	var verts := PackedVector3Array()
+	verts.resize(vert_count)
+	var normals := PackedVector3Array()
+	normals.resize(vert_count)
+	var uvs := PackedVector2Array()
+	uvs.resize(vert_count)
+
+	# Last ring inherits the previous segment's tangent so the ribbon
+	# doesn't pinch shut at endpoints (open trajectories) or at the
+	# closing seam of an ellipse.
+	for i in range(ring_count):
+		var here: Vector3 = _points[i]
+		var tangent: Vector3
+		if i + 1 < ring_count:
+			tangent = _points[i + 1] - here
+		else:
+			tangent = here - _points[i - 1]
+		# Guard against duplicate consecutive points collapsing the
+		# tangent. Shader handles a zero-length screen delta gracefully,
+		# but feeding NaN through oct-encoding would corrupt the buffer.
+		if tangent.length_squared() < 1.0e-20:
+			tangent = Vector3(1.0, 0.0, 0.0)
+		var left_idx := i * 2
+		var right_idx := left_idx + 1
+		verts[left_idx] = here
+		verts[right_idx] = here
+		normals[left_idx] = tangent
+		normals[right_idx] = tangent
+		uvs[left_idx] = Vector2(-1.0, 0.0)
+		uvs[right_idx] = Vector2(1.0, 0.0)
+
+	# Always rebuild the surface from scratch. The per-vertex layout
+	# (vertex + normal + uv) doesn't lend itself to surface_update_*
+	# in-place writes — both the vertex and the attribute buffers
+	# would need region updates whose byte layouts depend on Godot's
+	# internal vertex compression, and the rebuild is cheap at the
+	# 15 Hz orbit-render cadence (a few hundred vertices per call).
 	_array_mesh.clear_surfaces()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = _points
-	_array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINE_STRIP, arrays)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	_array_mesh.add_surface_from_arrays(
+		Mesh.PRIMITIVE_TRIANGLE_STRIP, arrays
+	)
 	_array_mesh.surface_set_material(0, _material)
-	_surface_vertex_count = _points.size()
 
 
 static func _signature_close(a: Vector4, b: Vector4) -> bool:

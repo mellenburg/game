@@ -444,10 +444,12 @@ func _render_orbits(delta: float) -> void:
 		return
 	_orbit_render_accum = 0.0
 	for sat in real_satellites:
-		sat.render_orbit(true)
+		sat.render_orbit(true, sim_time)
 	if planning_mode:
 		for i in range(planning_satellites.size()):
-			planning_satellites[i].render_orbit(i == planning_selected)
+			planning_satellites[i].render_orbit(
+				i == planning_selected, sim_time
+			)
 
 
 func _remove_dead_satellites() -> void:
