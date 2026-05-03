@@ -42,15 +42,19 @@ const COLOR_ENEMY_PATH_FAR := Color(1.0, 0.95, 0.25)
 const COLOR_ENEMY_PATH_NEAR := Color(1.0, 0.2, 0.15)
 # ETA bounds for the enemy-path gradient. <= NEAR seconds reads as full
 # red; >= FAR seconds (or non-impacting orbits, where eta == INF) reads
-# as full yellow. The window between is square-rooted to bias the color
+# as full yellow. The window between is power-curved to bias the color
 # toward red — meteorites spawn 40-70k km out with naive ttf running
-# 5000-8000 s, so a linear ramp would leave them visually yellow for
-# the entire descent. The sqrt curve lifts mid-flight bodies into
-# orange / red while still leaving stable orbits (eta == INF) at full
-# yellow and decaying threats yellow → red across their multi-hour
-# spiral.
+# 60-130 minutes, so even a quartic-style curve is needed to lift
+# mid-flight bodies into solid red-orange. Stable orbits (eta == INF)
+# still read full yellow; decaying threats whose multi-cycle spirals
+# fall outside the impact-cache horizon also start yellow and shift
+# red once the spiral compresses inside the window.
 const ENEMY_PATH_ETA_RED_S: float = 60.0
-const ENEMY_PATH_ETA_YELLOW_S: float = 7200.0
+const ENEMY_PATH_ETA_YELLOW_S: float = 14400.0
+# Lower exponent → more aggressive red bias along the ramp. 0.25 keeps
+# a 60-min meteorite at ~93% red and a 2-hour one at ~84% red — about
+# what feels right for "this thing is on a collision course".
+const ENEMY_PATH_GRADIENT_EXPONENT: float = 0.25
 # HP-driven path-style envelope. The line's *initial* thickness and
 # opacity are baked from max_hp at spawn (or clone) time and never
 # updated as the body takes damage — by design, per the original spec.
@@ -817,7 +821,7 @@ func _path_color(current_sim_time: float) -> Color:
 	elif team != TEAM_ENEMY:
 		base = COLOR_PLAYER
 	else:
-		base = _enemy_path_gradient_color(current_sim_time)
+		base = enemy_path_gradient_color(current_sim_time)
 	# Apply the spawn-baked opacity (HP-derived for enemies, 1.0 for
 	# player paths). _path_alpha is set once in _apply_path_style and
 	# never updated as HP drops during play, by design.
@@ -825,7 +829,11 @@ func _path_color(current_sim_time: float) -> Color:
 	return base
 
 
-func _enemy_path_gradient_color(current_sim_time: float) -> Color:
+## Yellow → red tint for this body's orbit / status overlay, keyed by
+## predicted time-to-impact. Public so the HUD's enemy roster can apply
+## the same gradient to its status boxes — keeping the 3D path and the
+## roster's color cue in lockstep.
+func enemy_path_gradient_color(current_sim_time: float) -> Color:
 	var eta := predict_impact_sim_time(current_sim_time) - current_sim_time
 	if not is_finite(eta) or eta <= 0.0:
 		# Past-impact (eta <= 0) shouldn't normally render — the body
@@ -837,10 +845,10 @@ func _enemy_path_gradient_color(current_sim_time: float) -> Color:
 	var t_linear := clampf(
 		(ENEMY_PATH_ETA_YELLOW_S - eta) / span, 0.0, 1.0
 	)
-	# sqrt bias — see ENEMY_PATH_ETA_*_S. Pulls the ramp toward red so
-	# a 60-min ETA meteorite reads ~70% red rather than the 50% a
-	# linear interpolation would give.
-	var t := sqrt(t_linear)
+	# Power curve — see ENEMY_PATH_GRADIENT_EXPONENT. Lifts the whole
+	# ramp toward red so a body on a hours-out impact course doesn't
+	# render as visually identical to a stable orbit.
+	var t := pow(t_linear, ENEMY_PATH_GRADIENT_EXPONENT)
 	return COLOR_ENEMY_PATH_FAR.lerp(COLOR_ENEMY_PATH_NEAR, t)
 
 
