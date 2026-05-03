@@ -112,10 +112,11 @@ var _last_text_update: float = 0.0
 # lives in BeamRenderer; this list is just timed metadata for the
 # box / marker feedback so it outlives the firing tick.
 var _hits: Array[Dictionary] = []
-# Toggled by EarthSystem on the "toggle_los" input action. When false,
-# the yellow / pink LOS lines from the selected satellite to opposing
-# units are suppressed; hit pulses remain visible regardless.
-var los_visible: bool = true
+# Driven by EarthSystem from the "toggle_los" input action — true only
+# while the V key is held. The yellow / pink LOS lines from the
+# selected satellite to opposing units render only during that window;
+# hit pulses remain visible regardless.
+var los_visible: bool = false
 
 
 func _ready() -> void:
