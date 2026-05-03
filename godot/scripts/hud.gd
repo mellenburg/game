@@ -2,13 +2,16 @@ class_name HUD
 extends Control
 ## Roster + targeting overlay. Player units render as green-tinted
 ## panels along the top-left and surface HP / energy / cooldown rows.
-## Enemies render along the bottom-left as area-proportional squares —
-## edge length scales with sqrt(max_hp) so a small meteorite (~10-50 HP)
-## is small, a sat (100 HP) is medium, a heavy decaying body or a
-## large meteorite (up to 1000 HP) is large. The
-## solid fill shrinks bottom-up as HP drops, revealing a translucent
-## red layer that marks the original footprint. Rows wrap upward once
-## adding the next box would push them past half the viewport width.
+## Enemies render along the bottom-left as squares whose edge length
+## scales with max_hp^(1/3), capped at 10k HP. Sub-linear so a heavy
+## boss doesn't dwarf a meteorite wave; the cube root keeps every box
+## comfortably under half a row's max height, which lets small bodies
+## stack vertically into compact columns. Boxes flow into a column
+## bottom-up until adding another would exceed the row height, then
+## start a new column to the right; rows wrap upward once the half-
+## viewport width cap is hit. The solid fill shrinks bottom-up as HP
+## drops, revealing a translucent red layer that marks the original
+## footprint.
 ##
 ## BBCode / panel rebuilds throttle to ~10 Hz; per-frame allocations
 ## are avoided by reusing children across ticks (we only add/remove
@@ -328,12 +331,17 @@ func _render_player_roster_into(
 		_update_box(box, sats[i], i == selected)
 
 
-# Square area encodes max HP (px² per HP point). Tuned so a 25 HP
-# meteorite is a 20 px square, a 100 HP enemy sat is 40 px, and a
-# 200 HP decaying body is ~57 px — visually distinct without any
-# single body dominating the strip at typical viewport widths.
-const ENEMY_HP_AREA_PER_PX: float = 16.0
-const ENEMY_BOX_SEPARATION: int = 6
+# Edge length = ENEMY_BOX_SIDE_AT_MAX * (clamp(max_hp, 1, CLAMP) /
+# CLAMP)^(1/3). Cube root → area ∝ hp^(2/3), so big bodies grow
+# noticeably without blowing out the strip. The clamp matters because
+# late-game bosses can exceed 10k HP; we don't let raw HP drive size
+# past that point. AT_MAX is set below half the row height so even a
+# capped boss leaves room for a second box stacked above it.
+const ENEMY_HP_CLAMP: float = 10000.0
+const ENEMY_BOX_SIDE_AT_MAX: float = 36.0
+const ENEMY_BOX_SIDE_MIN: float = 6.0
+const ENEMY_ROW_MAX_HEIGHT: float = 80.0
+const ENEMY_BOX_SEPARATION: int = 3
 # Drawn behind the solid fill at full box dimensions, so any area the
 # fill no longer covers reads as "lost HP". Translucent so it doesn't
 # fight the overlapping LOS lines or the radar / impact map below.
@@ -346,34 +354,54 @@ const ENEMY_FILL_DECAYING := Color(0.95, 0.45, 0.95, 0.95)
 const ENEMY_FILL_SELECTED := Color(0.20, 1.00, 0.20, 1.0)
 
 
-# Multi-row, area-proportional enemy strip. Boxes flow left-to-right
-# along the bottom and wrap into a new row above once the next box
-# would push the row past half the viewport width — the rest of the
-# screen is reserved for the impact map and orbital view.
+# Two-level pack: boxes stack vertically into columns up to the row
+# height cap, then columns flow left→right until the half-viewport
+# width cap forces a new row above. Lets a wave of cheap meteorites
+# fit on a single visible row without crowding the orbital view.
 func _render_enemy_roster(sats: Array[Satellite], selected: int) -> void:
 	if enemy_roster == null:
 		return
 	var max_row_w: float = get_viewport_rect().size.x * 0.5
 	var sep: float = float(ENEMY_BOX_SEPARATION)
 
-	# Partition sats into rows under the half-viewport cap. A row never
-	# wraps on its first box — a single oversize box on its own line is
-	# still less surprising than dropping it entirely.
-	var rows: Array = []
-	var current: Array = []
-	var current_w: float = 0.0
+	# Pack into columns first, in arrival order. A column never starts
+	# empty so an oversize single box still gets its own column rather
+	# than being dropped.
+	var cols: Array = []
+	var col_indices: Array = []
+	var col_height: float = 0.0
+	var col_width: float = 0.0
 	for i in range(sats.size()):
 		var side := _enemy_box_side(sats[i])
-		var span := side + (sep if not current.is_empty() else 0.0)
-		if not current.is_empty() and current_w + span > max_row_w:
-			rows.append(current)
-			current = [i]
-			current_w = side
+		var add := side + (sep if not col_indices.is_empty() else 0.0)
+		if not col_indices.is_empty() and col_height + add > ENEMY_ROW_MAX_HEIGHT:
+			cols.append([col_indices, col_width])
+			col_indices = [i]
+			col_height = side
+			col_width = side
 		else:
-			current.append(i)
-			current_w += span
-	if not current.is_empty():
-		rows.append(current)
+			col_indices.append(i)
+			col_height += add
+			col_width = maxf(col_width, side)
+	if not col_indices.is_empty():
+		cols.append([col_indices, col_width])
+
+	# Group columns into rows under the half-viewport cap.
+	var rows: Array = []
+	var row_cols: Array = []
+	var row_w: float = 0.0
+	for col in cols:
+		var cw: float = col[1]
+		var add_w := cw + (sep if not row_cols.is_empty() else 0.0)
+		if not row_cols.is_empty() and row_w + add_w > max_row_w:
+			rows.append(row_cols)
+			row_cols = [col]
+			row_w = cw
+		else:
+			row_cols.append(col)
+			row_w += add_w
+	if not row_cols.is_empty():
+		rows.append(row_cols)
 
 	# Reuse row containers across ticks; only resize the pool when the
 	# row count changes (matches the player-roster idiom).
@@ -386,38 +414,54 @@ func _render_enemy_roster(sats: Array[Satellite], selected: int) -> void:
 
 	for r in range(rows.size()):
 		var row := enemy_roster.get_child(r) as HBoxContainer
-		var indices: Array = rows[r]
-		while row.get_child_count() < indices.size():
-			row.add_child(_make_enemy_box())
-		while row.get_child_count() > indices.size():
-			var stale_box := row.get_child(row.get_child_count() - 1)
-			row.remove_child(stale_box)
-			stale_box.queue_free()
-		for c in range(indices.size()):
-			var sat_i: int = indices[c]
-			_update_enemy_box(
-				row.get_child(c) as Control,
-				sats[sat_i],
-				sat_i == selected,
-			)
+		var rcols: Array = rows[r]
+		while row.get_child_count() < rcols.size():
+			row.add_child(_make_enemy_column())
+		while row.get_child_count() > rcols.size():
+			var stale_col := row.get_child(row.get_child_count() - 1)
+			row.remove_child(stale_col)
+			stale_col.queue_free()
+		for ci in range(rcols.size()):
+			var col := row.get_child(ci) as VBoxContainer
+			var indices: Array = rcols[ci][0]
+			while col.get_child_count() < indices.size():
+				col.add_child(_make_enemy_box())
+			while col.get_child_count() > indices.size():
+				var stale_box := col.get_child(col.get_child_count() - 1)
+				col.remove_child(stale_box)
+				stale_box.queue_free()
+			for bi in range(indices.size()):
+				var sat_i: int = indices[bi]
+				_update_enemy_box(
+					col.get_child(bi) as Control,
+					sats[sat_i],
+					sat_i == selected,
+				)
 
 
 func _enemy_box_side(sat: Satellite) -> float:
-	# sqrt because area (not edge length) tracks HP; a 4× HP target is
-	# a 2× wider square, which reads as "much bigger" without any one
-	# threat type dwarfing the row.
-	return sqrt(maxf(sat.max_hp, 1.0) * ENEMY_HP_AREA_PER_PX)
+	var hp_capped := clampf(sat.max_hp, 1.0, ENEMY_HP_CLAMP)
+	var t: float = pow(hp_capped / ENEMY_HP_CLAMP, 1.0 / 3.0)
+	return maxf(ENEMY_BOX_SIDE_MIN, ENEMY_BOX_SIDE_AT_MAX * t)
 
 
 func _make_enemy_row() -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", ENEMY_BOX_SEPARATION)
-	# SHRINK_END so a row with mixed-size boxes plants every box on a
-	# common bottom line — the smaller meteorite squares hug the same
+	# SHRINK_END so a row with mixed-size columns plants every column on
+	# a common bottom line — the smaller meteorite squares hug the same
 	# baseline as the bigger decaying bodies.
 	row.size_flags_vertical = Control.SIZE_SHRINK_END
 	return row
+
+
+func _make_enemy_column() -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_theme_constant_override("separation", ENEMY_BOX_SEPARATION)
+	col.size_flags_vertical = Control.SIZE_SHRINK_END
+	return col
 
 
 func _make_enemy_box() -> Control:
