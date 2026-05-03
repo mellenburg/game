@@ -11,16 +11,46 @@ extends Node
 
 const Satellite = preload("res://scripts/satellite.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
+const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const HUD = preload("res://scripts/hud.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
+const SlugRenderer = preload("res://scripts/slug_renderer.gd")
 
 var _hud: HUD = null
 var _beam_renderer: BeamRenderer = null
+var _slug_renderer: SlugRenderer = null
+# Operator-toggled (U): when true, railgun fires spawn moving slug
+# projectiles via SlugRenderer; when false, railguns route through
+# BeamRenderer like lasers do (the legacy instant-beam visual). Lasers
+# always go through BeamRenderer regardless of this flag.
+var _slug_render_enabled: bool = true
 
 
-func setup(hud: HUD, beam_renderer: BeamRenderer) -> void:
+func setup(
+	hud: HUD,
+	beam_renderer: BeamRenderer,
+	slug_renderer: SlugRenderer,
+) -> void:
 	_hud = hud
 	_beam_renderer = beam_renderer
+	_slug_renderer = slug_renderer
+
+
+## Operator toggle: route railgun fires through SlugRenderer (true) or
+## fall back to BeamRenderer (false). Dropping out of slug-mode
+## clears any in-flight slugs so they don't linger after the visual
+## surface is silenced; the inverse transition has nothing to clear
+## (BeamRenderer's lasers tick down on their own).
+func set_slug_render_enabled(enabled: bool) -> void:
+	if _slug_render_enabled == enabled:
+		return
+	_slug_render_enabled = enabled
+	if not enabled and _slug_renderer != null:
+		_slug_renderer.clear_all()
+
+
+func is_slug_render_enabled() -> bool:
+	return _slug_render_enabled
 
 
 # Charge each satellite's energy pool, then either fire each weapon
@@ -51,7 +81,13 @@ func process_combat(
 				if target != null and w.fire(sat, target, sim_delta):
 					fired = true
 					_hud.register_hit(sat, target)
-					_beam_renderer.register_fire(sat, w_idx, target)
+					# Route the visual: railguns get the moving-slug
+					# treatment when the operator's enabled it,
+					# otherwise the legacy beam. Lasers always beam.
+					if w is RailgunWeapon and _slug_render_enabled:
+						_slug_renderer.register_fire(sat, target, sim_time)
+					else:
+						_beam_renderer.register_fire(sat, w_idx, target)
 			if not fired:
 				w.tick(sim_delta)
 

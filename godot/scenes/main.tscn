@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=18 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
@@ -13,6 +13,7 @@
 [ext_resource type="Script" path="res://scripts/threat_alert.gd" id="11_threat_alert"]
 [ext_resource type="Script" path="res://scripts/pause_menu.gd" id="12_pause_menu"]
 [ext_resource type="Script" path="res://scripts/end_game_overlay.gd" id="13_end_game"]
+[ext_resource type="Script" path="res://scripts/slug_renderer.gd" id="14_slugs"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -59,6 +60,9 @@ script = ExtResource("5_sun")
 
 [node name="BeamRenderer" type="Node3D" parent="."]
 script = ExtResource("6_beams")
+
+[node name="SlugRenderer" type="Node3D" parent="."]
+script = ExtResource("14_slugs")
 
 [node name="RangeCircle" type="MeshInstance3D" parent="."]
 script = ExtResource("9_range_circle")
@@ -159,6 +163,7 @@ K - Cycle map / wave radar / off
 P - Toggle planning mode
 T/G - Advance/retard plan time
 C - Toggle fire control
+U - Toggle railgun slug visual
 Shift - Show range circle
 Shift+Up/Dn - Adjust engage range
 Esc - Release mouse[/color][/font_size]"
