@@ -117,6 +117,33 @@ func total_propellant_capacity_kg() -> float:
 	return total
 
 
+# Total mass (kg) of railgun ammo a fully-loaded unit ships with.
+# Each filled railgun slot contributes MAGAZINE_SIZE × SLUG_MASS_KG;
+# laser slots contribute zero. Surfaced separately from
+# total_propellant_capacity_kg so the launch-cost path can include
+# ammo in the booster's payload calculation without re-walking the
+# weapon row.
+func total_ammo_mass_kg() -> float:
+	var total: float = 0.0
+	for part_id in weapon_part_ids:
+		var part := UnitPart.get_by_id(part_id)
+		if part.weapon_class == UnitPart.WCLASS_RAILGUN:
+			total += float(RailgunWeapon.MAGAZINE_SIZE) * RailgunWeapon.SLUG_MASS_KG
+	return total
+
+
+# Wet mass at launch: dry structure + propellant tank + ammo
+# magazine. Used by the launch-cost path so the booster's
+# rocket-equation propellant draw counts the railgun magazine — a
+# 20 t magazine on a 1 t airframe is too big to silently ignore.
+func wet_mass_kg() -> float:
+	return (
+		Satellite.DEFAULT_DRY_MASS_KG
+		+ total_propellant_capacity_kg()
+		+ total_ammo_mass_kg()
+	)
+
+
 # Capacity-weighted Isp across the unit's thruster slots. Mixing
 # thrusters of different Isp is unusual but well-defined: a stage
 # carrying a hydrolox + kerolox tank pair, burned in sequence, delivers
@@ -159,8 +186,8 @@ func effective_isp_s() -> float:
 #   "railgun_damage_total"  — sum of per-shot damage across railguns
 #   "railgun_cooldown_sec" — sim-sec between railgun shots. INF when
 #                            the unit has no radiator.
-#   "energy_storage"   — pool capacity (fraction units)
-#   "energy_production" — pool fill rate per simulated second
+#   "energy_storage"   — pool capacity, joules
+#   "energy_production" — reactor output, watts (joules per sim-second)
 #   "thrust_n"         — total thruster thrust in newtons
 #   "isp_s"            — capacity-weighted specific impulse in seconds
 #   "propellant_capacity_kg" — total propellant tank size, kg
@@ -179,10 +206,15 @@ func summary_stats() -> Dictionary:
 		match part.weapon_class:
 			UnitPart.WCLASS_LASER:
 				laser_count += 1
-				laser_dps_total += LaserWeapon.DAMAGE_PER_SEC * part.multiplier
+				laser_dps_total += (
+					LaserWeapon.base_damage_per_second_at_zero_range()
+					* part.multiplier
+				)
 			UnitPart.WCLASS_RAILGUN:
 				railgun_count += 1
-				railgun_damage_total += RailgunWeapon.DAMAGE_PER_SHOT * part.multiplier
+				railgun_damage_total += (
+					RailgunWeapon.base_damage_per_shot() * part.multiplier
+				)
 
 	# Cooldown duration is the inverse of the radiator-supplied cool
 	# rate (per-class baseline × aggregate radiator multiplier). With
@@ -205,14 +237,27 @@ func summary_stats() -> Dictionary:
 	var thrust_n := total_thrust_n()
 	var isp_s := effective_isp_s()
 	var propellant_kg := total_propellant_capacity_kg()
-	var wet_mass_kg: float = Satellite.DEFAULT_DRY_MASS_KG + propellant_kg
+	# Wet mass tracks the unit's actual launch mass: dry structure +
+	# propellant + ammo. Ammo only contributes when a railgun slot is
+	# filled (1000 rounds × 20 kg = 20 t, dwarfing the airframe), so
+	# the menu's mass readout has to count it or the operator's "this
+	# unit weighs X kg" reading will silently skip the magazine.
+	var ammo_mass_kg: float = total_ammo_mass_kg()
+	var wet_mass: float = (
+		Satellite.DEFAULT_DRY_MASS_KG + propellant_kg + ammo_mass_kg
+	)
+	# Δv capacity is independent of ammo mass: Tsiolkovsky's m_f /
+	# m_0 ratio is bound by dry vs. dry+propellant, and ammo doesn't
+	# burn off during a thrust burn — it just sits there raising both
+	# numerator and denominator equally. Operators read Δv to plan
+	# orbital changes; they read mass to plan recoil.
 	var dv_capacity_ms := Propulsion.dv_capacity_ms(
-		propellant_kg, Satellite.DEFAULT_DRY_MASS_KG, isp_s
+		propellant_kg, Satellite.DEFAULT_DRY_MASS_KG + ammo_mass_kg, isp_s
 	)
 
 	return {
 		"hp": Satellite.MAX_HP,
-		"mass_kg": wet_mass_kg,
+		"mass_kg": wet_mass,
 		"dry_mass_kg": Satellite.DEFAULT_DRY_MASS_KG,
 		"laser_count": laser_count,
 		"laser_dps_total": laser_dps_total,
@@ -221,8 +266,8 @@ func summary_stats() -> Dictionary:
 		"railgun_count": railgun_count,
 		"railgun_damage_total": railgun_damage_total,
 		"railgun_cooldown_sec": railgun_cooldown,
-		"energy_storage": Satellite.ENERGY_MAX * storage_mult,
-		"energy_production": Satellite.ENERGY_RATE_PER_SIM_SEC * reactor_mult,
+		"energy_storage": Satellite.DEFAULT_ENERGY_MAX_J * storage_mult,
+		"energy_production": Satellite.DEFAULT_REACTOR_POWER_W * reactor_mult,
 		"thrust_n": thrust_n,
 		"isp_s": isp_s,
 		"propellant_capacity_kg": propellant_kg,

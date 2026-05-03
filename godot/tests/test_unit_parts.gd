@@ -87,20 +87,28 @@ func test_total_multiplier_sums_across_slots() -> void:
 func test_summary_stats_default_unit_matches_baseline_constants() -> void:
 	# Default chassis with default-tier parts in every slot ⇒ stats
 	# track the un-multiplied weapon constants and the satellite's
-	# legacy ENERGY_MAX / ENERGY_RATE_PER_SIM_SEC. Pinning this here so
-	# a future tweak to the default tier (or to the constants those
-	# defaults derive from) is loud rather than silent.
+	# default joule pool / watt reactor. Pinning this here so a future
+	# tweak to the default tier (or to the constants those defaults
+	# derive from) is loud rather than silent.
 	var u := UnitConfig.make_default("U-1", "T-01")
 	var s := u.summary_stats()
 	assert_close(float(s["hp"]), Satellite.MAX_HP)
-	assert_close(float(s["mass_kg"]), Satellite.DEFAULT_MASS_KG)
+	# Default chassis ships a single laser slot — no railgun magazine —
+	# so wet mass collapses to dry + propellant.
+	assert_close(
+		float(s["mass_kg"]),
+		Satellite.DEFAULT_DRY_MASS_KG + Satellite.DEFAULT_PROPELLANT_KG,
+	)
 	assert_eq(int(s["laser_count"]), 1)
-	assert_close(float(s["laser_dps_total"]), LaserWeapon.DAMAGE_PER_SEC)
+	assert_close(
+		float(s["laser_dps_total"]),
+		LaserWeapon.base_damage_per_second_at_zero_range(),
+	)
 	assert_close(float(s["laser_max_range"]), LaserWeapon.MAX_RANGE_KM)
 	assert_eq(int(s["railgun_count"]), 0)
-	assert_close(float(s["energy_storage"]), Satellite.ENERGY_MAX)
+	assert_close(float(s["energy_storage"]), Satellite.DEFAULT_ENERGY_MAX_J)
 	assert_close(
-		float(s["energy_production"]), Satellite.ENERGY_RATE_PER_SIM_SEC,
+		float(s["energy_production"]), Satellite.DEFAULT_REACTOR_POWER_W,
 	)
 
 
@@ -114,13 +122,19 @@ func test_summary_stats_advanced_parts_double_facets() -> void:
 	u.set_part_id(UnitPart.KIND_ENERGY_STORAGE, 0, "energy_storage_advanced")
 	u.set_part_id(UnitPart.KIND_REACTOR, 0, "reactor_advanced")
 	var s := u.summary_stats()
+	# Tolerance scaled to the GJ pool — assert_close's 1e-6 default
+	# can't measure 20 GJ vs 20 GJ + 1 J.
 	assert_close(
-		float(s["laser_dps_total"]), 2.0 * LaserWeapon.DAMAGE_PER_SEC,
+		float(s["laser_dps_total"]),
+		2.0 * LaserWeapon.base_damage_per_second_at_zero_range(),
 	)
-	assert_close(float(s["energy_storage"]), 2.0 * Satellite.ENERGY_MAX)
+	assert_close(
+		float(s["energy_storage"]),
+		2.0 * Satellite.DEFAULT_ENERGY_MAX_J, 1.0,
+	)
 	assert_close(
 		float(s["energy_production"]),
-		2.0 * Satellite.ENERGY_RATE_PER_SIM_SEC,
+		2.0 * Satellite.DEFAULT_REACTOR_POWER_W, 1.0,
 	)
 
 
@@ -136,7 +150,8 @@ func test_summary_stats_railgun_cooldown_scales_with_radiator() -> void:
 	var s := u.summary_stats()
 	assert_eq(int(s["railgun_count"]), 1)
 	assert_close(
-		float(s["railgun_damage_total"]), RailgunWeapon.DAMAGE_PER_SHOT,
+		float(s["railgun_damage_total"]),
+		RailgunWeapon.base_damage_per_shot(),
 	)
 	assert_close(
 		float(s["railgun_cooldown_sec"]),
@@ -170,7 +185,7 @@ func test_summary_stats_heavy_dual_weapon_sums_damage() -> void:
 	assert_eq(int(s["laser_count"]), 2)
 	assert_close(
 		float(s["laser_dps_total"]),
-		LaserWeapon.DAMAGE_PER_SEC * (2.0 + 1.0),
+		LaserWeapon.base_damage_per_second_at_zero_range() * (2.0 + 1.0),
 	)
 
 

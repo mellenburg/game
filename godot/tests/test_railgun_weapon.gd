@@ -9,6 +9,12 @@ const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
 const EARTH_RADIUS_KM: float = EarthOrbit.EARTH_RADIUS_KM
+# Pool seed for tests that just need "enough energy to fire a shot"
+# — a single railgun shot now draws ~3.3 GJ from the bus, so the
+# fake's pool has to be in the joule scale rather than the legacy
+# 0..1 fraction. 10 GJ matches the default DEFAULT_ENERGY_MAX_J so
+# the fakes feel like a fresh-from-spawn satellite.
+const STARTING_ENERGY_J: float = 1.0e10
 
 
 # Minimal stand-in for Satellite — exposes only the fields the railgun
@@ -21,7 +27,10 @@ class FakeSat extends RefCounted:
 	var alive: bool = true
 	var orbit_alive: bool = true
 	var hp: float = 100.0
-	var energy: float = 1.0
+	# Default to a full 10 GJ pool so most tests can fire without
+	# explicitly seeding energy. Tests exercising the energy-budget
+	# refusal seed this directly to a tighter number.
+	var energy: float = 1.0e10
 	var mass: float = 1000.0
 	var max_orbital_radius_km: float = 50000.0
 	var railgun_enabled: bool = true
@@ -88,7 +97,7 @@ func test_cannot_fire_when_disabled() -> void:
 func test_cannot_fire_with_low_energy() -> void:
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
-	attacker.energy = RailgunWeapon.ENERGY_PER_SHOT * 0.5
+	attacker.energy = RailgunWeapon.ENERGY_PER_SHOT_J * 0.5
 	assert_false(w.can_fire(attacker))
 
 
@@ -103,21 +112,30 @@ func test_cannot_fire_from_surface_unit() -> void:
 
 
 func test_fire_applies_damage_and_drains_energy_and_locks_cooldown() -> void:
-	# Successful shot: target HP drops by DAMAGE_PER_SHOT, attacker
-	# energy drops by ENERGY_PER_SHOT, cooldown latch trips.
+	# Successful shot: target HP drops by base_damage_per_shot(),
+	# attacker energy drops by ENERGY_PER_SHOT_J (joules now, not a
+	# pool fraction), cooldown latch trips, and the magazine pops a
+	# round. Damage / energy units are physical — see the design
+	# discussion in CLAUDE.md and weapon.gd's J_PER_HP comment.
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
 	# Place target ~3000 km away laterally, well clear of LOS and
 	# inside the safe-orbit envelope so the recoil is fine.
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0))
 	var energy_before := attacker.energy
+	var ammo_before := w.ammo_count
 	assert_true(w.fire(attacker, target, 1.0))
-	assert_close(target.hp, 100.0 - RailgunWeapon.DAMAGE_PER_SHOT)
-	assert_close(attacker.energy, energy_before - RailgunWeapon.ENERGY_PER_SHOT)
+	assert_close(target.hp, 100.0 - RailgunWeapon.base_damage_per_shot())
+	# 1 J tolerance is well below the 3.3 GJ per-shot draw — assert_close
+	# defaults to 1e-6 which can't measure a number this large.
+	assert_close(
+		attacker.energy, energy_before - RailgunWeapon.ENERGY_PER_SHOT_J, 1.0,
+	)
+	assert_eq(w.ammo_count, ammo_before - 1)
 	assert_close(w.ready_fraction, 0.0)
 	assert_true(w.overheated)
 	# Locked: even with full energy, can't fire again until cool.
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	assert_false(w.can_fire(attacker))
 
 

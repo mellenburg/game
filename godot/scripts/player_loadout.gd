@@ -313,10 +313,11 @@ func total_launch_propellant_used_kg() -> float:
 		var unit := unit_for_id(launch.unit_id)
 		if unit == null:
 			continue
-		var wet_mass: float = (
-			Satellite.DEFAULT_DRY_MASS_KG + unit.total_propellant_capacity_kg()
-		)
-		total += launch.propellant_cost_kg(wet_mass)
+		# Wet mass includes the railgun magazine — a 20 t ammo load on a
+		# 1 t airframe dwarfs propellant and dominates the booster's
+		# rocket-equation draw. unit.wet_mass_kg() is the single source
+		# of truth for "how heavy is this unit at launch".
+		total += launch.propellant_cost_kg(unit.wet_mass_kg())
 	return total
 
 

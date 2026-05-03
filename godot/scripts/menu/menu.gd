@@ -684,10 +684,10 @@ func _rebuild_unit_summary() -> void:
 
 	_hangar_summary.add_child(_summary_section("ENERGY"))
 	_hangar_summary.add_child(_summary_row(
-		"Storage", "%.2f" % float(stats["energy_storage"])
+		"Storage", _format_joules(float(stats["energy_storage"]))
 	))
 	_hangar_summary.add_child(_summary_row(
-		"Production", "%.5f /s" % float(stats["energy_production"])
+		"Production", _format_watts(float(stats["energy_production"]))
 	))
 
 	# Propulsion section. Skipped when the unit carries no thruster
@@ -748,6 +748,33 @@ func _format_cooldown(seconds: float) -> String:
 	if not is_finite(seconds):
 		return "n/a (no radiator)"
 	return "%.0f s" % seconds
+
+
+# Joules → human-readable energy. Uses GJ above 1 GJ (10^9 J), MJ
+# above 1 MJ, kJ above 1 kJ, otherwise raw J. Defaults to one
+# decimal place — capacities up to "9.5 GJ" read cleanly without
+# trailing zeros from a fixed format.
+func _format_joules(joules: float) -> String:
+	if joules >= 1.0e9:
+		return "%.1f GJ" % (joules * 1.0e-9)
+	if joules >= 1.0e6:
+		return "%.1f MJ" % (joules * 1.0e-6)
+	if joules >= 1.0e3:
+		return "%.1f kJ" % (joules * 1.0e-3)
+	return "%.0f J" % joules
+
+
+# Watts → human-readable power, same prefix ladder as _format_joules.
+# Reactor outputs are at the GW / MW end of the scale; the kW / W
+# branches are belt-and-braces for tiny / zero-reactor builds.
+func _format_watts(watts: float) -> String:
+	if watts >= 1.0e9:
+		return "%.2f GW" % (watts * 1.0e-9)
+	if watts >= 1.0e6:
+		return "%.1f MW" % (watts * 1.0e-6)
+	if watts >= 1.0e3:
+		return "%.1f kW" % (watts * 1.0e-3)
+	return "%.0f W" % watts
 
 
 func _summary_section(title: String) -> Control:
@@ -1005,10 +1032,7 @@ func _format_launch_cost(launch: Launch) -> String:
 	if launch.has_unit():
 		var unit: UnitConfig = PlayerLoadout.unit_for_id(launch.unit_id)
 		if unit != null:
-			var wet_mass: float = (
-				Satellite.DEFAULT_DRY_MASS_KG + unit.total_propellant_capacity_kg()
-			)
-			prop_kg = launch.propellant_cost_kg(wet_mass)
+			prop_kg = launch.propellant_cost_kg(unit.wet_mass_kg())
 	if launch.has_unit():
 		return "Δv %d m/s  ·  %d kg" % [
 			int(round(dv_ms)), int(round(prop_kg)),

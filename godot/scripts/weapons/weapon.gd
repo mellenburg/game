@@ -27,13 +27,46 @@ var overheated: bool = false
 # pre-parts rate (tests rely on this); SpawnDirector overwrites it
 # at spawn time with the per-unit radiator complement's contribution.
 var cool_rate: float = 0.0
+# Two-stage energy → damage conversion every weapon shares:
+#   pool_drained_J × wallplug_efficiency → output energy delivered
+#     toward the target (slug muzzle KE for kinetic, radiated beam
+#     energy for laser).
+#   delivered_J × target_coupling_for(target) → energy actually
+#     absorbed as damage; the rest fragments / reflects / scatters.
+# Concrete weapons set their defaults in _init. target_coupling_for()
+# is a virtual hook so future per-target overrides (e.g. armoured
+# targets resisting kinetics differently than lasers) drop in without
+# touching the fire() math.
+var wallplug_efficiency: float = 1.0
+var target_coupling_default: float = 1.0
 
 
-## Cost in `attacker.energy` fractions per simulated second of fire.
-## Concrete weapons override; default 0 means a free-to-fire weapon
-## (none of those exist yet, but the strategy interface allows it).
-func cost_per_second() -> float:
+## Effective coupling for the given target. Default returns the
+## weapon's own per-class default; subclasses can override.
+func target_coupling_for(_target) -> float:
+	return target_coupling_default
+
+
+## Pool draw (joules per simulated second) at full continuous fire.
+## Concrete continuous-fire weapons override. Impulse weapons leave
+## this at 0 and report `energy_per_shot_j()` instead.
+func pool_draw_w() -> float:
 	return 0.0
+
+
+# Global damage-scaling constants. Lives on the Weapon base class
+# (rather than Satellite) because every weapon needs to convert
+# delivered joules to HP, and putting these here avoids the circular
+# preload that satellite.gd ↔ weapon-subclass would otherwise create
+# (Satellite preloads each concrete weapon to construct its default
+# loadout in _init).
+#
+# 5 MJ/HP is a balance pick: a 1 GJ railgun slug coupled at 50% drops
+# 100 HP per shot — one-shotting a default 100-HP target. Re-tuning
+# weapon power / coupling shifts the curve; re-tuning MJ_PER_HP shifts
+# the whole game's TTK. See the design discussion in CLAUDE.md.
+const MJ_PER_HP: float = 5.0
+const J_PER_HP: float = MJ_PER_HP * 1.0e6
 
 
 ## Heat applied to ready_fraction per sim-second of fire. Concrete

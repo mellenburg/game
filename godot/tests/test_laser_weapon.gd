@@ -2,13 +2,16 @@ extends "res://tests/framework.gd"
 ## Laser weapon unit tests. Uses a duck-typed FakeSat so the test
 ## doesn't need a SceneTree (Satellite is a Node3D).
 ##
-## The laser is now an impulse weapon: damage and energy drain are
-## per simulated second, and a heat budget (`ready_fraction`) ticks
-## down while firing and back up while idle. Hitting 0% latches the
-## `overheated` flag, which only clears once the bar climbs back to
-## 100%.
+## The laser is a continuous-fire energy weapon: pool joules drain at
+## POOL_DRAIN_W per sim-sec while firing, and a heat budget
+## (`ready_fraction`) ticks down while firing and back up while idle.
+## Hitting 0% latches the `overheated` flag, which only clears once
+## the bar climbs back to 100%. Damage is computed from radiated
+## power × target coupling / J_PER_HP — physical units rather than
+## the abstract DPS the previous balance pass used.
 
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
+const Weapon = preload("res://scripts/weapons/weapon.gd")
 const EARTH_RADIUS_KM: float = 6371.0
 
 
@@ -19,6 +22,9 @@ class FakeOrbit extends RefCounted:
 # Minimal stand-in for Satellite — exposes only the fields the weapon
 # reads (orbit.r, team, alive, orbit_alive, energy, hp,
 # engagement_range_km). RefCounted so we don't leak across tests.
+# Energy default scales to a full default-class pool so tests that
+# don't explicitly seed energy can still fire for several seconds
+# before running dry.
 class FakeSat extends RefCounted:
 	var orbit: FakeOrbit
 	var team: int = 0
@@ -44,6 +50,22 @@ class FakeSat extends RefCounted:
 			alive = false
 			return true
 		return false
+
+
+# Convenience: the per-instance DPS at zero range against a
+# default-coupling target (no tier multiplier). Most tests assert HP
+# losses against multiples of this number, so naming it once here
+# keeps the assertions readable.
+const ZERO_RANGE_DPS: float = (
+	LaserWeapon.RADIATED_POWER_W * LaserWeapon.TARGET_COUPLING_DEFAULT
+	/ Weapon.J_PER_HP
+)
+# Pool seed for tests that just need "enough energy to fire for a few
+# seconds without going dry". Matches the default DEFAULT_ENERGY_MAX_J
+# (10 GJ) so fakes feel like a fresh-from-spawn satellite. Tests that
+# specifically exercise the energy-budget cap (or the empty-pool
+# refusal) seed `energy` directly to a tighter number.
+const STARTING_ENERGY_J: float = 1.0e10
 
 
 func _make_player(pos: Vector3 = Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0)) -> FakeSat:
@@ -88,7 +110,7 @@ func test_cannot_fire_with_no_energy() -> void:
 func test_fire_applies_damage_and_drains_energy_per_second() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	# Fire for 2 sim-sec → 2 * DPS * range_factor(d) damage, 2 * cost
 	# drain, 2 * heat consumed. Distance is 1000 km so the falloff
@@ -96,12 +118,19 @@ func test_fire_applies_damage_and_drains_energy_per_second() -> void:
 	var dist: float = (target.orbit.r - attacker.orbit.r).length()
 	var rf: float = LaserWeapon.range_factor(dist)
 	assert_true(w.fire(attacker, target, 2.0))
-	assert_close(target.hp, 100.0 - 2.0 * LaserWeapon.DAMAGE_PER_SEC * rf)
+	assert_close(target.hp, 100.0 - 2.0 * ZERO_RANGE_DPS * rf)
 	# Energy and heat costs are flat in time — distance only modulates
 	# damage, not the per-second burn. That's a deliberate design call
 	# (see laser_weapon.gd) so long-range potshots cost as much as they
 	# would point-blank.
-	assert_close(attacker.energy, 1.0 - 2.0 * LaserWeapon.ENERGY_PER_SEC)
+	# Tolerance scaled to the pool size — assert_close's 1e-6 default
+	# is meaningless against billions of joules. 1 J of slop is plenty
+	# tight given POOL_DRAIN_W ~ 333 MW.
+	assert_close(
+		attacker.energy,
+		STARTING_ENERGY_J - 2.0 * LaserWeapon.POOL_DRAIN_W,
+		1.0,
+	)
 	assert_close(w.ready_fraction, 1.0 - 2.0 * LaserWeapon.HEAT_PER_SEC)
 	assert_false(w.overheated)
 
@@ -111,7 +140,7 @@ func test_idle_tick_cools_at_quarter_rate() -> void:
 	# Burn the bar down by firing for some time, then verify cool() climbs
 	# back at exactly 1/4 the heat rate.
 	var attacker := _make_player()
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_true(w.fire(attacker, target, 4.0))
 	var after_fire := w.ready_fraction
@@ -130,7 +159,7 @@ func test_continuous_fire_overheats_eventually() -> void:
 	# Sim-seconds to fully overheat = 1 / HEAT_PER_SEC; pad slightly so
 	# the final tick crosses zero.
 	var burn := 1.0 / LaserWeapon.HEAT_PER_SEC + 1.0
-	attacker.energy = burn * LaserWeapon.ENERGY_PER_SEC * 2.0
+	attacker.energy = burn * LaserWeapon.POOL_DRAIN_W * 2.0
 	assert_true(w.fire(attacker, target, burn))
 	assert_close(w.ready_fraction, 0.0)
 	assert_true(w.overheated)
@@ -145,7 +174,7 @@ func test_overheated_weapon_refuses_to_fire_until_fully_cool() -> void:
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	target.hp = 1.0e9
 	var burn := 1.0 / LaserWeapon.HEAT_PER_SEC + 1.0
-	attacker.energy = burn * LaserWeapon.ENERGY_PER_SEC * 2.0
+	attacker.energy = burn * LaserWeapon.POOL_DRAIN_W * 2.0
 	w.fire(attacker, target, burn)
 	assert_true(w.overheated)
 
@@ -154,7 +183,9 @@ func test_overheated_weapon_refuses_to_fire_until_fully_cool() -> void:
 	w.tick(half_recover)
 	assert_close(w.ready_fraction, 0.5, 1.0e-4)
 	assert_true(w.overheated)
-	attacker.energy = 1.0
+	# Re-fill the pool — refusal to fire must come from the lockout,
+	# not an empty reservoir.
+	attacker.energy = STARTING_ENERGY_J
 	assert_false(w.can_fire(attacker))
 	assert_false(w.fire(attacker, target, 1.0))
 
@@ -170,30 +201,33 @@ func test_fire_does_not_overshoot_remaining_energy() -> void:
 	# the energy lasts — no negative-energy artifacts.
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
-	attacker.energy = 0.5 * LaserWeapon.ENERGY_PER_SEC  # 0.5 sim-sec budget
+	attacker.energy = 0.5 * LaserWeapon.POOL_DRAIN_W  # 0.5 sim-sec budget
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	var dist: float = (target.orbit.r - attacker.orbit.r).length()
 	var rf: float = LaserWeapon.range_factor(dist)
 	assert_true(w.fire(attacker, target, 10.0))
-	assert_close(attacker.energy, 0.0)
-	assert_close(target.hp, 100.0 - 0.5 * LaserWeapon.DAMAGE_PER_SEC * rf)
+	# Pool is in joules, so the residual after a balanced drain may
+	# carry a few cents of float noise — 1 J is well below the
+	# 333 MJ/s drain rate.
+	assert_close(attacker.energy, 0.0, 1.0)
+	assert_close(target.hp, 100.0 - 0.5 * ZERO_RANGE_DPS * rf)
 
 
 func test_does_not_engage_same_team() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var ally := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_false(w.is_target_in_engagement_envelope(attacker, ally))
 	assert_false(w.fire(attacker, ally, 1.0))
 	assert_close(ally.hp, 100.0)
-	assert_close(attacker.energy, 1.0)
+	assert_close(attacker.energy, STARTING_ENERGY_J)
 
 
 func test_does_not_engage_when_los_blocked() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var enemy := _make_enemy(Vector3(-(EARTH_RADIUS_KM + 500.0), 0.0, 0.0))
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
@@ -203,7 +237,7 @@ func test_does_not_engage_when_los_blocked() -> void:
 func test_does_not_engage_dead_target() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	enemy.alive = false
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
@@ -215,7 +249,7 @@ func test_tick_ignores_zero_or_negative_delta() -> void:
 	# Fire briefly to push ready below 1.0 so cooling has somewhere to
 	# go; then verify a no-op tick really is a no-op.
 	var attacker := _make_player()
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	w.fire(attacker, target, 1.0)
 	var ready_before := w.ready_fraction
@@ -228,12 +262,12 @@ func test_tick_ignores_zero_or_negative_delta() -> void:
 func test_fire_ignores_zero_or_negative_delta() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_false(w.fire(attacker, target, 0.0))
 	assert_false(w.fire(attacker, target, -1.0))
 	assert_close(target.hp, 100.0)
-	assert_close(attacker.energy, 1.0)
+	assert_close(attacker.energy, STARTING_ENERGY_J)
 	assert_close(w.ready_fraction, 1.0)
 
 
@@ -274,8 +308,8 @@ func test_damage_scales_with_distance() -> void:
 	var d_far: float = (tgt_far.orbit.r - atk_far.orbit.r).length()
 	var rf_near: float = LaserWeapon.range_factor(d_near)
 	var rf_far: float = LaserWeapon.range_factor(d_far)
-	assert_close(dmg_near, LaserWeapon.DAMAGE_PER_SEC * rf_near)
-	assert_close(dmg_far, LaserWeapon.DAMAGE_PER_SEC * rf_far)
+	assert_close(dmg_near, ZERO_RANGE_DPS * rf_near)
+	assert_close(dmg_far, ZERO_RANGE_DPS * rf_far)
 
 
 func test_does_not_engage_beyond_max_range() -> void:
@@ -283,7 +317,7 @@ func test_does_not_engage_beyond_max_range() -> void:
 	# engagement_range_km — physics ceiling caps the operator setting.
 	var w := LaserWeapon.new()
 	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var far := LaserWeapon.MAX_RANGE_KM + 1000.0
 	var enemy := _make_enemy(
 		Vector3(EARTH_RADIUS_KM + 500.0, far, 10000.0)
@@ -291,7 +325,7 @@ func test_does_not_engage_beyond_max_range() -> void:
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
 	assert_close(enemy.hp, 100.0)
-	assert_close(attacker.energy, 1.0)
+	assert_close(attacker.energy, STARTING_ENERGY_J)
 
 
 func test_engagement_range_gates_fire_only_with_fire_control_on() -> void:
@@ -304,7 +338,7 @@ func test_engagement_range_gates_fire_only_with_fire_control_on() -> void:
 	# to widen the slider).
 	var w := LaserWeapon.new()
 	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	# Place enemy 6000 km away laterally.
 	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 6000.0, 0.0))
 	# Tighten engagement to 3000 km. With fire control off the cap is
@@ -334,7 +368,7 @@ func test_toggling_fire_control_off_restores_default_engagement() -> void:
 	# on restores the operator's chosen ring.
 	var w := LaserWeapon.new()
 	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
-	attacker.energy = 1.0
+	attacker.energy = STARTING_ENERGY_J
 	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 6000.0, 0.0))
 	# Operator opens fire control, dials the cap below the enemy.
 	attacker.fire_control_active = true

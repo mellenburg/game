@@ -125,17 +125,21 @@ const DEFAULT_MAX_ORBITAL_RADIUS_KM: float = 50000.0
 # floating-point slop in the propagator can't tip the body across the
 # surface termination check.
 const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 1.0
-# Defaults for the energy reservoir + reactor regen. Per-instance
-# `energy_max` and `energy_rate_per_sim_sec` start at these values and
-# are scaled at spawn time by the unit's energy-storage / reactor parts
-# (advanced parts double the corresponding facet). Constants kept on
-# the class so existing tests / callers that read the default still
-# resolve cleanly.
-const ENERGY_MAX: float = 1.0
-# Fraction of the energy pool gained per simulated second. Doubled
-# from the prior 0.00007 to compensate for the halved per-shot cost
-# and the fact that two lasers share one reservoir.
-const ENERGY_RATE_PER_SIM_SEC: float = 0.00014
+# The damage scale (MJ_PER_HP / J_PER_HP) lives on Weapon — Satellite
+# preloads each weapon class for its default loadout, so the constants
+# can't sit here without creating a circular preload. Read them via
+# Weapon.J_PER_HP from anywhere that needs the scale factor.
+#
+# Defaults for the energy reservoir + reactor regen, in joules and
+# watts. Per-instance `energy_max` and `reactor_power_w` start at
+# these values and are scaled at spawn time by the unit's energy-
+# storage / reactor parts (advanced parts double the corresponding
+# facet). 10 GJ pool with a 1 GW reactor refills from empty in 10
+# sim-sec — sized to keep up with the increased per-weapon drain
+# (one railgun shot ~3.3 GJ, one laser at full draw ~333 MW wall-
+# plug).
+const DEFAULT_ENERGY_MAX_J: float = 1.0e10
+const DEFAULT_REACTOR_POWER_W: float = 1.0e9
 
 var orbit: EarthOrbit
 var selected: bool = false
@@ -212,15 +216,15 @@ var is_decaying: bool = false
 var is_surface: bool = false
 var surface_lat_deg: float = 0.0
 var surface_lon_deg: float = 0.0
-# Shared energy reservoir, drained by every weapon's fire(). Charges
-# at energy_rate_per_sim_sec per simulated second so time_factor
+# Shared energy reservoir (joules), drained by every weapon's fire().
+# Charges at reactor_power_w joules per simulated second so time_factor
 # scales it the same as everything else. `energy_max` and
-# `energy_rate_per_sim_sec` are overridden at spawn time per-unit by
+# `reactor_power_w` are overridden at spawn time per-unit by
 # SpawnDirector based on the operator's chosen energy-storage and
 # reactor parts.
 var energy: float = 0.0
-var energy_max: float = ENERGY_MAX
-var energy_rate_per_sim_sec: float = ENERGY_RATE_PER_SIM_SEC
+var energy_max: float = DEFAULT_ENERGY_MAX_J
+var reactor_power_w: float = DEFAULT_REACTOR_POWER_W
 # Empty for unarmed units (e.g. enemies in the MVP). Player satellites
 # spawn with two lasers; weapons fire independently but share energy.
 var weapons: Array[Weapon] = []
@@ -310,6 +314,12 @@ func _init() -> void:
 	# bars line up with prior screenshots; the railgun bar tails the
 	# strip. Spawners that build unarmed enemies clear the array.
 	weapons = [LaserWeapon.new(), LaserWeapon.new(), RailgunWeapon.new()]
+	# Wet mass = dry + propellant + ammo. The default loadout includes
+	# a railgun magazine that vastly outweighs the airframe (1000 × 20 kg
+	# slugs ≫ 700 kg dry); recompute here so a freshly-constructed
+	# default satellite reports the right mass even before a spawner
+	# reassigns its weapons.
+	recompute_mass()
 
 
 ## Charge the shared energy pool. Per-weapon cooling is driven by
@@ -320,7 +330,7 @@ func tick_combat(sim_delta: float) -> void:
 	if sim_delta <= 0.0:
 		return
 	energy = clampf(
-		energy + energy_rate_per_sim_sec * sim_delta, 0.0, energy_max,
+		energy + reactor_power_w * sim_delta, 0.0, energy_max,
 	)
 
 
@@ -494,6 +504,30 @@ func delta_v_remaining_ms() -> float:
 	return Propulsion.dv_capacity_ms(propellant_kg, dry_mass_kg, isp_s)
 
 
+## Total mass (kg) of unfired ammo across every weapon on this unit.
+## Railgun-class weapons carry a magazine of physical slugs that
+## dominate the wet-mass budget — a 1000-round railgun adds 20 t of
+## ammo to a ~1 t airframe. Sum lives here (rather than on the
+## weapon) because Tsiolkovsky's m_f and the railgun's recoil math
+## both read Satellite.mass; this keeps ammo mass on the same single
+## source of truth as propellant.
+func total_ammo_mass_kg() -> float:
+	var total: float = 0.0
+	for w: Weapon in weapons:
+		if w is RailgunWeapon:
+			var rg: RailgunWeapon = w
+			total += float(rg.ammo_count) * RailgunWeapon.SLUG_MASS_KG
+	return total
+
+
+## Recompute wet mass from dry structure + remaining propellant +
+## remaining ammo. Called from every code path that mutates one of
+## those three components: post-burn (propellant), post-shot
+## (railgun ammo), and at spawn time (initial fill).
+func recompute_mass() -> void:
+	mass = dry_mass_kg + propellant_kg + total_ammo_mass_kg()
+
+
 ## Apply damage. Returns true if this hit took the satellite to 0 HP.
 ## Only kills once — repeated calls on a dead satellite are no-ops, so
 ## stray late shots from concurrent attackers don't double-fire the
@@ -566,7 +600,7 @@ func advance_time(delta_time: float) -> void:
 					applied_ms, mass, isp_s
 				)
 				propellant_kg = maxf(propellant_kg - burned, 0.0)
-				mass = dry_mass_kg + propellant_kg
+				recompute_mass()
 		ok = orbit.relative_maneuver(applied, delta_time, SAFE_PERIAPSIS_KM)
 	else:
 		# Free propagation leaves the orbit shape (and therefore the
@@ -723,7 +757,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	# _init that we'd otherwise leave dangling).
 	energy = other.energy
 	energy_max = other.energy_max
-	energy_rate_per_sim_sec = other.energy_rate_per_sim_sec
+	reactor_power_w = other.reactor_power_w
 	engagement_range_km = other.engagement_range_km
 	fire_control_active = other.fire_control_active
 	targeting_mode = other.targeting_mode

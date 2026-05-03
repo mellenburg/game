@@ -784,9 +784,17 @@ func _update_box(
 	if has_energy_bar:
 		var energy_row := rows.get_child(bar_idx) as Control
 		if energy_row != null:
-			var pct := int(round(sat.energy * 100.0))
+			var frac: float = (
+				sat.energy / sat.energy_max if sat.energy_max > 0.0 else 0.0
+			)
 			_update_bar_row(
-				energy_row, BAR_ENERGY, "Energy  %d%%" % pct, sat.energy
+				energy_row,
+				BAR_ENERGY,
+				"Energy  %s / %s" % [
+					_format_joules(sat.energy),
+					_format_joules(sat.energy_max),
+				],
+				frac,
 			)
 		bar_idx += 1
 	if has_propellant_bar:
@@ -830,21 +838,33 @@ func _update_box(
 		var label := name
 		if int(per_type_total[name]) > 1:
 			label = "%s %d" % [name, idx]
+		# Railgun rows append the magazine count so the operator sees
+		# both readiness and ammo remaining on a single line. Lasers
+		# don't carry ammo, so the suffix is railgun-only.
+		var ammo_suffix: String = ""
+		if w is RailgunWeapon:
+			var rg: RailgunWeapon = w
+			ammo_suffix = "  %d/%d" % [rg.ammo_count, RailgunWeapon.MAGAZINE_SIZE]
 		# Three states: OVERHEAT (locked, cooling back to 100%), READY
 		# (full and unlocked), or partial (firing or recovering toward
 		# READY without having tripped the lockout). The railgun's
 		# single-shot semantics use the same overheated latch as the
 		# laser, so this branch handles both weapon types cleanly.
+		# Empty magazine overrides the cooldown label — a cool railgun
+		# with no rounds reads as EMPTY, not READY.
 		var text: String
 		var fill_color: Color
-		if w.overheated:
-			text = "%s  COOLDOWN %d%%" % [label, pct]
+		if w is RailgunWeapon and (w as RailgunWeapon).ammo_count <= 0:
+			text = "%s  EMPTY%s" % [label, ammo_suffix]
+			fill_color = BAR_COOLDOWN
+		elif w.overheated:
+			text = "%s  COOLDOWN %d%%%s" % [label, pct, ammo_suffix]
 			fill_color = BAR_COOLDOWN
 		elif prog >= 1.0:
-			text = "%s  READY" % label
+			text = "%s  READY%s" % [label, ammo_suffix]
 			fill_color = BAR_READY
 		else:
-			text = "%s  %d%%" % [label, pct]
+			text = "%s  %d%%%s" % [label, pct, ammo_suffix]
 			fill_color = BAR_COOLDOWN
 		_update_bar_row(row, fill_color, text, prog)
 
@@ -896,3 +916,17 @@ func _draw_selected_los_lines() -> void:
 		var blocked := LosCheck.is_blocked(main_eci, other.orbit.r)
 		var line_color := LOS_BLOCKED if blocked else LOS_CLEAR
 		draw_line(screen_a, screen_b, line_color, 1.0)
+
+
+# Joules → human-readable energy. Uses GJ above 10^9 J, MJ above
+# 10^6 J, kJ above 10^3 J, otherwise raw J. Mirrors menu.gd's
+# _format_joules so the in-game HUD and the pre-game Hangar summary
+# read the same units.
+func _format_joules(joules: float) -> String:
+	if joules >= 1.0e9:
+		return "%.1f GJ" % (joules * 1.0e-9)
+	if joules >= 1.0e6:
+		return "%.1f MJ" % (joules * 1.0e-6)
+	if joules >= 1.0e3:
+		return "%.1f kJ" % (joules * 1.0e-3)
+	return "%.0f J" % joules
