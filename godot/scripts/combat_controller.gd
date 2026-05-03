@@ -78,18 +78,64 @@ func process_combat(
 				# in-envelope candidates by attacker.targeting_mode, the
 				# railgun picks randomly across LOS-clear safe shots.
 				var target: Satellite = w.pick_target(sat, candidates, sim_time)
-				if target != null and w.fire(sat, target, sim_delta):
-					fired = true
-					_hud.register_hit(sat, target)
-					# Route the visual: railguns get the moving-slug
-					# treatment when the operator's enabled it,
-					# otherwise the legacy beam. Lasers always beam.
+				if target != null:
+					# Two paths: slug-render railguns split shooter and
+					# target effects so the visible damage waits for
+					# the tracer to arrive (otherwise a one-shot kill
+					# pops the body off-screen mid-flight). Lasers and
+					# beam-mode railguns stay synchronous — the legacy
+					# fire() applies everything at once.
 					if w is RailgunWeapon and _slug_render_enabled:
-						_slug_renderer.register_fire(sat, target, sim_time)
-					else:
+						fired = _fire_railgun_with_slug(
+							sat, w as RailgunWeapon, target, sim_delta,
+						)
+					elif w.fire(sat, target, sim_delta):
+						fired = true
+						_hud.register_hit(sat, target)
 						_beam_renderer.register_fire(sat, w_idx, target)
 			if not fired:
 				w.tick(sim_delta)
+
+
+# Slug-mode railgun fire: shooter effects apply now (recoil, ammo,
+# energy, cooldown), target effects defer to slug arrival via the
+# on_arrival callable. The captured refs (attacker, target, weapon,
+# pending data) all need is_instance_valid guards inside the closure
+# because the slug can be in flight for many sim-seconds; an
+# arbitrary fraction of that window can include the shooter or
+# target being freed by another weapon, an orbit decay, or a target
+# kill from a sibling slug arriving first.
+func _fire_railgun_with_slug(
+	attacker: Satellite,
+	weapon: RailgunWeapon,
+	target: Satellite,
+	sim_delta: float,
+) -> bool:
+	var pending = weapon.prepare_shot(attacker, target, sim_delta)
+	if pending == null:
+		return false
+	var hud_ref := _hud
+	var on_arrival := func() -> void:
+		# Target may have been destroyed by another weapon between
+		# fire and arrival; apply_impact tolerates that, but skip the
+		# HUD flash so we don't blink a roster box for a body that's
+		# already dead.
+		if not is_instance_valid(target) or not target.alive:
+			return
+		var attacker_for_credit: Satellite = (
+			attacker if is_instance_valid(attacker) else null
+		)
+		weapon.apply_impact(attacker_for_credit, target, pending)
+		# HUD flash fires on arrival (not at trigger pull) so the
+		# roster red flash lines up with the slug visually striking
+		# the box. Drop the flash if the impact actually killed the
+		# attribution path — the kill happened, but there's no live
+		# shooter to credit, and the roster box already reflects the
+		# new state.
+		if attacker_for_credit != null:
+			hud_ref.register_hit(attacker_for_credit, target)
+	_slug_renderer.register_fire(attacker, target, on_arrival)
+	return true
 
 
 # Bodies that can plausibly be shot at this tick. The team check is

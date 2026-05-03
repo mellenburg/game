@@ -62,10 +62,10 @@ const ZERO_RANGE_DPS: float = (
 )
 # Pool seed for tests that just need "enough energy to fire for a few
 # seconds without going dry". Matches the default DEFAULT_ENERGY_MAX_J
-# (10 GJ) so fakes feel like a fresh-from-spawn satellite. Tests that
+# (40 GJ) so fakes feel like a fresh-from-spawn satellite. Tests that
 # specifically exercise the energy-budget cap (or the empty-pool
 # refusal) seed `energy` directly to a tighter number.
-const STARTING_ENERGY_J: float = 1.0e10
+const STARTING_ENERGY_J: float = 4.0e10
 
 
 func _make_player(pos: Vector3 = Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0)) -> FakeSat:

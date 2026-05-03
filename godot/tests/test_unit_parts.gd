@@ -190,11 +190,10 @@ func test_summary_stats_railgun_physical_fields() -> void:
 		RailgunWeapon.TARGET_COUPLING_DEFAULT,
 	)
 	# Recoil Δv = momentum / wet_mass. Default railgun magazine adds
-	# 20 t to the 1 t airframe ⇒ ~21 t wet, so 200 kg·km/s of
-	# momentum lands as ~9.5 m/s of recoil per shot. Tighter
-	# tolerance against the analytic value rather than a hard-coded
-	# 9.524 so a future thruster / chassis tweak doesn't silently
-	# shift the assertion.
+	# 20 t to the 1 t airframe ⇒ ~21 t wet, so 400 kg·km/s of
+	# momentum lands as ~19 m/s of recoil per shot. Asserted against
+	# the analytic value rather than a hard-coded number so a future
+	# thruster / chassis tweak doesn't silently shift the assertion.
 	var ammo_mass: float = (
 		float(RailgunWeapon.MAGAZINE_SIZE) * RailgunWeapon.SLUG_MASS_KG
 	)

@@ -31,13 +31,14 @@ extends "res://scripts/weapons/weapon.gd"
 const LosCheck = preload("res://scripts/los_check.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
-# Slug physics. 20 kg at 10 km/s ⇒ 200 kg·km/s of momentum (the
-# previous abstract balance pick) and 1 GJ of muzzle KE. 10 km/s is
-# ~4× a real Navy railgun and ~80% of escape velocity — fast enough
-# that slug travel can be ignored at engagement ranges, slow enough
-# that a future "render the slug" pass could plot it as a streak.
+# Slug physics. 20 kg at 20 km/s ⇒ 400 kg·km/s of momentum and 4 GJ
+# of muzzle KE. 20 km/s is ~8× a real Navy railgun and ~80% of solar
+# escape from LEO; fast enough that slug travel can be ignored at
+# engagement ranges *and* the damage / recoil chain reads as a
+# heavy-hitter weapon (one shot one-kills a default-HP target,
+# recoil per shot on a fully-loaded 21 t hull is ~19 m/s).
 const SLUG_MASS_KG: float = 20.0
-const MUZZLE_VELOCITY_M_S: float = 10000.0
+const MUZZLE_VELOCITY_M_S: float = 20000.0
 # Pre-derived for callers that want either side of the conversion
 # without redoing the multiplication. Keeping these as constants makes
 # it loud if someone changes one without the other.
@@ -222,43 +223,50 @@ func pick_target(attacker, candidates: Array, _sim_time: float):
 	return pool[randi() % pool.size()]
 
 
-func fire(attacker, target, sim_delta: float) -> bool:
+## Apply only the shooter-side effects of a successful shot: recoil,
+## energy drain, ammo decrement, cooldown latch. Returns a Dictionary
+## describing the pending impact (target_dv, damage) the caller can
+## apply immediately (synchronous fire) or hand to the slug renderer
+## as an on_arrival callback (delayed fire). Returns null when the
+## shot is refused for any reason — the caller should treat that as
+## "this tick the weapon cools instead of firing".
+##
+## Splitting this from apply_impact lets the slug-render path defer
+## the visible consequences (target push + HP damage + flash) to the
+## moment the slug visually arrives, so a one-shot kill doesn't pop
+## the target off-screen before the tracer has crossed the sky.
+func prepare_shot(attacker, target, sim_delta: float):
 	if sim_delta <= 0.0:
-		return false
+		return null
 	if not can_fire(attacker):
-		return false
+		return null
 	if not is_target_in_engagement_envelope(attacker, target):
-		return false
+		return null
 	if not is_shot_safe_for_attacker(attacker, target):
-		return false
+		return null
 	if target.mass <= 0.0:
-		return false
+		return null
 
 	var to_target: Vector3 = target.orbit.r - attacker.orbit.r
 	var dist_sq: float = to_target.length_squared()
 	if dist_sq <= 0.0:
-		return false
+		return null
 	var dir: Vector3 = to_target / sqrt(dist_sq)
 	var attacker_dv: Vector3 = -dir * (SLUG_MOMENTUM_KG_KM_S / attacker.mass)
+	# Pre-compute target push at fire-time geometry. Even when delayed,
+	# the push direction is "from where the shot was launched" —
+	# consistent with what the operator saw when they pulled the trigger.
 	var target_dv: Vector3 = dir * (SLUG_MOMENTUM_KG_KM_S / target.mass)
 
-	# Apply impulses through orbit.maneuver(t=0) so the orbit's derived
-	# elements (r_p, r_a, period, …) get recomputed atomically. A
-	# successful safety check should mean the shooter's maneuver is
+	# Apply shooter recoil through orbit.maneuver(t=0) so the orbit's
+	# derived elements (r_p, r_a, period, …) get recomputed atomically.
+	# A successful safety check should mean the shooter's maneuver is
 	# always valid; we still guard so a numerical edge case doesn't
 	# leave the attacker in a partially-mutated state.
 	if not attacker.orbit.maneuver(attacker_dv, 0.0):
-		return false
+		return null
 	attacker.invalidate_impact_cache()
-	# Target's resulting orbit can be anything (including sub-orbital);
-	# advance_time will catch a sub-surface trajectory next tick. If
-	# the propagator rejects the maneuver outright, mark the target's
-	# orbit dead so the renderer doesn't see NaN.
-	if not target.orbit.maneuver(target_dv, 0.0):
-		target.orbit_alive = false
-	target.invalidate_impact_cache()
 
-	target.take_damage(damage_per_shot(target), attacker)
 	attacker.energy = maxf(attacker.energy - ENERGY_PER_SHOT_J, 0.0)
 	# Pop the slug out of the magazine and drop the shooter's wet
 	# mass by one slug-mass. recompute_mass() pulls dry + propellant
@@ -273,4 +281,44 @@ func fire(attacker, target, sim_delta: float) -> bool:
 	# the laser's overheat semantics so the HUD bar reads consistently.
 	ready_fraction = 0.0
 	overheated = true
+	return {
+		"target_dv": target_dv,
+		"damage": damage_per_shot(target),
+	}
+
+
+## Apply the target-side effects of a shot: momentum push and HP
+## damage. Safe to call on a freed / dead target — both branches
+## tolerate it (a kill from another weapon mid-flight just turns this
+## into a no-op). `attacker` may be null when the shooter died
+## between fire and arrival; in that case damage attribution is
+## dropped but the impact still lands.
+func apply_impact(attacker, target, pending: Dictionary) -> void:
+	if target == null:
+		return
+	if target is Object and not is_instance_valid(target):
+		return
+	if not target.alive:
+		return
+	var target_dv: Vector3 = pending["target_dv"]
+	var damage: float = pending["damage"]
+	# Target's resulting orbit can be anything (including sub-orbital);
+	# advance_time will catch a sub-surface trajectory next tick. If
+	# the propagator rejects the maneuver outright, mark the target's
+	# orbit dead so the renderer doesn't see NaN.
+	if not target.orbit.maneuver(target_dv, 0.0):
+		target.orbit_alive = false
+	target.invalidate_impact_cache()
+	target.take_damage(damage, attacker)
+
+
+## Synchronous fire: shooter effects + immediate target effects.
+## Used by the BeamRenderer-mode path (and by every existing test).
+## The slug-render path calls prepare_shot directly and defers
+## apply_impact to slug arrival.
+func fire(attacker, target, sim_delta: float) -> bool:
+	var pending = prepare_shot(attacker, target, sim_delta)
+	if pending == null:
+		return false
+	apply_impact(attacker, target, pending)
 	return true

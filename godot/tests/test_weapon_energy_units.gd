@@ -27,7 +27,7 @@ class FakeSat extends RefCounted:
 	var alive: bool = true
 	var orbit_alive: bool = true
 	var hp: float = 100.0
-	var energy: float = 1.0e10
+	var energy: float = 4.0e10
 	var mass: float = 1000.0
 	var max_orbital_radius_km: float = 50000.0
 	var railgun_enabled: bool = true
@@ -75,32 +75,34 @@ func test_global_mj_per_hp_is_five() -> void:
 
 
 func test_slug_kinetic_energy_matches_design() -> void:
-	# 20 kg slug at 10 km/s ⇒ ½·m·v² = 0.5 × 20 × 10000² = 10^9 J.
+	# 20 kg slug at 20 km/s ⇒ ½·m·v² = 0.5 × 20 × 20000² = 4 × 10^9 J.
 	# Pinning so a future muzzle-velocity tweak shows up as a test
 	# regression rather than silent rebalancing of every weapon's
 	# damage curve.
 	assert_close(RailgunWeapon.SLUG_MASS_KG, 20.0)
-	assert_close(RailgunWeapon.MUZZLE_VELOCITY_M_S, 10000.0)
-	assert_close(RailgunWeapon.SLUG_MUZZLE_KE_J, 1.0e9, 1.0)
+	assert_close(RailgunWeapon.MUZZLE_VELOCITY_M_S, 20000.0)
+	assert_close(RailgunWeapon.SLUG_MUZZLE_KE_J, 4.0e9, 1.0)
 	# Momentum is the SI product divided by 1000 to match the orbit
-	# layer's km/s convention. 200 kg·km/s is the same number the
-	# pre-physical balance pass shipped with — recoil gameplay is
-	# preserved across the unit conversion.
-	assert_close(RailgunWeapon.SLUG_MOMENTUM_KG_KM_S, 200.0)
+	# layer's km/s convention. 400 kg·km/s ⇒ ~19 m/s of recoil per
+	# shot on a fully-loaded 21 t hull, ~50 m/s on a 1 t target.
+	assert_close(RailgunWeapon.SLUG_MOMENTUM_KG_KM_S, 400.0)
 
 
 func test_railgun_default_damage_matches_physics() -> void:
-	# damage = KE × coupling / J_PER_HP = 1e9 × 0.5 / 5e6 = 100 HP.
-	# A default-tier shot one-shots a default 100-HP target, which is
-	# the user-confirmed design intent (kinetics are the alpha-strike).
-	assert_close(RailgunWeapon.base_damage_per_shot(), 100.0)
+	# damage = KE × coupling / J_PER_HP = 4e9 × 0.5 / 5e6 = 400 HP.
+	# A default-tier shot one-shots any sub-400-HP target — heavy-
+	# hitter design intent, the slug-render path defers the visual
+	# arrival so the body doesn't pop off-screen at trigger pull.
+	assert_close(RailgunWeapon.base_damage_per_shot(), 400.0)
 
 
-func test_railgun_default_pool_draw_is_three_point_three_gj() -> void:
-	# Wall-plug: KE / 0.3 = ~3.33 GJ. One shot drains a third of a
-	# default 10 GJ pool — the energy-budget mechanic the design hinges
-	# on. Tolerance is 1 J against billions, comfortably tight.
-	assert_close(RailgunWeapon.ENERGY_PER_SHOT_J, 1.0e9 / 0.3, 1.0)
+func test_railgun_default_pool_draw_is_thirteen_gj() -> void:
+	# Wall-plug: KE / 0.3 = ~13.3 GJ. One shot drains a third of a
+	# default 40 GJ pool — sustainable cadence is roughly 3 shots per
+	# pool, then a full refill cycle (40 sec at 1 GW) before the next
+	# salvo. Tolerance is 1 J against tens of billions, comfortably
+	# tight.
+	assert_close(RailgunWeapon.ENERGY_PER_SHOT_J, 4.0e9 / 0.3, 1.0)
 
 
 func test_railgun_default_magazine_is_one_thousand() -> void:
@@ -124,9 +126,11 @@ func test_laser_default_pool_drain_is_three_hundred_thirty_three_mw() -> void:
 
 
 func test_satellite_default_pool_and_reactor_match_design() -> void:
-	# 10 GJ / 1 GW: from the design discussion. Refill from empty
-	# takes 10 sim-sec — ~3 railgun shots' worth of energy bookkeeping.
-	assert_close(Satellite.DEFAULT_ENERGY_MAX_J, 1.0e10, 1.0)
+	# 40 GJ / 1 GW: pool sized to hold ~3 railgun shots (each ~13.3 GJ
+	# wall-plug) before going dry. Refill from empty takes 40 sim-sec
+	# — long enough that a sustained railgun engagement is energy-
+	# bound, not cooldown-bound.
+	assert_close(Satellite.DEFAULT_ENERGY_MAX_J, 4.0e10, 1.0)
 	assert_close(Satellite.DEFAULT_REACTOR_POWER_W, 1.0e9, 1.0)
 
 
@@ -204,13 +208,13 @@ func test_target_coupling_default_returns_per_class_value() -> void:
 
 
 func test_satellite_tick_combat_charges_pool_in_joules() -> void:
-	# Pool fill rate is now reactor_power_w joules/sec (was a fraction
-	# /sec). One sim-sec of charge from a 1 GW reactor adds 1 GJ;
-	# ten sim-sec from empty fills a default 10 GJ pool exactly. The
-	# clamp at energy_max kicks in on the eleventh second.
+	# Pool fill rate is reactor_power_w joules/sec. One sim-sec of
+	# charge from a 1 GW reactor adds 1 GJ; the default 40 GJ pool
+	# tops up in 40 sim-sec from empty. tick_combat with a large
+	# delta clamps at energy_max instead of overshooting.
 	var sat := Satellite.new()
 	sat.energy = 0.0
 	sat.tick_combat(1.0)
 	assert_close(sat.energy, 1.0e9, 1.0)
-	sat.tick_combat(100.0)  # would overshoot 10 GJ; clamp holds.
+	sat.tick_combat(1000.0)  # would overshoot 40 GJ; clamp holds.
 	assert_close(sat.energy, sat.energy_max, 1.0)

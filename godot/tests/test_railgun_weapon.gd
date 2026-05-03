@@ -10,11 +10,12 @@ const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
 const EARTH_RADIUS_KM: float = EarthOrbit.EARTH_RADIUS_KM
 # Pool seed for tests that just need "enough energy to fire a shot"
-# — a single railgun shot now draws ~3.3 GJ from the bus, so the
-# fake's pool has to be in the joule scale rather than the legacy
-# 0..1 fraction. 10 GJ matches the default DEFAULT_ENERGY_MAX_J so
-# the fakes feel like a fresh-from-spawn satellite.
-const STARTING_ENERGY_J: float = 1.0e10
+# — a single railgun shot now draws ~13.3 GJ from the bus, so the
+# fake's pool has to comfortably exceed that. Sized to the default
+# DEFAULT_ENERGY_MAX_J (40 GJ) so the fakes feel like a fresh-from-
+# spawn satellite, with headroom for a couple of shots before
+# energy gating kicks in.
+const STARTING_ENERGY_J: float = 4.0e10
 
 
 # Minimal stand-in for Satellite — exposes only the fields the railgun
@@ -30,7 +31,7 @@ class FakeSat extends RefCounted:
 	# Default to a full 10 GJ pool so most tests can fire without
 	# explicitly seeding energy. Tests exercising the energy-budget
 	# refusal seed this directly to a tighter number.
-	var energy: float = 1.0e10
+	var energy: float = 4.0e10
 	var mass: float = 1000.0
 	var max_orbital_radius_km: float = 50000.0
 	var railgun_enabled: bool = true
@@ -120,12 +121,16 @@ func test_fire_applies_damage_and_drains_energy_and_locks_cooldown() -> void:
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
 	# Place target ~3000 km away laterally, well clear of LOS and
-	# inside the safe-orbit envelope so the recoil is fine.
+	# inside the safe-orbit envelope so the recoil is fine. Bumped HP
+	# above the per-shot damage so we can verify the exact subtraction
+	# rather than asserting the take_damage clamp at zero — the
+	# default 100 HP is one-shotted by a 400-HP railgun round.
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0))
+	target.hp = 1000.0
 	var energy_before := attacker.energy
 	var ammo_before := w.ammo_count
 	assert_true(w.fire(attacker, target, 1.0))
-	assert_close(target.hp, 100.0 - RailgunWeapon.base_damage_per_shot())
+	assert_close(target.hp, 1000.0 - RailgunWeapon.base_damage_per_shot())
 	# 1 J tolerance is well below the 3.3 GJ per-shot draw — assert_close
 	# defaults to 1e-6 which can't measure a number this large.
 	assert_close(

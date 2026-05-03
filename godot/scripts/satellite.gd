@@ -134,11 +134,11 @@ const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 1.0
 # watts. Per-instance `energy_max` and `reactor_power_w` start at
 # these values and are scaled at spawn time by the unit's energy-
 # storage / reactor parts (advanced parts double the corresponding
-# facet). 10 GJ pool with a 1 GW reactor refills from empty in 10
-# sim-sec — sized to keep up with the increased per-weapon drain
-# (one railgun shot ~3.3 GJ, one laser at full draw ~333 MW wall-
-# plug).
-const DEFAULT_ENERGY_MAX_J: float = 1.0e10
+# facet). 40 GJ pool with a 1 GW reactor refills from empty in 40
+# sim-sec — sized so a default unit can sustain ~3 railgun shots
+# (each ~13.3 GJ) before the pool dries up, then has to wait the
+# full refill cycle for the next salvo.
+const DEFAULT_ENERGY_MAX_J: float = 4.0e10
 const DEFAULT_REACTOR_POWER_W: float = 1.0e9
 
 var orbit: EarthOrbit

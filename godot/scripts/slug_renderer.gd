@@ -63,6 +63,16 @@ class _Slug:
 	# the target is alive; frozen once it dies so the slug still has
 	# a fixed endpoint to glide toward.
 	var last_target_eci: Vector3 = Vector3.ZERO
+	# Optional callable invoked when the slug visually arrives. The
+	# delayed-damage path uses this to apply target push + HP damage
+	# at the moment the tracer actually reaches the target, so a
+	# one-shot kill doesn't remove the body from the screen before
+	# the slug has crossed the sky. Only fired on arrival — attacker
+	# death and operator-driven clear_all both drop the callable
+	# silently (the shooter dying interrupts every shot in flight,
+	# which is interesting gameplay; clear_all is a visual toggle
+	# and shouldn't have side effects on the simulation).
+	var on_arrival: Callable = Callable()
 	var inst: MeshInstance3D = null
 	var mat: StandardMaterial3D = null
 
@@ -76,17 +86,25 @@ func _ready() -> void:
 
 
 ## Spawn a slug from `attacker` aimed at `target`. CombatController
-## calls this when railgun fire() succeeded *and* slug-render is
-## enabled. Both endpoints stay live — the slug homes on the target
-## each frame rather than freezing direction at fire time, so a
-## tracer always reads as pointed at something recognisable.
-func register_fire(attacker: Satellite, target: Satellite, _sim_time: float) -> void:
+## calls this when the railgun's prepare_shot succeeded *and* slug-
+## render is enabled. Both endpoints stay live — the slug homes on
+## the target each frame rather than freezing direction at fire
+## time, so a tracer always reads as pointed at something
+## recognisable. `on_arrival` is invoked once the slug visually
+## reaches its target; the delayed-damage path uses it to apply HP
+## damage and target push at the moment the tracer arrives.
+func register_fire(
+	attacker: Satellite,
+	target: Satellite,
+	on_arrival: Callable = Callable(),
+) -> void:
 	if attacker == null or target == null:
 		return
 	var slug := _Slug.new()
 	slug.attacker = attacker
 	slug.target = target
 	slug.last_target_eci = target.orbit.r
+	slug.on_arrival = on_arrival
 	slug.mat = _make_material()
 	slug.inst = _make_instance(slug.mat)
 	var key := "%d:%d" % [attacker.get_instance_id(), _next_seq]
@@ -134,10 +152,13 @@ func tick(sim_delta: float) -> void:
 		var to_target: Vector3 = slug.last_target_eci - attacker_eci
 		var distance: float = to_target.length()
 		if distance <= 0.0 or slug.traveled_km >= distance:
-			# Arrived — pop the slug. No fade: the impact already
-			# flashed via Satellite.flash_hit when fire() ran, and a
-			# fade tail would smear the streak past the visual hit
-			# point, which reads worse than a clean snap-off here.
+			# Arrived — apply the deferred impact (target push + HP
+			# damage + flash registered via the on_arrival callable),
+			# then pop the slug. No fade: the impact flash now fires
+			# in lockstep with the visual arrival, so a fade tail
+			# would smear past the hit point.
+			if slug.on_arrival.is_valid():
+				slug.on_arrival.call()
 			stale.append(key)
 			continue
 		var pos: Vector3 = attacker_eci + (to_target / distance) * slug.traveled_km
