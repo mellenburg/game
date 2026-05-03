@@ -33,6 +33,46 @@ const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_METEORITE := Color(1.0, 0.85, 0.4)
 const COLOR_DECAYING := Color(0.95, 0.45, 0.95)
 const COLOR_HIT := Color(1.0, 0.25, 0.05)
+# Enemy orbit-line gradient endpoints. Yellow when the body is far from
+# (or never going to make) ground impact; red when impact is imminent.
+# The marker still uses the team / type colors above — only the orbital
+# path is affected so a glance at the line conveys urgency without
+# re-tinting the body itself.
+const COLOR_ENEMY_PATH_FAR := Color(1.0, 0.95, 0.25)
+const COLOR_ENEMY_PATH_NEAR := Color(1.0, 0.2, 0.15)
+# ETA bounds for the enemy-path gradient. <= NEAR seconds reads as full
+# red; >= FAR seconds (or non-impacting orbits, where eta == INF) reads
+# as full yellow. The window between is power-curved to bias the color
+# toward red — meteorites spawn 40-70k km out with naive ttf running
+# 60-130 minutes, so even a quartic-style curve is needed to lift
+# mid-flight bodies into solid red-orange. Stable orbits (eta == INF)
+# still read full yellow; decaying threats whose multi-cycle spirals
+# fall outside the impact-cache horizon also start yellow and shift
+# red once the spiral compresses inside the window.
+const ENEMY_PATH_ETA_RED_S: float = 60.0
+const ENEMY_PATH_ETA_YELLOW_S: float = 14400.0
+# Lower exponent → more aggressive red bias along the ramp. 0.25 keeps
+# a 60-min meteorite at ~93% red and a 2-hour one at ~84% red — about
+# what feels right for "this thing is on a collision course".
+const ENEMY_PATH_GRADIENT_EXPONENT: float = 0.25
+# HP-driven path-style envelope. The line's *initial* thickness and
+# opacity are baked from max_hp at spawn (or clone) time and never
+# updated as the body takes damage — by design, per the original spec.
+# Range chosen so a 10-HP meteorite (smallest mass class) reads as a
+# barely-there thread and a 10000-HP late-game boss draws as a fat
+# opaque ribbon. Reference floor is the smallest meteorite mass-class
+# HP so the log-scale lands at zero (full floor) for the typical
+# storm body.
+const ENEMY_PATH_HP_REF_MIN: float = 10.0
+const ENEMY_PATH_HP_LOG_DECADES: float = 3.0
+const ENEMY_PATH_WIDTH_MIN_PX: float = 0.5
+const ENEMY_PATH_WIDTH_MAX_PX: float = 5.0
+const ENEMY_PATH_ALPHA_MIN: float = 0.10
+const ENEMY_PATH_ALPHA_MAX: float = 1.0
+# Player paths don't carry HP semantics on the line — players read HP
+# off their own roster. Use a constant readable thickness + full
+# opacity so the operator's own orbits stay legible.
+const PLAYER_PATH_WIDTH_PX: float = 1.5
 # Surface installations: yellow-green tint, distinct from the orbital
 # blue + selected green so a glance at the 3D view (or the in-game HUD
 # roster) tells the player which units are anchored to the ground.
@@ -250,6 +290,17 @@ var _flash_until: float = 0.0
 var _marker: MeshInstance3D
 var _marker_mat: StandardMaterial3D
 var path_visual: OrbitalPath
+# Spawn-baked path tint (RGB) and opacity. The orbit ribbon's color is
+# frozen at the body's first render — see render_orbit's lazy-bake —
+# and never recomputed as sim_time advances; the dynamic ETA-driven
+# gradient lives in the HUD box layer instead. Storing these on the
+# satellite (rather than reading them back off the material) lets
+# selection toggles flip to COLOR_SELECTED and back without losing
+# the original tint, and lets clone_from copy the bake to a planning
+# clone instead of re-rolling it from a different sim_time.
+var _path_color_base: Color = COLOR_PLAYER
+var _path_color_baked: bool = false
+var _path_alpha: float = 1.0
 
 
 func _init() -> void:
@@ -289,6 +340,7 @@ func _ready() -> void:
 	add_child(path_visual)
 
 	_apply_color()
+	_apply_path_style()
 	_sync_marker_position()
 
 
@@ -319,11 +371,13 @@ func _wall_now() -> float:
 func select() -> void:
 	selected = true
 	_apply_color()
+	_apply_path_color()
 
 
 func unselect() -> void:
 	selected = false
 	_apply_color()
+	_apply_path_color()
 
 
 func set_maneuver(input: Vector3) -> void:
@@ -559,7 +613,7 @@ func advance_time(delta_time: float) -> void:
 	_sync_marker_position()
 
 
-func render_orbit(show_path: bool) -> void:
+func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 	if not is_inside_tree() or path_visual == null:
 		return
 	if not orbit_alive or not alive:
@@ -572,7 +626,15 @@ func render_orbit(show_path: bool) -> void:
 	if is_surface:
 		path_visual.visible = false
 		return
-	path_visual.color = COLOR_SELECTED if selected else _base_color()
+	# Lazy bake: capture the spawn-time ETA color the first time we
+	# render an enemy and freeze it. Player paths are baked in
+	# _apply_path_style at _ready, since they don't have an ETA hue
+	# to encode. Selection / clone_from drive _apply_path_color
+	# directly; the per-tick render itself does no color work.
+	if not _path_color_baked and team == TEAM_ENEMY:
+		_path_color_base = enemy_path_gradient_color(current_sim_time)
+		_path_color_baked = true
+		_apply_path_color()
 	# Meteorites get the truncated-trajectory renderer: the same line
 	# style as a regular orbit, but cut off at the surface so the part
 	# that would tunnel through Earth isn't drawn.
@@ -626,6 +688,15 @@ func clone_from(other: Satellite) -> void:
 	clone_orbit_from(other)
 	raw_maneuver = other.raw_maneuver
 	did_maneuver = other.did_maneuver
+	# Inherit the baked orbit-line tint so the planning preview matches
+	# the live ribbon the operator was looking at when they entered
+	# planning mode. clone_orbit_from is called every tick during
+	# planning and deliberately does NOT touch the bake state — that
+	# would re-roll the gradient against the moving sim_time and defeat
+	# the "freeze on spawn" guarantee.
+	_path_color_base = other._path_color_base
+	_path_color_baked = other._path_color_baked
+	_apply_path_color()
 
 
 ## Clone only the orbital state (r, v, derived elements). Use this every
@@ -674,6 +745,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	if is_inside_tree():
 		_apply_color()
 		_apply_marker_size()
+		_apply_path_style()
 		_sync_marker_position()
 
 
@@ -760,6 +832,83 @@ func _apply_color() -> void:
 		_marker_mat.albedo_color = COLOR_HIT
 		return
 	_marker_mat.albedo_color = COLOR_SELECTED if selected else _base_color()
+
+
+# Push the spawn-baked tint to the path material, applying selection
+# override and HP-derived alpha. Called from select / unselect /
+# clone_from / render_orbit's first-frame bake — never per tick. The
+# OrbitalPath setter short-circuits if the new color matches, so an
+# idempotent call from clone_orbit_from is a no-op.
+func _apply_path_color() -> void:
+	if path_visual == null:
+		return
+	var rgb: Color = COLOR_SELECTED if selected else _path_color_base
+	rgb.a = _path_alpha
+	path_visual.color = rgb
+
+
+## Yellow → red tint for this body's orbit / status overlay, keyed by
+## predicted time-to-impact. Public so the HUD's enemy roster can apply
+## the same gradient to its status boxes — keeping the 3D path and the
+## roster's color cue in lockstep.
+func enemy_path_gradient_color(current_sim_time: float) -> Color:
+	var eta := predict_impact_sim_time(current_sim_time) - current_sim_time
+	if not is_finite(eta) or eta <= 0.0:
+		# Past-impact (eta <= 0) shouldn't normally render — the body
+		# would've been killed already — but guard anyway: full red
+		# matches "as close to impact as it gets".
+		var t_full: float = 1.0 if eta <= 0.0 else 0.0
+		return COLOR_ENEMY_PATH_FAR.lerp(COLOR_ENEMY_PATH_NEAR, t_full)
+	var span := ENEMY_PATH_ETA_YELLOW_S - ENEMY_PATH_ETA_RED_S
+	var t_linear := clampf(
+		(ENEMY_PATH_ETA_YELLOW_S - eta) / span, 0.0, 1.0
+	)
+	# Power curve — see ENEMY_PATH_GRADIENT_EXPONENT. Lifts the whole
+	# ramp toward red so a body on a hours-out impact course doesn't
+	# render as visually identical to a stable orbit.
+	var t := pow(t_linear, ENEMY_PATH_GRADIENT_EXPONENT)
+	return COLOR_ENEMY_PATH_FAR.lerp(COLOR_ENEMY_PATH_NEAR, t)
+
+
+# Bake the orbit-line's thickness and opacity from initial HP. Called
+# from _ready (initial spawn) and clone_orbit_from (planning preview
+# pickup) — never per-tick driven by HP. Player paths get a constant
+# readable style and a fixed COLOR_PLAYER tint baked here. Enemy paths
+# log-scale max_hp into the (width, alpha) envelope so a 10-HP storm
+# meteorite renders as a near-transparent thread and a 10000-HP boss
+# draws as a fat opaque ribbon; the *color* (yellow → red gradient)
+# is left for render_orbit to bake on first frame, since it depends on
+# sim_time which isn't known here.
+func _apply_path_style() -> void:
+	if path_visual == null:
+		return
+	var width: float
+	var alpha: float
+	if team == TEAM_ENEMY:
+		# log(hp / HP_REF_MIN) / log(10^DECADES) maps the smallest
+		# meteorite (HP == HP_REF_MIN) to 0.0 (full floor) and the
+		# largest threats (HP_REF_MIN * 10^DECADES) to 1.0. Storm
+		# meteorites cluster near the floor so they read as faint
+		# threads on the orbital view.
+		var ratio := maxf(max_hp, ENEMY_PATH_HP_REF_MIN) / ENEMY_PATH_HP_REF_MIN
+		var hp_norm := clampf(
+			log(ratio) / (ENEMY_PATH_HP_LOG_DECADES * log(10.0)),
+			0.0, 1.0,
+		)
+		width = lerpf(
+			ENEMY_PATH_WIDTH_MIN_PX, ENEMY_PATH_WIDTH_MAX_PX, hp_norm
+		)
+		alpha = lerpf(
+			ENEMY_PATH_ALPHA_MIN, ENEMY_PATH_ALPHA_MAX, hp_norm
+		)
+	else:
+		width = PLAYER_PATH_WIDTH_PX
+		alpha = 1.0
+		_path_color_base = COLOR_PLAYER
+		_path_color_baked = true
+	path_visual.line_width_px = width
+	_path_alpha = alpha
+	_apply_path_color()
 
 
 func _hide_visuals() -> void:

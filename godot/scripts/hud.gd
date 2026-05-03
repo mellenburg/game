@@ -274,7 +274,7 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 		# Hide the surface row entirely when nothing's placed so the HUD
 		# doesn't reserve dead space for an empty container.
 		surface_player_roster.visible = not surface_players.is_empty()
-	_render_enemy_roster(enemies, enemy_selected_in_roster)
+	_render_enemy_roster(enemies, enemy_selected_in_roster, current_sim_time)
 
 
 # Sort enemies so the body with the smallest predicted impact time on
@@ -347,11 +347,13 @@ const ENEMY_BOX_SEPARATION: int = 3
 # fill no longer covers reads as "lost HP". Translucent so it doesn't
 # fight the overlapping LOS lines or the radar / impact map below.
 const ENEMY_LOST_HP_COLOR := Color(1.0, 0.3, 0.3, 0.30)
-# Subtype-tinted solid fill — matches the 3D marker color so a glance
-# at the HUD links each box back to a body in the orbital view.
-const ENEMY_FILL_SAT := Color(1.0, 0.35, 0.35, 0.95)
-const ENEMY_FILL_METEORITE := Color(1.0, 0.85, 0.40, 0.95)
-const ENEMY_FILL_DECAYING := Color(0.95, 0.45, 0.95, 0.95)
+# Fill alpha for the live-HP layer. The hue is taken from each
+# satellite's ETA gradient (Satellite.enemy_path_gradient_color) so the
+# 3D orbit ribbon and the HUD box read off the same scale; this
+# constant just enforces a uniform translucency across all enemy boxes
+# so the gradient hue is what the operator's eye picks up, not
+# variations in opacity.
+const ENEMY_FILL_ALPHA: float = 0.95
 const ENEMY_FILL_SELECTED := Color(0.20, 1.00, 0.20, 1.0)
 
 
@@ -359,7 +361,9 @@ const ENEMY_FILL_SELECTED := Color(0.20, 1.00, 0.20, 1.0)
 # height cap, then columns flow left→right until the half-viewport
 # width cap forces a new row above. Lets a wave of cheap meteorites
 # fit on a single visible row without crowding the orbital view.
-func _render_enemy_roster(sats: Array[Satellite], selected: int) -> void:
+func _render_enemy_roster(
+	sats: Array[Satellite], selected: int, current_sim_time: float
+) -> void:
 	if enemy_roster == null:
 		return
 	var max_row_w: float = get_viewport_rect().size.x * 0.5
@@ -437,6 +441,7 @@ func _render_enemy_roster(sats: Array[Satellite], selected: int) -> void:
 					col.get_child(bi) as Control,
 					sats[sat_i],
 					sat_i == selected,
+					current_sim_time,
 				)
 
 
@@ -486,14 +491,23 @@ func _make_enemy_box() -> Control:
 	fill.anchor_right = 1.0
 	fill.anchor_top = 0.0
 	fill.anchor_bottom = 1.0
-	fill.color = ENEMY_FILL_SAT
+	# Placeholder tint — _update_enemy_box overwrites this on the first
+	# tick with the ETA-gradient color. Initial value is just opaque
+	# white so a pre-update box reads as "live" rather than as part of
+	# the lost-HP backplate.
+	fill.color = Color(1.0, 1.0, 1.0, ENEMY_FILL_ALPHA)
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(fill)
 
 	return box
 
 
-func _update_enemy_box(box: Control, sat: Satellite, is_selected: bool) -> void:
+func _update_enemy_box(
+	box: Control,
+	sat: Satellite,
+	is_selected: bool,
+	current_sim_time: float,
+) -> void:
 	var side := _enemy_box_side(sat)
 	box.custom_minimum_size = Vector2(side, side)
 
@@ -505,19 +519,24 @@ func _update_enemy_box(box: Control, sat: Satellite, is_selected: bool) -> void:
 	elif is_selected:
 		fill.color = ENEMY_FILL_SELECTED
 	else:
-		fill.color = _enemy_fill_color(sat)
+		fill.color = _enemy_fill_color(sat, current_sim_time)
 
 	var max_hp := maxf(sat.max_hp, 1.0)
 	var frac := clampf(sat.hp / max_hp, 0.0, 1.0)
 	fill.anchor_top = 1.0 - frac
 
 
-func _enemy_fill_color(sat: Satellite) -> Color:
-	if sat.is_meteorite:
-		return ENEMY_FILL_METEORITE
-	if sat.is_decaying:
-		return ENEMY_FILL_DECAYING
-	return ENEMY_FILL_SAT
+# Roster-box hue tracks the same yellow → red impact-ETA gradient as
+# the 3D orbit ribbon, so a quick scan of the bottom strip ranks
+# threats by urgency without the operator having to look at the orbital
+# view. Subtype distinction (sat / meteorite / decaying) is dropped on
+# purpose — it duplicated information that's already conveyed by the
+# 3D marker shape and the radar overlay, and competed with the ETA cue
+# this gradient is meant to carry.
+func _enemy_fill_color(sat: Satellite, current_sim_time: float) -> Color:
+	var c := sat.enemy_path_gradient_color(current_sim_time)
+	c.a = ENEMY_FILL_ALPHA
+	return c
 
 
 func _make_box() -> PanelContainer:
