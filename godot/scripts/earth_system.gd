@@ -681,8 +681,7 @@ func _process_one_shot_input() -> void:
 		spawn_director.start_meteorite_wave()
 	if Input.is_action_just_pressed("add_decaying_enemy"):
 		spawn_director.add_decaying_enemy()
-	if Input.is_action_just_pressed("toggle_los"):
-		hud.los_visible = not hud.los_visible
+	hud.los_visible = Input.is_action_pressed("toggle_los")
 	if Input.is_action_just_pressed("toggle_impact_map"):
 		_cycle_map_mode()
 	if Input.is_action_just_pressed("toggle_fire_control"):
