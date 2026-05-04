@@ -24,6 +24,15 @@ const SCENE_SCALE: float = 1.0 / 1000.0
 # 1000 kg reference.
 const MARKER_BASE_SIZE: float = 0.15
 const MARKER_REFERENCE_MASS_KG: float = 1000.0
+# Clamp band for the cube-root-of-mass marker scale. Meteorite masses
+# now span eleven orders of magnitude (1e4 .. 5e11 kg); without a cap
+# the cube-root-of-mass term would grow the marker to ~800x base for
+# the heaviest bodies, dwarfing Earth itself in the 3D view. The
+# floor keeps small bodies visible without collapsing them to a
+# point; the ceiling caps the largest bodies at a chunky-but-readable
+# size against the planet.
+const MARKER_SCALE_MIN: float = 0.5
+const MARKER_SCALE_MAX: float = 6.0
 const DEFAULT_R := Vector3(-6045.0, -3490.0, 2500.0)
 const DEFAULT_V := Vector3(-3.56, 6.618, 2.533)
 const DELTA_V_MAGNITUDE: float = 0.050
@@ -195,6 +204,16 @@ var kills: int = 0
 # enter the propellant-aware maneuver branch and so don't track
 # dry/propellant separately.
 var mass: float = DEFAULT_MASS_KG
+# Bulk density in g/cm^3. Spawners override per-body for meteorites
+# and decaying-orbit threats (sampled from the asteroid composition
+# table in MeteorPhysics); player ships and unarmed enemies leave
+# this at the stony-chondrite default since it only feeds the
+# meteorite HP formula and the impact-map readout.
+var density_g_cm3: float = 3.4
+# Composition class index (MeteorPhysics.COMP_*) for cosmetic
+# readouts — the impact map's latest-impact panel renders this as
+# "S-type", "M-type", etc. -1 leaves the body uncategorised.
+var composition: int = -1
 # Dry mass and onboard propellant. Player thrust debits propellant_kg
 # per burn via Tsiolkovsky; once it hits zero the maneuver branch
 # clamps the requested Δv down to whatever the remaining tank can
@@ -800,6 +819,8 @@ func clone_orbit_from(other: Satellite) -> void:
 	fire_control_active = other.fire_control_active
 	targeting_mode = other.targeting_mode
 	mass = other.mass
+	density_g_cm3 = other.density_g_cm3
+	composition = other.composition
 	dry_mass_kg = other.dry_mass_kg
 	propellant_kg = other.propellant_kg
 	max_propellant_kg = other.max_propellant_kg
@@ -834,9 +855,11 @@ func _sync_marker_position() -> void:
 # negative mass — should one slip through — doesn't collapse the cube
 # to a point.
 func _marker_box_size() -> Vector3:
-	var side := MARKER_BASE_SIZE * pow(
+	var ratio := pow(
 		maxf(mass, 1.0) / MARKER_REFERENCE_MASS_KG, 1.0 / 3.0
 	)
+	var scale := clampf(ratio, MARKER_SCALE_MIN, MARKER_SCALE_MAX)
+	var side := MARKER_BASE_SIZE * scale
 	return Vector3(side, side, side)
 
 

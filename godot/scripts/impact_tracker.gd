@@ -175,12 +175,20 @@ static func _match(table: Array[Dictionary], lon: float, lat: float) -> String:
 ## that stepped slightly past the ground still maps to a clean (lat,
 ## lon). `is_ocean_hint` should come from sampling the day-side
 ## albedo texture at the resulting UV — pass `false` to skip the hint.
-## `hp` is the impactor's remaining HP at the moment of contact; it's
-## stored on the entry so the minimap can scale its marker to the
-## delivered threat (a 1000-HP boss draws a fatter dot than a 10-HP
-## straggler that mostly burnt up under fire).
+## `hp` is the impactor's remaining HP at the moment of contact;
+## `mass_kg` and `density_g_cm3` carry the body's physical
+## parameters so the minimap can render the three-tier damage
+## circles via MeteorPhysics.damage_radii_km. `composition` is a
+## MeteorPhysics.COMP_* index used cosmetically by the latest-impact
+## panel; -1 leaves it unset for legacy callers.
 func record_impact(
-	p_world: Vector3, earth_phase: float, is_ocean_hint: bool, hp: float = 0.0
+	p_world: Vector3,
+	earth_phase: float,
+	is_ocean_hint: bool,
+	hp: float = 0.0,
+	mass_kg: float = 0.0,
+	density_g_cm3: float = 0.0,
+	composition: int = -1,
 ) -> Dictionary:
 	var surface := p_world.normalized() * EarthOrbit.EARTH_RADIUS_KM
 	var local := eci_to_mesh_local(surface, earth_phase)
@@ -195,6 +203,9 @@ func record_impact(
 		"is_ocean": is_ocean_hint,
 		"sim_time": sim_time,
 		"hp": maxf(hp, 0.0),
+		"mass_kg": maxf(mass_kg, 0.0),
+		"density_g_cm3": maxf(density_g_cm3, 0.0),
+		"composition": composition,
 	}
 	impacts.append(entry)
 	return entry
