@@ -431,9 +431,21 @@ func toggle_fire_control() -> void:
 ## whose impact is past the propagator's horizon.
 func predict_impact_sim_time(current_sim_time: float) -> float:
 	if is_nan(impact_sim_time):
-		var eta := orbit.time_to_impact(
-			IMPACT_CACHE_HORIZON_SEC, IMPACT_CACHE_STEP_SEC
-		)
+		var eta: float
+		if is_decaying:
+			# Decaying bodies' current orbit has periapsis well above the
+			# surface — only the spiral's final over-shoot burn drops r_p
+			# below ground. EarthOrbit.time_to_impact would short-circuit
+			# every intermediate cycle as INF, leaving the path-color
+			# gradient (and any other ETA-keyed UI) stuck on "no impact"
+			# right up to the kill tick. Sum Kepler tof across the same
+			# segments the renderer draws so the prediction tracks the
+			# actual time to ground contact.
+			eta = OrbitalPath.decaying_time_to_impact(orbit)
+		else:
+			eta = orbit.time_to_impact(
+				IMPACT_CACHE_HORIZON_SEC, IMPACT_CACHE_STEP_SEC
+			)
 		# eta == INF flows through as INF (current_sim_time + INF == INF),
 		# so non-impacting orbits don't need a separate branch.
 		impact_sim_time = current_sim_time + eta

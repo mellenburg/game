@@ -420,6 +420,79 @@ static func _next_surface_crossing(
 	return candidate
 
 
+## Predicted time-to-impact (seconds) for a decaying-orbit body that
+## walks the perigee-burn spiral the renderer already models. Sums
+## Kepler time-of-flight across each segment update_decaying_spiral
+## would draw, so the ETA accounts for every burn the body will perform
+## — not just the current orbit, which sits well above the surface
+## right up until the over-shoot cycle. Required so the path-color
+## gradient (and any other ETA-keyed UI) reflects "time until ground
+## contact", not "time until current orbit decays" (which is INF).
+## Returns INF if the segmenter couldn't resolve a final impact arc.
+static func decaying_time_to_impact(orbit: EarthOrbit) -> float:
+	if not orbit.is_state_valid():
+		return INF
+	var segs := _build_decaying_segments(orbit)
+	if segs.is_empty():
+		return INF
+	# The last segment must end at the surface; if the segmenter ran out
+	# of cycles without resolving an impact, treat the prediction as
+	# "beyond horizon" rather than understating the ETA with a partial
+	# walk.
+	var last: Dictionary = segs[-1]
+	var last_e: float = last["e"]
+	var last_p: float = last["p_slr"]
+	var r_at_end: float = last_p / (1.0 + last_e * cos(last["nu_end"]))
+	if absf(r_at_end - EarthOrbit.EARTH_RADIUS_KM) > 1.0:
+		return INF
+	var total := 0.0
+	for seg: Dictionary in segs:
+		var dt := _segment_tof_seconds(seg)
+		if not is_finite(dt) or dt < 0.0:
+			return INF
+		total += dt
+	return total
+
+
+# Time-of-flight (seconds) along an elliptical segment from nu_start to
+# nu_end via Kepler's equation. nu_end is expected ≥ nu_start; multi-
+# revolution sweeps (the full-period middle segments) are handled by
+# tracking the cycle count when unwrapping mean anomaly. Pure math so
+# the headless test suite can exercise it without a SceneTree.
+static func _segment_tof_seconds(seg: Dictionary) -> float:
+	var e: float = seg["e"]
+	var p: float = seg["p_slr"]
+	var nu_a: float = seg["nu_start"]
+	var nu_b: float = seg["nu_end"]
+	if not is_finite(e) or e < 0.0 or e >= 1.0 or p <= 0.0:
+		return INF
+	var a := p / (1.0 - e * e)
+	if a <= 0.0:
+		return INF
+	var n := sqrt(EarthOrbit.MU / (a * a * a))
+	if n <= 0.0:
+		return INF
+	var m_a := _mean_anomaly_unwrapped(nu_a, e)
+	var m_b := _mean_anomaly_unwrapped(nu_b, e)
+	return (m_b - m_a) / n
+
+
+# Mean anomaly that preserves the cycle count of `nu` rather than
+# wrapping into a single (-π, π] window — required so the time-of-
+# flight across a full-revolution segment integrates to a full period
+# instead of zero. Standard nu→E→M chain inside one cycle, plus a
+# TAU·k offset matching the source nu's turn count.
+static func _mean_anomaly_unwrapped(nu: float, e: float) -> float:
+	var cycles := floor((nu + PI) / TAU)
+	var nu_w := nu - cycles * TAU
+	var ecc_anom := 2.0 * atan2(
+		sqrt(1.0 - e) * sin(nu_w * 0.5),
+		sqrt(1.0 + e) * cos(nu_w * 0.5),
+	)
+	var m := ecc_anom - e * sin(ecc_anom)
+	return m + cycles * TAU
+
+
 func _clear_surfaces() -> void:
 	_array_mesh.clear_surfaces()
 
