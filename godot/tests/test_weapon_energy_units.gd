@@ -214,10 +214,14 @@ func test_target_coupling_default_returns_per_class_value() -> void:
 func test_satellite_tick_combat_charges_pool_in_joules() -> void:
 	# Pool fill rate is reactor_power_w joules/sec. One sim-sec of
 	# charge from the default 10 MW reactor adds 10 MJ; tick_combat
-	# with a large delta clamps at energy_max instead of overshooting.
+	# with a delta past full-refill clamps at energy_max instead of
+	# overshooting. Refill duration is derived from the live defaults
+	# so a future tweak to either constant doesn't silently leave the
+	# clamp branch unexercised.
 	var sat := Satellite.new()
 	sat.energy = 0.0
 	sat.tick_combat(1.0)
 	assert_close(sat.energy, Satellite.DEFAULT_REACTOR_POWER_W, 1.0)
-	sat.tick_combat(1000.0)  # would overshoot the pool; clamp holds.
+	var refill_sec: float = sat.energy_max / sat.reactor_power_w
+	sat.tick_combat(refill_sec * 2.0)  # would overshoot; clamp holds.
 	assert_close(sat.energy, sat.energy_max, 1.0)
