@@ -192,3 +192,88 @@ func test_spiral_segments_nest_inward() -> void:
 		assert_true(r_a <= prev_r_a + 1.0e-3,
 			"segment %d r_a=%f exceeded previous %f" % [i, r_a, prev_r_a])
 		prev_r_a = r_a
+
+
+func test_decaying_eta_is_finite() -> void:
+	# The whole point of the spiral-aware predictor: a decaying body that
+	# the segmenter resolves to ground impact must report a finite ETA,
+	# not INF. EarthOrbit.time_to_impact alone would return INF here
+	# because the current orbit's r_p sits 500 km above the surface.
+	var o := _make_decaying()
+	var eta := OrbitalPath.decaying_time_to_impact(o)
+	assert_finite(eta)
+	assert_true(eta > 0.0, "expected positive ETA, got %f" % eta)
+
+
+func test_decaying_eta_exceeds_initial_period() -> void:
+	# Default decaying orbit takes 5 segments (initial inbound + 3 full
+	# revs + final). The three middle segments are full revolutions of
+	# successively smaller (faster) orbits, so the total ETA must comfort-
+	# ably exceed the period of the very first orbit alone.
+	var o := _make_decaying()
+	var eta := OrbitalPath.decaying_time_to_impact(o)
+	assert_true(eta > o.period,
+		"expected eta=%f > initial period=%f" % [eta, o.period])
+
+
+func test_decaying_eta_shrinks_after_perigee_burn() -> void:
+	# A perigee burn collapses one full-revolution segment off the spiral,
+	# so the spiral-aware ETA must drop monotonically with each burn.
+	# This is what makes the path-color gradient ramp red as the body
+	# closes on impact.
+	var o := _make_decaying()
+	var eta_before := OrbitalPath.decaying_time_to_impact(o)
+	assert_true(_step_to_perigee(o, 20.0))
+	var k := sqrt((o.r_p + o.r_a) / (2.0 * o.r_p + o.r_a))
+	assert_true(o.maneuver(o.v * (k - 1.0), 0.0))
+	var eta_after := OrbitalPath.decaying_time_to_impact(o)
+	assert_finite(eta_after)
+	assert_true(eta_after < eta_before,
+		"expected post-burn eta=%f < pre-burn eta=%f" % [eta_after, eta_before])
+
+
+func test_decaying_eta_matches_brute_force_propagation() -> void:
+	# Cross-check the segment-walk ETA against a brute-force replay that
+	# propagates the orbit forward in small steps and fires a burn at
+	# every detected perigee crossing — same dynamics Satellite.advance_
+	# time runs at simulation time. The two answers won't agree exactly:
+	# each brute-force burn fires up to one step past true perigee with
+	# a small residual radial velocity, scaling non-tangentially and
+	# shifting the resulting orbit's geometry slightly. Across 4 burns
+	# the drift compounds to ~1% of the total ETA. The Kepler sum
+	# remains the right model for the path-color gradient — it tells
+	# the operator "roughly when this thing impacts" — and the test
+	# guards against gross errors (wrong segment count, missed cycle,
+	# integration sign flip) rather than millisecond agreement.
+	var o := _make_decaying()
+	var eta_pred := OrbitalPath.decaying_time_to_impact(o)
+	assert_finite(eta_pred)
+	var sim := EarthOrbit.new(o.r, o.v)
+	var dt := 1.0
+	var elapsed := 0.0
+	var horizon := eta_pred + 2.0 * o.period
+	while elapsed < horizon:
+		var rdv_before: float = sim.r.dot(sim.v)
+		if not sim.propagate(dt):
+			fail("brute-force propagation failed at t=%f" % elapsed)
+			return
+		elapsed += dt
+		if rdv_before < 0.0 and sim.r.dot(sim.v) > 0.0:
+			var k := sqrt((sim.r_p + sim.r_a) / (2.0 * sim.r_p + sim.r_a))
+			if not sim.maneuver(sim.v * (k - 1.0), 0.0):
+				fail("brute-force perigee burn failed at t=%f" % elapsed)
+				return
+		if sim.norm_r <= EarthOrbit.EARTH_RADIUS_KM:
+			break
+		var crossed := rdv_before < 0.0 and sim.r.dot(sim.v) > 0.0
+		var sub_surface := (
+			is_finite(sim.r_p) and sim.r_p <= EarthOrbit.EARTH_RADIUS_KM
+		)
+		if crossed and sub_surface:
+			break
+	# 2% relative tolerance (with a 60 s floor for short ETAs) covers
+	# the compounded geometric drift across the spiral's perigee burns
+	# — the agreement is "same trajectory, ~1% wall-clock skew", which
+	# is well inside what the gradient color needs.
+	var tol: float = maxf(60.0, eta_pred * 0.02)
+	assert_close(eta_pred, elapsed, tol)
