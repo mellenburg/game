@@ -8,7 +8,9 @@ extends "res://tests/framework.gd"
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
-const EARTH_RADIUS_KM: float = EarthOrbit.EARTH_RADIUS_KM
+# EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable static var (per-
+# mission body), so a const can't read it. Tests run on Earth defaults.
+const EARTH_RADIUS_KM: float = 6371.0
 # Pool seed for tests that just need "enough energy to fire a shot"
 # — a single railgun shot draws ~13.3 GJ from the bus, so the fake's
 # pool has to comfortably exceed that. 40 GJ leaves headroom for ~3

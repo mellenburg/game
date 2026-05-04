@@ -518,19 +518,13 @@ func _refresh_stage_brief() -> void:
 
 
 # Build the body-vitals BBCode block for the selected stage's brief.
-# Always includes Earth as a reference frame; if the stage's body is
-# also Earth, only the one block renders. Mass uses scientific notation
-# because the absolute kg figures span 24 orders of magnitude across
-# the system; surface gravity is normalised to Earth g₀ since that's
-# the unit operators read intuitively (a 0.38 g world tells you more
-# than 3.71 m/s²).
+# Renders only the stage's own body — the Mars brief shouldn't be
+# carrying an Earth-reference row, the operator selected Mars and the
+# brief should describe Mars. Surface gravity is normalised to Earth
+# g₀ regardless; that's the unit the operator reads intuitively (0.38 g
+# tells you more than 3.71 m/s²).
 func _stage_vitals_text(stage_id: String) -> String:
-	var body := CelestialBody.for_stage(stage_id)
-	var lines: Array[String] = []
-	lines.append(_body_vitals_block(body))
-	if body.id != CelestialBody.ID_EARTH:
-		lines.append(_body_vitals_block(CelestialBody.make_earth()))
-	return "\n".join(lines)
+	return _body_vitals_block(CelestialBody.for_stage(stage_id))
 
 
 func _body_vitals_block(body: CelestialBody) -> String:
