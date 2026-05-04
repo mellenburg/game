@@ -83,9 +83,16 @@ const HEAT_PER_SHOT_J: float = ENERGY_PER_SHOT_J * HEAT_FRACTION
 # capacity to fire one shot."
 const HEAT_CAPACITY_J: float = HEAT_PER_SHOT_J
 # Hard floor on the shooter's post-recoil periapsis: 100 km clearance
-# above Earth's surface, per the design spec. Lives on the weapon (the
-# code that consumes it) so the safety predicate is self-contained.
-const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 100.0
+# above the active body's surface, per the design spec. Lives on the
+# weapon (the code that consumes it) so the safety predicate is
+# self-contained. Surfaces as a function rather than a constant
+# because EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable static var
+# now (different missions run on different bodies); a `const` would
+# refuse to compile against a non-constant initialiser.
+const SAFE_PERIAPSIS_CLEARANCE_KM: float = 100.0
+
+static func safe_periapsis_km() -> float:
+	return EarthOrbit.EARTH_RADIUS_KM + SAFE_PERIAPSIS_CLEARANCE_KM
 
 # Damage tier multiplier — see laser_weapon.gd for the rationale.
 # Cooldown is now sourced from the satellite's cooling_power_w; advanced
@@ -200,7 +207,7 @@ static func is_shot_safe_for_attacker(attacker, target) -> bool:
 	if r_a > attacker.max_orbital_radius_km:
 		return false
 	var r_p: float = EarthOrbit.compute_periapsis(attacker.orbit.r, new_v)
-	if r_p < SAFE_PERIAPSIS_KM:
+	if r_p < safe_periapsis_km():
 		return false
 	return true
 

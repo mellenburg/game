@@ -21,11 +21,16 @@ extends Camera3D
 ## around Earth when left alone. All rates use wall-clock delta — sim
 ## time_factor must not influence camera motion.
 
-const EARTH_RADIUS_KM: float = 6371.0
+const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+
+# Camera radius bands are pegged to Earth-scale so the camera distance
+# feels consistent regardless of the active body — a Mars stage doesn't
+# halve the camera's standoff just because Mars is half Earth's radius.
+const REFERENCE_RADIUS_KM: float = 6371.0
 const SCENE_SCALE: float = 1.0 / 1000.0
-const DEFAULT_ORBIT_RADIUS: float = 7.8 * EARTH_RADIUS_KM * SCENE_SCALE
-const MIN_ORBIT_RADIUS: float = 1.5 * EARTH_RADIUS_KM * SCENE_SCALE
-const MAX_ORBIT_RADIUS: float = 18.0 * EARTH_RADIUS_KM * SCENE_SCALE
+const DEFAULT_ORBIT_RADIUS: float = 7.8 * REFERENCE_RADIUS_KM * SCENE_SCALE
+const MIN_ORBIT_RADIUS: float = 1.5 * REFERENCE_RADIUS_KM * SCENE_SCALE
+const MAX_ORBIT_RADIUS: float = 18.0 * REFERENCE_RADIUS_KM * SCENE_SCALE
 const ORBIT_TILT_DEG: float = 20.0
 
 const AUTO_ORBIT_RATE: float = TAU / 90.0  # rad/s, slow ambient drift

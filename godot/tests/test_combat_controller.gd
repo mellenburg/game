@@ -18,7 +18,10 @@ const Satellite = preload("res://scripts/satellite.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
-const EARTH_RADIUS_KM: float = EarthOrbit.EARTH_RADIUS_KM
+# EarthOrbit.EARTH_RADIUS_KM is now a runtime-mutable static var (each
+# mission may set its own body's radius), so a const initialiser can't
+# read it. The tests run on the Earth defaults; pin the literal here.
+const EARTH_RADIUS_KM: float = 6371.0
 # Energy budget large enough to cover several railgun shots (one shot
 # is ~1.3e10 J at the current wall-plug efficiency).
 const STARTING_ENERGY_J: float = 1.0e11

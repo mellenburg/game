@@ -57,12 +57,17 @@ const METEORITE_RADIAL_SPEED_MIN: float = 4.0
 const METEORITE_RADIAL_SPEED_MAX: float = 7.0
 const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.4
 const METEORITE_TANGENTIAL_SPEED_MAX: float = 1.6
-# Margin: target r_p strictly less than EARTH_RADIUS so impact is
-# unambiguous under propagator step-size (the surface-cross termination
-# samples r at step boundaries and via the perihelion-cross detector).
-const METEORITE_PERIAPSIS_TARGET_KM: float = (
-	EarthOrbit.EARTH_RADIUS_KM * 0.9
-)
+# Target periapsis (km) for clamped meteorite trajectories: 90% of the
+# active body's surface radius. Strictly less than the surface so the
+# surface-cross termination is unambiguous under propagator step-size
+# (it samples r at step boundaries and via the perihelion-cross detector).
+# Surfaces as a function because EarthOrbit.EARTH_RADIUS_KM is now a
+# runtime-mutable static var (per-mission body) — a `const` would
+# refuse to compile against a non-constant initialiser.
+const METEORITE_PERIAPSIS_TARGET_FRACTION: float = 0.9
+
+static func meteorite_periapsis_target_km() -> float:
+	return EarthOrbit.EARTH_RADIUS_KM * METEORITE_PERIAPSIS_TARGET_FRACTION
 # Cluster scatter relative to the storm's nominal entry point. Thousands
 # of km of lateral offset + altitude jitter so the three trajectory
 # lines fan out clearly on screen rather than overlapping; per-axis
@@ -842,7 +847,7 @@ func _make_meteorite(
 	)
 	var vel := base_velocity + vel_jitter
 	vel = EarthOrbit.clamp_velocity_for_periapsis(
-		pos, vel, METEORITE_PERIAPSIS_TARGET_KM
+		pos, vel, meteorite_periapsis_target_km()
 	)
 	sat.orbit = EarthOrbit.new(pos, vel)
 	return sat

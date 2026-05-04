@@ -1,23 +1,30 @@
 class_name Earth
 extends MeshInstance3D
-## Rotating Earth globe. Loads textures via Godot's import pipeline
-## (compressed, mipmapped, GPU-resident) instead of decoding 4K JPEGs at
-## runtime — that alone consumed ~200 MB of VRAM in the previous port.
+## Rotating planet globe. Originally Earth-only; now drives whichever
+## body the player picked on the Campaign tab. The class name is
+## retained for the rest of the codebase (which references `$Earth`),
+## but the radius, sidereal day, axial tilt, and texture set all come
+## from the active CelestialBody record — adding a new body needs no
+## changes to this script.
+##
+## All bodies feed planet.gdshader. The texture binder iterates the
+## body's albedo / night / normal / clouds paths; any path the body
+## leaves blank gets a 1×1 black placeholder so the corresponding
+## branch in the shared shader (city lights, cloud overlay) collapses
+## to no contribution.
 
-const EARTH_RADIUS_KM: float = 6371.0
+const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
+
+# Scene-units-per-km. Sun.gd reads this to convert km offsets into the
+# scene's display scale, so it stays public.
 const SCENE_SCALE: float = 1.0 / 1000.0
-const VISUAL_RADIUS: float = EARTH_RADIUS_KM * SCENE_SCALE  # ~6.371 units
-
-# Sidereal day in seconds.
-const SIDEREAL_DAY_SECONDS: float = 86164.0
-
-@export var albedo_path: String = "res://resources/3D/earth/4096_earth.jpg"
-@export var night_path: String = "res://resources/3D/earth/4096_night_lights.jpg"
-@export var normal_path: String = "res://resources/3D/earth/4096_normal.jpg"
-@export var clouds_path: String = "res://resources/3D/earth/4096_clouds.jpg"
 
 var earth_phase: float = 0.0
 var rotation_rate: float
+# Active body. Resolved in _ready from the menu's stage selection;
+# defaults to Earth when no PlayerLoadout autoload is reachable.
+var body: CelestialBody
 
 # SphereMesh's poles sit on local Y, but the world is Z-up (the
 # orbital-mechanics convention used throughout the project). This basis
@@ -25,26 +32,29 @@ var rotation_rate: float
 # then composed on top of it.
 const POLE_ALIGN := Basis(Vector3(1.0, 0.0, 0.0), PI / 2.0)
 
-# Earth's axial tilt (obliquity of the ecliptic): 23.5° away from the
-# world Z axis. Applied last so the daily spin happens about the tilted
-# pole, while the sun direction (a shader uniform) stays unchanged —
-# the asymmetric illumination this produces is the seasonal effect.
-const AXIAL_TILT_RAD: float = 23.5 * PI / 180.0
-const AXIAL_TILT := Basis(Vector3(1.0, 0.0, 0.0), AXIAL_TILT_RAD)
-
 
 func _ready() -> void:
-	rotation_rate = TAU / SIDEREAL_DAY_SECONDS
+	body = CelestialBody.active(get_tree())
+	rotation_rate = TAU / body.sidereal_day_s
 
+	var visual_radius := body.radius_km * SCENE_SCALE
 	var sphere := SphereMesh.new()
-	sphere.radius = VISUAL_RADIUS
-	sphere.height = VISUAL_RADIUS * 2.0
+	sphere.radius = visual_radius
+	sphere.height = visual_radius * 2.0
 	sphere.radial_segments = 64
 	sphere.rings = 32
 	mesh = sphere
 
-	transform.basis = AXIAL_TILT * POLE_ALIGN
+	transform.basis = _axial_tilt_basis() * POLE_ALIGN
 	_setup_material()
+
+
+func _axial_tilt_basis() -> Basis:
+	# Compose tilt about the world X axis the same way the original
+	# Earth code did — only the magnitude changes per body. Applied
+	# last so the daily spin happens about the tilted pole, while the
+	# sun direction (a shader uniform) stays unchanged.
+	return Basis(Vector3(1.0, 0.0, 0.0), body.axial_tilt_rad)
 
 
 func _setup_material() -> void:
@@ -53,43 +63,56 @@ func _setup_material() -> void:
 		# Fall back to a plain unshaded material if the shader is missing
 		# (e.g. running headless tests without resources imported).
 		var fallback := StandardMaterial3D.new()
-		fallback.albedo_color = Color(0.2, 0.4, 0.8)
+		fallback.albedo_color = body.fallback_color
 		material_override = fallback
 		return
 
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
-
-	var albedo := _load_texture(albedo_path)
-	var night := _load_texture(night_path)
-	var normal_map := _load_texture(normal_path)
-	var clouds := _load_texture(clouds_path)
-
-	if albedo:
-		mat.set_shader_parameter("albedo_texture", albedo)
-	if night:
-		mat.set_shader_parameter("night_texture", night)
-	if normal_map:
-		mat.set_shader_parameter("normal_texture", normal_map)
-	if clouds:
-		mat.set_shader_parameter("clouds_texture", clouds)
+	_bind_planet_textures(mat)
 	mat.set_shader_parameter("sun_direction", Vector3(1.0, 0.0, 0.0))
-
 	material_override = mat
 
 
-func _load_texture(path: String) -> Texture2D:
-	if not ResourceLoader.exists(path):
-		push_warning("Texture not found: %s" % path)
-		return null
-	return load(path) as Texture2D
+# Walk the body's four texture paths and bind each to the matching
+# shader sampler. An empty string means "this body has no such map";
+# we substitute a 1×1 black placeholder so the shader's corresponding
+# branch contributes nothing (no city lights on Mars, no cloud band on
+# bodies without an atmosphere). Adding a new body therefore requires
+# zero changes to this method — it just reads what the body record
+# provides.
+func _bind_planet_textures(mat: ShaderMaterial) -> void:
+	var slots := [
+		["albedo_texture", body.albedo_path],
+		["night_texture", body.night_path],
+		["normal_texture", body.normal_path],
+		["clouds_texture", body.clouds_path],
+	]
+	var black: ImageTexture = null
+	for slot in slots:
+		var sampler: String = slot[0]
+		var path: String = slot[1]
+		var tex: Texture2D = null
+		if path != "" and ResourceLoader.exists(path):
+			tex = load(path) as Texture2D
+		if tex == null:
+			if black == null:
+				black = _make_solid_texture(Color(0.0, 0.0, 0.0))
+			tex = black
+		mat.set_shader_parameter(sampler, tex)
+
+
+func _make_solid_texture(color: Color) -> ImageTexture:
+	var img := Image.create(1, 1, false, Image.FORMAT_RGB8)
+	img.set_pixel(0, 0, color)
+	return ImageTexture.create_from_image(img)
 
 
 func advance_phase(sim_delta: float) -> void:
 	earth_phase = fposmod(earth_phase + rotation_rate * sim_delta, TAU)
 	# Composition order (right-to-left): align mesh poles to local Z,
-	# spin daily about that local Z, then tilt the whole thing 23.5° so
-	# the spin axis tilts away from world Z but the sun direction
-	# (world frame) is untouched.
+	# spin daily about that local Z, then tilt the whole thing by the
+	# body's obliquity so the spin axis tilts away from world Z but
+	# the sun direction (world frame) is untouched.
 	var daily := Basis(Vector3(0.0, 0.0, 1.0), earth_phase)
-	transform.basis = AXIAL_TILT * daily * POLE_ALIGN
+	transform.basis = _axial_tilt_basis() * daily * POLE_ALIGN

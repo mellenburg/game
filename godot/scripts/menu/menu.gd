@@ -31,6 +31,7 @@ const Satellite = preload("res://scripts/satellite.gd")
 const ResearchGraph = preload("res://scripts/menu/research_graph.gd")
 const ReconEditor = preload("res://scripts/menu/recon_editor.gd")
 const SystemMap = preload("res://scripts/menu/system_map.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
 
 const STAGE_SCENE_PATH := "res://scenes/main.tscn"
 
@@ -68,6 +69,7 @@ var _stage_list: ItemList
 var _system_map: SystemMap
 var _stage_brief_title: Label
 var _stage_brief_meta: Label
+var _stage_brief_vitals: RichTextLabel
 var _stage_brief_summary: Label
 var _launch_button: Button
 
@@ -122,6 +124,16 @@ func _ready() -> void:
 	# selection are preserved (operator probably wants to retry the
 	# same setup).
 	PlayerLoadout.launched = false
+
+	# Sync the static EarthOrbit physics constants to the menu's
+	# selection so the orbit-preview's planet radius / altitude lines
+	# match the body the operator is actually configuring for. Returning
+	# to the menu after a Mars run leaves EarthOrbit.EARTH_RADIUS_KM at
+	# Mars's value; without this re-apply, an Earth selection here would
+	# preview against the wrong surface.
+	CelestialBody.for_stage(
+		String(PlayerLoadout.selected_stage_id)
+	).apply_to_propagator()
 
 	# The menu is a pure pointer-driven UI. The in-game camera leaves
 	# the mouse captured, and a scene change doesn't reset Input state,
@@ -377,6 +389,19 @@ func _build_campaign_tab() -> Control:
 	_stage_brief_meta.add_theme_font_size_override("font_size", 11)
 	brief_text.add_child(_stage_brief_meta)
 
+	# Body almanac block — radius, mass, and surface gravity (in Earth
+	# g) for the selected stage's primary body, plus the same trio for
+	# Earth as a reference frame. The brief summary that follows reads
+	# as flavour prose; this block is the "what's the actual physics
+	# of the stage" readout the operator wants before launch.
+	_stage_brief_vitals = RichTextLabel.new()
+	_stage_brief_vitals.bbcode_enabled = true
+	_stage_brief_vitals.fit_content = true
+	_stage_brief_vitals.scroll_active = false
+	_stage_brief_vitals.add_theme_color_override("default_color", COLOR_FG)
+	_stage_brief_vitals.add_theme_font_size_override("normal_font_size", 12)
+	brief_text.add_child(_stage_brief_vitals)
+
 	brief_text.add_child(_hr())
 
 	_stage_brief_summary = Label.new()
@@ -424,6 +449,15 @@ func _on_stage_selected(idx: int) -> void:
 	if not bool(stage.get("playable", false)):
 		return
 	PlayerLoadout.selected_stage_id = String(stage.get("id", ""))
+	# Reapply the body's physics so the orbit preview / launch panels
+	# update against Mars's smaller radius (or Earth's, switching back).
+	CelestialBody.for_stage(
+		PlayerLoadout.selected_stage_id
+	).apply_to_propagator()
+	# Surface Ops basemap follows the stage selection — refresh now so
+	# tabbing in already shows the right planet's surface.
+	if _surface_placement != null:
+		_surface_placement.refresh()
 	_refresh_stage_brief()
 
 
@@ -433,6 +467,9 @@ func _on_stage_selected(idx: int) -> void:
 # of state the map can't reach on its own.
 func _on_system_map_body_selected(stage_id: String) -> void:
 	PlayerLoadout.selected_stage_id = stage_id
+	CelestialBody.for_stage(stage_id).apply_to_propagator()
+	if _surface_placement != null:
+		_surface_placement.refresh()
 	for i in range(PlayerLoadout.STAGES.size()):
 		var stage: Dictionary = PlayerLoadout.STAGES[i]
 		if String(stage.get("id", "")) == stage_id:
@@ -446,6 +483,7 @@ func _refresh_stage_brief() -> void:
 	if stage.is_empty():
 		_stage_brief_title.text = "(no stage selected)"
 		_stage_brief_meta.text = ""
+		_stage_brief_vitals.text = ""
 		_stage_brief_summary.text = ""
 	else:
 		_stage_brief_title.text = String(stage.get("name", ""))
@@ -457,6 +495,9 @@ func _refresh_stage_brief() -> void:
 		if waves > 0:
 			meta += " · %d waves" % waves
 		_stage_brief_meta.text = meta
+		_stage_brief_vitals.text = _stage_vitals_text(
+			String(stage.get("id", ""))
+		)
 		_stage_brief_summary.text = String(stage.get("summary", ""))
 	if _system_map != null:
 		_system_map.refresh()
@@ -480,6 +521,52 @@ func _refresh_stage_brief() -> void:
 	else:
 		_launch_button.text = "LAUNCH ▶"
 		_launch_button.add_theme_color_override("font_color", COLOR_ACCENT)
+
+
+# Build the body-vitals BBCode block for the selected stage's brief.
+# Renders only the stage's own body — the Mars brief shouldn't be
+# carrying an Earth-reference row, the operator selected Mars and the
+# brief should describe Mars. Surface gravity is normalised to Earth
+# g₀ regardless; that's the unit the operator reads intuitively (0.38 g
+# tells you more than 3.71 m/s²).
+func _stage_vitals_text(stage_id: String) -> String:
+	return _body_vitals_block(CelestialBody.for_stage(stage_id))
+
+
+func _body_vitals_block(body: CelestialBody) -> String:
+	# Use a '·' separator for inline cells; BBCode wraps the body name
+	# as the row's prefix so the eye lands on the planet first. Mass is
+	# formatted in scientific notation by hand (GDScript's % formatter
+	# only supports %f among floats — %g / %e aren't in the list per
+	# CLAUDE.md's gotchas).
+	var radius_str := "%.1f km" % body.radius_km
+	var mass_str := "%s kg" % _format_scientific(body.mass_kg)
+	var gravity_str := "%.3f g" % body.surface_gravity_g
+	return (
+		"[b]%s[/b] · radius %s · mass %s · gravity %s"
+		% [body.display_name, radius_str, mass_str, gravity_str]
+	)
+
+
+# Render `value` as `m.dddE±e`. Stand-in for %e / %g, which GDScript's
+# format operator doesn't expose (CLAUDE.md's gotchas list — only
+# %s %c %d %o %x %X %f %v are supported). Three-digit mantissa is
+# enough headroom to disambiguate planetary masses (Earth 5.972e24
+# vs Mars 6.417e23) without crowding the brief row.
+func _format_scientific(value: float) -> String:
+	if value == 0.0:
+		return "0.000E+0"
+	var sign_str := "-" if value < 0.0 else ""
+	var v: float = absf(value)
+	var exponent: int = int(floor(log(v) / log(10.0)))
+	var mantissa: float = v / pow(10.0, float(exponent))
+	# Edge case: rounding pushes mantissa to ≥ 10 (e.g. 9.9995 → 10.000
+	# at 3 digits). Renormalise so the exponent absorbs the carry.
+	if round(mantissa * 1000.0) >= 10000.0:
+		mantissa /= 10.0
+		exponent += 1
+	var sign_e: String = "+" if exponent >= 0 else "-"
+	return "%s%.3fE%s%d" % [sign_str, mantissa, sign_e, absi(exponent)]
 
 
 func _on_launch_pressed() -> void:

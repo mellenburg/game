@@ -1,11 +1,16 @@
 class_name ImpactMap
 extends Control
 ## Mercator-projected world map overlay with markers at every recorded
-## meteorite impact. The map background is the same 4096_earth.jpg the
-## globe uses, reprojected to Web Mercator on the GPU by a small
-## canvas-item shader; that avoids a CPU resample on startup and keeps
-## the rendering side compatible with the project's GL Compatibility
-## constraint.
+## meteorite impact. The map background is the same equirectangular
+## texture the globe uses, reprojected to Web Mercator on the GPU by
+## a small canvas-item shader; that avoids a CPU resample on startup
+## and keeps the rendering side compatible with the project's GL
+## Compatibility constraint.
+##
+## The active body's texture is picked off CelestialBody at _ready —
+## Earth missions get the day-side JPEG, Mars missions get the NASA
+## PIA02066 cylindrical mosaic. The Mercator reprojection is
+## body-agnostic; only the source texture and the panel title differ.
 ##
 ## The map node is a TextureRect child sized at MAP_SIZE. Markers are
 ## drawn by an inner _MarkerLayer Control added AFTER the map, so
@@ -14,6 +19,7 @@ extends Control
 
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const Satellite = preload("res://scripts/satellite.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
 
 # Inner Control that draws the impact markers and grid. Lives as a
 # child of ImpactMap, added AFTER the map TextureRect so Godot's
@@ -175,6 +181,7 @@ var _map_rect: TextureRect
 var _title: Label
 var _readout: RichTextLabel
 var _marker_layer: _MarkerLayer
+var _body: CelestialBody
 
 
 func _ready() -> void:
@@ -194,8 +201,9 @@ func _ready() -> void:
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_panel)
 
+	_body = _resolve_body()
 	_title = Label.new()
-	_title.text = "Meteorite impacts"
+	_title.text = "%s surface impacts" % _body.display_name
 	_title.add_theme_font_size_override("font_size", 12)
 	_title.add_theme_color_override("font_color", TITLE_COLOR)
 	_title.position = Vector2(PAD_LEFT, 4.0)
@@ -209,7 +217,7 @@ func _ready() -> void:
 	_map_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_map_rect.stretch_mode = TextureRect.STRETCH_SCALE
 	_map_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_install_map_material(_map_rect)
+	_install_map_material(_map_rect, _body)
 	add_child(_map_rect)
 
 	_readout = RichTextLabel.new()
@@ -237,22 +245,18 @@ func _ready() -> void:
 
 
 # Wire the Mercator reprojection shader onto the map rect, with the
-# equirectangular Earth texture as input. Falls back to a plain
-# TextureRect (still equirectangular) if either resource is missing
-# — the markers remain meaningful because their position math is
-# driven by lat/lon, which we re-project below.
-func _install_map_material(rect: TextureRect) -> void:
-	var tex: Texture2D = null
-	if ResourceLoader.exists("res://resources/3D/earth/4096_earth.jpg"):
-		tex = load("res://resources/3D/earth/4096_earth.jpg") as Texture2D
+# active body's equirectangular albedo as input. Falls back to a solid-
+# colour TextureRect tinted by `body.fallback_color` if the asset is
+# missing — the markers remain meaningful because their position math
+# is driven by lat/lon, which we re-project below.
+func _install_map_material(rect: TextureRect, body: CelestialBody) -> void:
+	var tex := body.load_albedo_texture()
 	if tex != null:
 		rect.texture = tex
 	else:
-		# Render-time fallback so the panel still has a backdrop. Plain
-		# blue-gray placeholder; markers still draw correctly on top.
 		var img := Image.create(2, 1, false, Image.FORMAT_RGB8)
-		img.set_pixel(0, 0, Color(0.10, 0.18, 0.30))
-		img.set_pixel(1, 0, Color(0.10, 0.18, 0.30))
+		img.set_pixel(0, 0, body.fallback_color)
+		img.set_pixel(1, 0, body.fallback_color)
 		rect.texture = ImageTexture.create_from_image(img)
 		return
 
@@ -264,6 +268,10 @@ func _install_map_material(rect: TextureRect) -> void:
 	mat.set_shader_parameter("source", tex)
 	mat.set_shader_parameter("lat_clamp_deg", LAT_CLAMP_DEG)
 	rect.material = mat
+
+
+func _resolve_body() -> CelestialBody:
+	return CelestialBody.active(get_tree())
 
 
 func _process(_delta: float) -> void:
@@ -284,7 +292,14 @@ func _update_readout() -> void:
 	var latest: Dictionary = tracker.impacts[tracker.impacts.size() - 1]
 	var lat: float = latest["lat"]
 	var lon: float = latest["lon"]
-	var region: String = latest["region"]
+	# ImpactTracker.classify_region keys off Earth's bounding-box table,
+	# so Mars impacts come back tagged with Earth region names. Skip
+	# the region row on non-Earth bodies and use the body's own name as
+	# a generic location label rather than mislead the operator.
+	var region: String = (
+		String(latest["region"]) if _body.id == CelestialBody.ID_EARTH
+		else "%s surface" % _body.display_name
+	)
 	_readout.text = (
 		"[font_size=11][color=#9aa9b8]Latest: [color=#ffd27a]"
 		+ region

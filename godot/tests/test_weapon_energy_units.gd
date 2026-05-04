@@ -16,7 +16,9 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
-const EARTH_RADIUS_KM: float = EarthOrbit.EARTH_RADIUS_KM
+# EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable static var (per-
+# mission body), so a const can't read it. Tests run on Earth defaults.
+const EARTH_RADIUS_KM: float = 6371.0
 
 
 # Same fake-satellite shape the railgun test uses. Energy starts at a

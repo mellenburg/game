@@ -4,8 +4,14 @@ extends RefCounted
 ## Newton-Raphson iteration on the Kepler equation. Pure RefCounted so
 ## it can be unit-tested headlessly without a SceneTree.
 
-const MU: float = 398600.4415       # Earth gravitational parameter (km^3/s^2)
-const EARTH_RADIUS_KM: float = 6371.0
+# MU and EARTH_RADIUS_KM start at Earth defaults but are mission-mutable
+# `static var`s so the same propagator can run against Mars (or any other
+# body) without forking. EarthSystem rewrites them at scene boot from the
+# selected stage's body record; tests never touch them and observe the
+# Earth defaults. Class name retained as `EarthOrbit` for compatibility
+# with the existing call sites.
+static var MU: float = 398600.4415       # Earth gravitational parameter (km^3/s^2)
+static var EARTH_RADIUS_KM: float = 6371.0
 const NUM_ITER: int = 50
 const RTOL: float = 1.0e-10
 # Cap how long a single propagate() step is allowed to be. Larger steps are

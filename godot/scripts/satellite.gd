@@ -121,10 +121,16 @@ const DEFAULT_THRUST_N: float = 20000.0
 # game-balance number; players can tune it in flight.
 const DEFAULT_MAX_ORBITAL_RADIUS_KM: float = 50000.0
 # Player thrust is clamped each tick so the resulting orbit's periapsis
-# stays at or above this radius. Sits a hair above EARTH_RADIUS_KM so
-# floating-point slop in the propagator can't tip the body across the
-# surface termination check.
-const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 1.0
+# stays at or above (active body radius + this clearance). 1 km of slack
+# above the surface keeps floating-point slop in the propagator from
+# tipping the body across the surface termination check. Surfaces as a
+# function because EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable
+# static var (per-mission body) — a `const` would refuse to compile
+# against a non-constant initialiser.
+const SAFE_PERIAPSIS_CLEARANCE_KM: float = 1.0
+
+static func safe_periapsis_km() -> float:
+	return EarthOrbit.EARTH_RADIUS_KM + SAFE_PERIAPSIS_CLEARANCE_KM
 # The damage scale (MJ_PER_HP / J_PER_HP) lives on Weapon — Satellite
 # preloads each weapon class for its default loadout, so the constants
 # can't sit here without creating a circular preload. Read them via
@@ -273,7 +279,7 @@ var targeting_mode: int = LaserWeapon.TARGETING_MAX_DAMAGE
 # Operator-set cap on the shooter's post-recoil apoapsis (km). The
 # railgun's pre-fire safety check refuses any shot whose recoil would
 # push apoapsis past this radius; floor is hard-coded at
-# RailgunWeapon.SAFE_PERIAPSIS_KM (no slider) to keep the post-shot
+# RailgunWeapon.safe_periapsis_km() (no slider) to keep the post-shot
 # orbit above the upper atmosphere. Adjusted in-flight via
 # Shift+Left/Right.
 var max_orbital_radius_km: float = DEFAULT_MAX_ORBITAL_RADIUS_KM
@@ -491,7 +497,7 @@ func set_engagement_range(km: float) -> void:
 ## refused fire if any individual shot would put it on an escape
 ## trajectory regardless of where this slider sits.
 func set_max_orbital_radius(km: float) -> void:
-	max_orbital_radius_km = maxf(km, RailgunWeapon.SAFE_PERIAPSIS_KM)
+	max_orbital_radius_km = maxf(km, RailgunWeapon.safe_periapsis_km())
 
 
 ## Flip the railgun-enabled gate. Like toggle_fire_control this is
@@ -632,7 +638,7 @@ func advance_time(delta_time: float) -> void:
 				)
 				propellant_kg = maxf(propellant_kg - burned, 0.0)
 				recompute_mass()
-		ok = orbit.relative_maneuver(applied, delta_time, SAFE_PERIAPSIS_KM)
+		ok = orbit.relative_maneuver(applied, delta_time, safe_periapsis_km())
 	else:
 		# Free propagation leaves the orbit shape (and therefore the
 		# absolute impact time) unchanged, so the cache stays valid

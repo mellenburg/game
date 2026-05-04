@@ -25,6 +25,7 @@ const RangeCircle = preload("res://scripts/range_circle.gd")
 const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
 const Mission = preload("res://scripts/mission.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
 const EndGameOverlay = preload("res://scripts/end_game_overlay.gd")
 const ReconSettings = preload("res://scripts/recon_settings.gd")
 const WaveUnitClass = preload("res://scripts/wave_unit_class.gd")
@@ -166,6 +167,13 @@ var satellites: Array[Satellite]:
 
 
 func _ready() -> void:
+	# Apply the active body's μ and surface radius before anything
+	# else looks at orbital state. SpawnDirector and the satellites it
+	# materialises read EarthOrbit.MU / EARTH_RADIUS_KM eagerly at spawn
+	# time, so a deferred apply would leave the very first fleet sitting
+	# on Earth physics inside a Mars stage.
+	CelestialBody.active(get_tree()).apply_to_propagator()
+
 	_albedo_image = _load_albedo_image()
 	if impact_map != null:
 		impact_map.tracker = impact_tracker
