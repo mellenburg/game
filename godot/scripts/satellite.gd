@@ -314,16 +314,15 @@ var _flash_until: float = 0.0
 var _marker: MeshInstance3D
 var _marker_mat: StandardMaterial3D
 var path_visual: OrbitalPath
-# Spawn-baked path tint (RGB) and opacity. The orbit ribbon's color is
-# frozen at the body's first render — see render_orbit's lazy-bake —
-# and never recomputed as sim_time advances; the dynamic ETA-driven
-# gradient lives in the HUD box layer instead. Storing these on the
-# satellite (rather than reading them back off the material) lets
-# selection toggles flip to COLOR_SELECTED and back without losing
-# the original tint, and lets clone_from copy the bake to a planning
-# clone instead of re-rolling it from a different sim_time.
+# Path tint (RGB) and opacity. Player paths are a constant COLOR_PLAYER
+# set once in _apply_path_style. Enemy paths track the live yellow → red
+# impact-ETA gradient: render_orbit refreshes _path_color_base from
+# enemy_path_gradient_color(sim_time) on every (throttled) render so the
+# 3D ribbon stays in lockstep with the HUD enemy boxes. Storing the
+# base on the satellite (rather than reading it back off the material)
+# lets selection toggles flip to COLOR_SELECTED and back without losing
+# the underlying tint.
 var _path_color_base: Color = COLOR_PLAYER
-var _path_color_baked: bool = false
 var _path_alpha: float = 1.0
 
 
@@ -680,15 +679,18 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 	if is_surface:
 		path_visual.visible = false
 		return
-	# Lazy bake: capture the spawn-time ETA color the first time we
-	# render an enemy and freeze it. Player paths are baked in
-	# _apply_path_style at _ready, since they don't have an ETA hue
-	# to encode. Selection / clone_from drive _apply_path_color
-	# directly; the per-tick render itself does no color work.
-	if not _path_color_baked and team == TEAM_ENEMY:
-		_path_color_base = enemy_path_gradient_color(current_sim_time)
-		_path_color_baked = true
-		_apply_path_color()
+	# Refresh the enemy path tint from the live ETA gradient so the 3D
+	# ribbon tracks the same yellow → red ramp the HUD enemy boxes use.
+	# Cheap: render_orbit is already throttled to the orbit-render
+	# cadence, the gradient is one cache hit + a power lerp, and the
+	# OrbitalPath color setter short-circuits when the value is
+	# unchanged. Player paths keep their constant COLOR_PLAYER tint set
+	# once in _apply_path_style.
+	if team == TEAM_ENEMY:
+		var live: Color = enemy_path_gradient_color(current_sim_time)
+		if live != _path_color_base:
+			_path_color_base = live
+			_apply_path_color()
 	# Meteorites get the truncated-trajectory renderer: the same line
 	# style as a regular orbit, but cut off at the surface so the part
 	# that would tunnel through Earth isn't drawn.
@@ -742,14 +744,11 @@ func clone_from(other: Satellite) -> void:
 	clone_orbit_from(other)
 	raw_maneuver = other.raw_maneuver
 	did_maneuver = other.did_maneuver
-	# Inherit the baked orbit-line tint so the planning preview matches
-	# the live ribbon the operator was looking at when they entered
-	# planning mode. clone_orbit_from is called every tick during
-	# planning and deliberately does NOT touch the bake state — that
-	# would re-roll the gradient against the moving sim_time and defeat
-	# the "freeze on spawn" guarantee.
+	# Inherit the current orbit-line tint so the planning preview opens
+	# with the same color the operator was looking at on the live
+	# ribbon. The planning sat's own render_orbit will refresh this
+	# from its own ETA on the next render tick.
 	_path_color_base = other._path_color_base
-	_path_color_baked = other._path_color_baked
 	_apply_path_color()
 
 
@@ -889,11 +888,11 @@ func _apply_color() -> void:
 	_marker_mat.albedo_color = COLOR_SELECTED if selected else _base_color()
 
 
-# Push the spawn-baked tint to the path material, applying selection
+# Push the current base tint to the path material, applying selection
 # override and HP-derived alpha. Called from select / unselect /
-# clone_from / render_orbit's first-frame bake — never per tick. The
-# OrbitalPath setter short-circuits if the new color matches, so an
-# idempotent call from clone_orbit_from is a no-op.
+# clone_from / render_orbit (per-render for enemies, when the live ETA
+# gradient drifts to a new color). The OrbitalPath setter short-circuits
+# if the new color matches, so idempotent calls are a no-op.
 func _apply_path_color() -> void:
 	if path_visual == null:
 		return
@@ -928,12 +927,11 @@ func enemy_path_gradient_color(current_sim_time: float) -> Color:
 # Bake the orbit-line's thickness and opacity from initial HP. Called
 # from _ready (initial spawn) and clone_orbit_from (planning preview
 # pickup) — never per-tick driven by HP. Player paths get a constant
-# readable style and a fixed COLOR_PLAYER tint baked here. Enemy paths
+# readable style and a fixed COLOR_PLAYER tint set here. Enemy paths
 # log-scale max_hp into the (width, alpha) envelope so a 10-HP storm
 # meteorite renders as a near-transparent thread and a 10000-HP boss
-# draws as a fat opaque ribbon; the *color* (yellow → red gradient)
-# is left for render_orbit to bake on first frame, since it depends on
-# sim_time which isn't known here.
+# draws as a fat opaque ribbon; the *color* (yellow → red gradient) is
+# refreshed every render tick by render_orbit from the live ETA.
 func _apply_path_style() -> void:
 	if path_visual == null:
 		return
@@ -960,7 +958,6 @@ func _apply_path_style() -> void:
 		width = PLAYER_PATH_WIDTH_PX
 		alpha = 1.0
 		_path_color_base = COLOR_PLAYER
-		_path_color_baked = true
 	path_visual.line_width_px = width
 	_path_alpha = alpha
 	_apply_path_color()
