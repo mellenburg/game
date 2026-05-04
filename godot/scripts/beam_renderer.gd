@@ -37,12 +37,11 @@ const STYLE_LASER: String = "laser"
 const STYLE_KINETIC: String = "kinetic"
 
 # Laser: thin neon-green core with a small, dim emission halo. Core
-# radius is half the previous shared default so the beam reads as a
-# precise weapon trace rather than a chunky bar; halo is 1.6x core (vs
-# the kinetic 3x) and its alpha is dropped to ~0.18 so the glow stays
+# is a hairline (0.035 unit radius) so the beam reads as a precise
+# weapon trace; halo is ~1.7x core with low alpha so the glow stays
 # subtle.
-const LASER_CORE_RADIUS: float = 0.07
-const LASER_HALO_RADIUS: float = 0.11
+const LASER_CORE_RADIUS: float = 0.035
+const LASER_HALO_RADIUS: float = 0.06
 const LASER_CORE_COLOR := Color(0.55, 1.0, 0.35)
 const LASER_HALO_COLOR := Color(0.35, 1.0, 0.30, 0.18)
 
