@@ -134,12 +134,14 @@ const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 1.0
 # watts. Per-instance `energy_max` and `reactor_power_w` start at
 # these values and are scaled at spawn time by the unit's energy-
 # storage / reactor parts (advanced parts double the corresponding
-# facet). Pool is sized to *barely* hold one railgun shot (~13.3 GJ
-# wall-plug) so a default unit can fire exactly once before going
-# dry. Reactor at 100 MW refills from empty in ~133 sim-sec — energy
-# is the dominant gate on sustained fire, not heat or ammo.
-const DEFAULT_ENERGY_MAX_J: float = RailgunWeapon.ENERGY_PER_SHOT_J
-const DEFAULT_REACTOR_POWER_W: float = 1.0e8
+# facet). Pool is a 100 GJ stockpile — comfortably holds ~7 railgun
+# shots (13.3 GJ each) or ~5 minutes of continuous laser fire (333
+# MW pool draw) before going dry. Reactor at 10 MW means a full
+# refill from empty takes ~10 000 sim-sec — long enough that energy
+# behaves as a stockpile-and-burn resource: operators trickle the
+# pool back up over a long quiet window, then spend it in salvos.
+const DEFAULT_ENERGY_MAX_J: float = 1.0e11
+const DEFAULT_REACTOR_POWER_W: float = 1.0e7
 # Default heat-removal capacity, in watts (joules / sim-sec). Per-unit
 # `cooling_power_w` starts here and is scaled at spawn time by the
 # unit's cooling-system parts (advanced parts double the rate). Sized

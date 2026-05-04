@@ -233,6 +233,20 @@ func test_summary_stats_laser_physical_fields() -> void:
 		float(s["laser_target_coupling"]),
 		LaserWeapon.TARGET_COUPLING_DEFAULT,
 	)
+	# Aperture / wavelength / Rayleigh range — the diffraction inputs
+	# the Hangar's LASERS section reads. Tier-independent: changing the
+	# weapon's tier multiplier scales damage but not optics.
+	assert_close(
+		float(s["laser_aperture_diameter_m"]),
+		LaserWeapon.APERTURE_DIAMETER_M,
+	)
+	assert_close(
+		float(s["laser_wavelength_m"]), LaserWeapon.WAVELENGTH_M,
+	)
+	assert_close(
+		float(s["laser_rayleigh_range_km"]),
+		LaserWeapon.RAYLEIGH_RANGE_KM,
+	)
 
 
 func test_summary_stats_no_cooling_yields_infinite_cooldown() -> void:

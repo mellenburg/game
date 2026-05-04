@@ -4,11 +4,15 @@ extends "res://scripts/weapons/weapon.gd"
 ## simulated second; firing dumps waste heat (heat_fraction × pool draw)
 ## into the weapon's heat_j until heat_capacity_j is reached, at which
 ## point the overheat latch trips and the weapon refuses to fire until
-## the cooling system bleeds it back to zero. Range-limited: damage
-## scales linearly from full at zero distance to zero at MAX_RANGE_KM,
-## and the engagement envelope rejects targets beyond the attacker's
-## engagement_range_km cap (so operators can save energy by holding
-## fire until enemies are inside an optimal-damage band).
+## the cooling system bleeds it back to zero. Range-limited via
+## diffraction: a beam from an aperture D at wavelength λ stays
+## collimated out to the Rayleigh range L₀ = D²/λ (full intensity), then
+## spreads as a ~constant solid angle so on-target intensity falls as
+## (L₀ / L)² past that boundary. MAX_RANGE_KM caps engagement at the
+## ~1% intensity radius (10·L₀); the engagement envelope additionally
+## rejects targets beyond the attacker's engagement_range_km cap so
+## operators can save energy by holding fire until enemies are inside
+## an optimal-damage band.
 
 const LosCheck = preload("res://scripts/los_check.gd")
 
@@ -31,8 +35,9 @@ const RADIATED_POWER_W: float = 1.0e8
 # Pool→radiated conversion. Real fiber lasers run ~30-40% wall-plug
 # efficient; the rest is heat dumped through the cooling stack. 30%
 # is the conservative end and means the laser draws ~333 MW from the
-# bus while firing — sized so a 1 GW reactor can sustain ~3 lasers
-# concurrent before draining the pool.
+# bus while firing — far above the default 10 MW reactor regen, so
+# sustained fire spends down the on-bus stockpile rather than running
+# live off the reactor.
 const WALLPLUG_EFFICIENCY: float = 0.3
 # Default beam-on-armour absorption: ~40% of the radiated beam
 # becomes absorbed damage; the rest reflects (most for shiny metal,
@@ -55,15 +60,36 @@ const HEAT_BUDGET_SEC: float = 40.0
 # before the overheat latch trips. Sized so HEAT_BUDGET_SEC of
 # continuous fire fully fills it.
 const HEAT_CAPACITY_J: float = POOL_DRAIN_W * HEAT_FRACTION * HEAT_BUDGET_SEC
-# Distance at which damage drops to zero. Linear falloff between 0 km
-# (full damage) and MAX_RANGE_KM (no damage). 40 000 km ≈ 6.3 Earth
-# radii — wide enough that two LEO satellites on opposite sides of
-# Earth (~14 000 km, ~0.65× damage) still hit usefully, while keeping
-# a clear penalty against the high meteorite spawn shell (40–70 000
-# km altitude). Doubles as the hard cap on the operator's
-# engagement_range_km, so the on-plane fire-control circle can never
-# render larger than the physics-level kill envelope.
-const MAX_RANGE_KM: float = 40000.0
+# Emitter aperture diameter (m). Beam divergence — and therefore
+# range — is set by D and λ together via the Rayleigh range L₀ = D²/λ.
+# 1.4 m is the design "sweet spot" (Capital lasers go up to ~3 m for
+# spinal mounts; PD/light lasers down to ~0.5 m). Doubling D
+# quadruples L₀ — and quadruples every range band the weapon engages
+# in — so this is the single biggest balance lever on the laser.
+const APERTURE_DIAMETER_M: float = 1.4
+# Beam wavelength (m). 1 μm is near-IR, the band where high-power
+# fiber lasers actually live. Range scales as 1/λ — UV (0.25 μm) would
+# 4× every range band, CO₂ (10 μm) would cut them tenfold. Held at the
+# baseline so the calibration table in the design doc applies directly.
+const WAVELENGTH_M: float = 1.0e-6
+# Rayleigh range (km): the near-field/far-field boundary. Inside this
+# distance the beam is effectively collimated and dumps full intensity
+# on the target; past it the spot grows as (L/L₀) and on-target
+# intensity falls as (L₀/L)². Pre-derived so the hot fire() path
+# doesn't redo the divide every tick.
+const RAYLEIGH_RANGE_KM: float = (
+	APERTURE_DIAMETER_M * APERTURE_DIAMETER_M / WAVELENGTH_M / 1000.0
+)
+# Distance at which on-target intensity drops to ~1% (the
+# "harassment-irrelevant" threshold from the design table). Hard cap
+# on engagement; targets past this radius are rejected by the envelope
+# check and the on-plane fire-control circle can never render larger
+# than this physics-level kill envelope. With D=1.4 m and λ=1 μm this
+# lands at ~19 600 km — comfortably outside opposite-side-of-Earth
+# LEO (~14 000 km) but well inside the high meteorite spawn shell
+# (40–70 000 km altitude), which is the band where missiles and
+# kinetics are supposed to take over.
+const MAX_RANGE_KM: float = 10.0 * RAYLEIGH_RANGE_KM
 # Floor on a satellite's user-set engagement range. Pulling it below
 # this would let an operator effectively disable fire control.
 const MIN_ENGAGEMENT_RANGE_KM: float = 500.0
@@ -117,15 +143,19 @@ func can_fire(attacker) -> bool:
 	return attacker.energy > 0.0
 
 
-## Linear damage scaling: 1.0 at zero distance, 0.0 at MAX_RANGE_KM,
-## clamped outside that band. Pure function — exposed so HUD / tests
-## can predict expected damage without re-deriving the curve.
+## Diffraction-limited damage scaling. Inside the Rayleigh range the
+## beam is collimated and intensity is full (1.0); past it the spot
+## grows linearly and intensity falls as (L₀ / L)². Hard-clamped to 0.0
+## past MAX_RANGE_KM so the engagement envelope and the falloff curve
+## agree on the cutoff. Pure function — exposed so HUD / tests can
+## predict expected damage without re-deriving the curve.
 static func range_factor(distance_km: float) -> float:
-	if distance_km <= 0.0:
+	if distance_km <= RAYLEIGH_RANGE_KM:
 		return 1.0
 	if distance_km >= MAX_RANGE_KM:
 		return 0.0
-	return 1.0 - distance_km / MAX_RANGE_KM
+	var ratio: float = RAYLEIGH_RANGE_KM / distance_km
+	return ratio * ratio
 
 
 func is_target_in_engagement_envelope(attacker, target) -> bool:

@@ -10,11 +10,11 @@ const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
 const EARTH_RADIUS_KM: float = EarthOrbit.EARTH_RADIUS_KM
 # Pool seed for tests that just need "enough energy to fire a shot"
-# — a single railgun shot now draws ~13.3 GJ from the bus, so the
-# fake's pool has to comfortably exceed that. Sized to the default
-# DEFAULT_ENERGY_MAX_J (40 GJ) so the fakes feel like a fresh-from-
-# spawn satellite, with headroom for a couple of shots before
-# energy gating kicks in.
+# — a single railgun shot draws ~13.3 GJ from the bus, so the fake's
+# pool has to comfortably exceed that. 40 GJ leaves headroom for ~3
+# shots before the energy gate kicks in, which is enough for every
+# test that doesn't specifically exercise pool exhaustion. Tests
+# exercising the empty-pool refusal seed `energy` directly.
 const STARTING_ENERGY_J: float = 4.0e10
 
 
