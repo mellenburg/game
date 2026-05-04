@@ -3,20 +3,22 @@ extends RefCounted
 ## Earth line-of-sight ray test. Pulled into its own RefCounted so the
 ## geometric core can be unit-tested without spinning up a SceneTree.
 
-const EARTH_RADIUS_KM: float = 6371.0
-const EARTH_RADIUS_SQ: float = EARTH_RADIUS_KM * EARTH_RADIUS_KM
+const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
 
 ## Returns true if the segment from `start` to `end` (km, ECI) intersects
-## the Earth's bounding sphere — i.e. line of sight is blocked.
+## the planet's bounding sphere — i.e. line of sight is blocked. Reads
+## the radius from EarthOrbit so a Mars stage (smaller body) doesn't fall
+## back to Earth's 6371 km cutoff.
 static func is_blocked(start: Vector3, end: Vector3) -> bool:
+	var radius_sq := EarthOrbit.EARTH_RADIUS_KM * EarthOrbit.EARTH_RADIUS_KM
 	var dir := end - start
 	var a := dir.dot(dir)
 	if a == 0.0:
 		# Degenerate segment: blocked iff the point is inside the planet.
-		return start.length_squared() < EARTH_RADIUS_SQ
+		return start.length_squared() < radius_sq
 	var b := 2.0 * dir.dot(start)
-	var c := start.dot(start) - EARTH_RADIUS_SQ
+	var c := start.dot(start) - radius_sq
 	var discr := b * b - 4.0 * a * c
 	if discr < 0.0:
 		return false

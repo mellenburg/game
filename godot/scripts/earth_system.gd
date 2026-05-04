@@ -25,6 +25,7 @@ const RangeCircle = preload("res://scripts/range_circle.gd")
 const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
 const Mission = preload("res://scripts/mission.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
 const EndGameOverlay = preload("res://scripts/end_game_overlay.gd")
 const ReconSettings = preload("res://scripts/recon_settings.gd")
 const WaveUnitClass = preload("res://scripts/wave_unit_class.gd")
@@ -166,6 +167,13 @@ var satellites: Array[Satellite]:
 
 
 func _ready() -> void:
+	# Apply the active body's μ and surface radius before anything
+	# else looks at orbital state. SpawnDirector and the satellites it
+	# materialises read EarthOrbit.MU / EARTH_RADIUS_KM eagerly at spawn
+	# time, so a deferred apply would leave the very first fleet sitting
+	# on Earth physics inside a Mars stage.
+	CelestialBody.for_stage(_selected_stage_id()).apply_to_propagator()
+
 	_albedo_image = _load_albedo_image()
 	if impact_map != null:
 		impact_map.tracker = impact_tracker
@@ -209,6 +217,20 @@ func _ready() -> void:
 		_mission_settings = _player_loadout_recon_settings()
 		mission = Mission.new()
 		mission.start_from_settings(_mission_settings)
+
+
+# Look up the player's selected stage id, falling back to "earth" when
+# the autoload isn't reachable (direct main.tscn boots / headless runs).
+# The string is enough — every downstream consumer (Earth surface,
+# CelestialBody, mission brief) keys off the same id.
+func _selected_stage_id() -> String:
+	var tree := get_tree()
+	if tree == null:
+		return CelestialBody.ID_EARTH
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null:
+		return CelestialBody.ID_EARTH
+	return String(loadout.selected_stage_id)
 
 
 # Pull the player's wave configuration off PlayerLoadout. Falls back

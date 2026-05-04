@@ -17,10 +17,11 @@ extends RefCounted
 ## proper country raster later — `classify_region` is the single
 ## seam to replace.
 
+const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+
 const POLE_ALIGN := Basis(Vector3(1.0, 0.0, 0.0), PI / 2.0)
 const AXIAL_TILT_RAD: float = 23.5 * PI / 180.0
 const AXIAL_TILT := Basis(Vector3(1.0, 0.0, 0.0), AXIAL_TILT_RAD)
-const EARTH_RADIUS_KM: float = 6371.0
 
 # Bounding-box region table. Format: [lon_min, lat_min, lon_max, lat_max].
 # Listed roughly in priority order — first containing entry wins for a
@@ -181,7 +182,7 @@ static func _match(table: Array[Dictionary], lon: float, lat: float) -> String:
 func record_impact(
 	p_world: Vector3, earth_phase: float, is_ocean_hint: bool, hp: float = 0.0
 ) -> Dictionary:
-	var surface := p_world.normalized() * EARTH_RADIUS_KM
+	var surface := p_world.normalized() * EarthOrbit.EARTH_RADIUS_KM
 	var local := eci_to_mesh_local(surface, earth_phase)
 	var uv := mesh_local_to_uv(local)
 	var ll := uv_to_latlon(uv)

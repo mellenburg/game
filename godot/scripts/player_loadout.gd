@@ -92,10 +92,14 @@ const STAGES: Array = [
 		"id": "mars",
 		"name": "Mars",
 		"code": "CMP-004",
-		"difficulty": "—",
-		"waves": 0,
-		"playable": false,
-		"summary": "Phobos staging hold. (Locked)",
+		"difficulty": "MEDIUM",
+		"waves": 4,
+		"playable": true,
+		"summary": (
+			"Defend the Phobos staging hold. Lower gravity stretches "
+			+ "orbits and turns recoil maneuvers into longer arcs — "
+			+ "fleet positioning carries more weight than over Earth."
+		),
 		"orbit_radius": 0.36,
 		"angle_deg": 305.0,
 		"body_radius": 7.0,
