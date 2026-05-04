@@ -35,8 +35,9 @@ const RADIATED_POWER_W: float = 1.0e8
 # Pool→radiated conversion. Real fiber lasers run ~30-40% wall-plug
 # efficient; the rest is heat dumped through the cooling stack. 30%
 # is the conservative end and means the laser draws ~333 MW from the
-# bus while firing — sized so a 1 GW reactor can sustain ~3 lasers
-# concurrent before draining the pool.
+# bus while firing — far above the default 10 MW reactor regen, so
+# sustained fire spends down the on-bus stockpile rather than running
+# live off the reactor.
 const WALLPLUG_EFFICIENCY: float = 0.3
 # Default beam-on-armour absorption: ~40% of the radiated beam
 # becomes absorbed damage; the rest reflects (most for shiny metal,

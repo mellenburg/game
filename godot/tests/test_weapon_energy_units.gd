@@ -6,7 +6,9 @@ extends "res://tests/framework.gd"
 ##   * Slug: 20 kg @ 10 km/s ⇒ 1 GJ KE, 200 kg·km/s momentum, 1000-round
 ##     magazine ⇒ 20 t of ammo at full load
 ##   * Laser: 100 MW radiated, 30% wall-plug, 40% target coupling
-##   * Default sat: 10 GJ pool, 1 GW reactor
+##   * Default sat: 100 GJ pool, 10 MW reactor (stockpile-and-burn —
+##     the bus carries ~7 railgun shots' worth of energy and the
+##     reactor takes ~10 000 sim-sec to refill it from empty)
 
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
@@ -97,10 +99,10 @@ func test_railgun_default_damage_matches_physics() -> void:
 
 
 func test_railgun_default_pool_draw_is_thirteen_gj() -> void:
-	# Wall-plug: KE / 0.3 = ~13.3 GJ. One shot drains a third of a
-	# default 40 GJ pool — sustainable cadence is roughly 3 shots per
-	# pool, then a full refill cycle (40 sec at 1 GW) before the next
-	# salvo. Tolerance is 1 J against tens of billions, comfortably
+	# Wall-plug: KE / 0.3 = ~13.3 GJ. One shot is ~13% of the default
+	# 100 GJ pool — a fresh unit can rip off ~7 shots before going dry,
+	# then has to wait on the (slow) reactor to trickle the stockpile
+	# back up. Tolerance is 1 J against tens of billions, comfortably
 	# tight.
 	assert_close(RailgunWeapon.ENERGY_PER_SHOT_J, 4.0e9 / 0.3, 1.0)
 
@@ -121,19 +123,19 @@ func test_laser_default_dps_at_zero_range_matches_physics() -> void:
 
 func test_laser_default_pool_drain_is_three_hundred_thirty_three_mw() -> void:
 	# 100 MW radiated / 0.3 wall-plug = ~333 MW drawn from the bus.
-	# A 1 GW reactor sustains roughly three lasers concurrent.
+	# Far above the 10 MW default reactor, by design — sustained laser
+	# fire is meant to burn the stockpile, not run live off regen.
 	assert_close(LaserWeapon.POOL_DRAIN_W, 1.0e8 / 0.3, 1.0)
 
 
 func test_satellite_default_pool_and_reactor_match_design() -> void:
-	# Pool is sized to *barely* hold one railgun shot — a default unit
-	# can fire exactly once before going dry. The 100 MW reactor then
-	# takes ~133 sim-sec to refill from empty, which makes energy the
-	# dominant gate on sustained fire rather than heat or ammo.
-	assert_close(
-		Satellite.DEFAULT_ENERGY_MAX_J, RailgunWeapon.ENERGY_PER_SHOT_J, 1.0
-	)
-	assert_close(Satellite.DEFAULT_REACTOR_POWER_W, 1.0e8, 1.0)
+	# Pool is a 100 GJ stockpile — ~7 railgun shots' worth of energy
+	# parked on the bus for the operator to spend in salvos. The 10 MW
+	# reactor is deliberately undersized vs. the pool: a full refill
+	# from empty takes ~10 000 sim-sec, so energy behaves as a
+	# stockpile-and-burn resource rather than a live-regen one.
+	assert_close(Satellite.DEFAULT_ENERGY_MAX_J, 1.0e11, 1.0)
+	assert_close(Satellite.DEFAULT_REACTOR_POWER_W, 1.0e7, 1.0)
 
 
 func test_railgun_refuses_fire_when_magazine_empty() -> void:
@@ -211,8 +213,8 @@ func test_target_coupling_default_returns_per_class_value() -> void:
 
 func test_satellite_tick_combat_charges_pool_in_joules() -> void:
 	# Pool fill rate is reactor_power_w joules/sec. One sim-sec of
-	# charge from a 100 MW reactor adds 100 MJ; tick_combat with a
-	# large delta clamps at energy_max instead of overshooting.
+	# charge from the default 10 MW reactor adds 10 MJ; tick_combat
+	# with a large delta clamps at energy_max instead of overshooting.
 	var sat := Satellite.new()
 	sat.energy = 0.0
 	sat.tick_combat(1.0)

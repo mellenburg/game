@@ -64,9 +64,10 @@ const ZERO_RANGE_DPS: float = (
 # directly so the new heat-in-joules invariants stay legible.
 const HEAT_PER_SEC_W: float = LaserWeapon.POOL_DRAIN_W * LaserWeapon.HEAT_FRACTION
 # Pool seed for tests that just need "enough energy to fire for a few
-# seconds without going dry". Matches the default DEFAULT_ENERGY_MAX_J
-# (40 GJ) so fakes feel like a fresh-from-spawn satellite. Tests that
-# specifically exercise the energy-budget cap (or the empty-pool
+# seconds without going dry". 40 GJ buys ~120 sec of continuous fire
+# at the 333 MW pool draw rate — far more than any of these tests
+# burn through, so heat and time become the gating constraints. Tests
+# that specifically exercise the energy-budget cap (or the empty-pool
 # refusal) seed `energy` directly to a tighter number.
 const STARTING_ENERGY_J: float = 4.0e10
 
