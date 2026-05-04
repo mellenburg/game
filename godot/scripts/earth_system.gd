@@ -172,7 +172,7 @@ func _ready() -> void:
 	# materialises read EarthOrbit.MU / EARTH_RADIUS_KM eagerly at spawn
 	# time, so a deferred apply would leave the very first fleet sitting
 	# on Earth physics inside a Mars stage.
-	CelestialBody.for_stage(_selected_stage_id()).apply_to_propagator()
+	CelestialBody.active(get_tree()).apply_to_propagator()
 
 	_albedo_image = _load_albedo_image()
 	if impact_map != null:
@@ -217,20 +217,6 @@ func _ready() -> void:
 		_mission_settings = _player_loadout_recon_settings()
 		mission = Mission.new()
 		mission.start_from_settings(_mission_settings)
-
-
-# Look up the player's selected stage id, falling back to "earth" when
-# the autoload isn't reachable (direct main.tscn boots / headless runs).
-# The string is enough — every downstream consumer (Earth surface,
-# CelestialBody, mission brief) keys off the same id.
-func _selected_stage_id() -> String:
-	var tree := get_tree()
-	if tree == null:
-		return CelestialBody.ID_EARTH
-	var loadout := tree.root.get_node_or_null("PlayerLoadout")
-	if loadout == null:
-		return CelestialBody.ID_EARTH
-	return String(loadout.selected_stage_id)
 
 
 # Pull the player's wave configuration off PlayerLoadout. Falls back

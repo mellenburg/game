@@ -163,12 +163,12 @@ func _render_summary(summary: Dictionary) -> void:
 
 	# Earth-side totals: count of impactors that reached the ground +
 	# the sum of HP they were still carrying at impact (i.e. the damage
-	# Earth absorbed). Both numbers come from EarthSystem's dead-sat
-	# sweep so they stay consistent with the in-game kill counter.
-	_content_root.add_child(_section_header("EARTH"))
+	# the surface absorbed). Both numbers come from EarthSystem's dead-
+	# sat sweep so they stay consistent with the in-game kill counter.
+	_content_root.add_child(_section_header("SURFACE"))
 	var impacts := int(summary.get("total_impacts", 0))
 	var impact_hp := float(summary.get("total_impact_hp", 0.0))
-	_content_root.add_child(_kv_row("Impacts on Earth", "%d" % impacts))
+	_content_root.add_child(_kv_row("Impacts on surface", "%d" % impacts))
 	_content_root.add_child(_kv_row(
 		"HP delivered to surface", "%.0f" % impact_hp,
 	))

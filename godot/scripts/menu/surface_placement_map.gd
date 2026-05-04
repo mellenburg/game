@@ -169,16 +169,9 @@ func _update_marker_extents() -> void:
 
 func _load_basemap_for_stage(stage_id: String) -> Texture2D:
 	var body := CelestialBody.for_stage(stage_id)
-	var path := ""
-	match body.texture_set:
-		CelestialBody.TEXTURES_MARS:
-			path = "res://resources/3D/mars/2304_mars.jpg"
-		_:
-			path = "res://resources/3D/earth/4096_earth.jpg"
-	if ResourceLoader.exists(path):
-		var tex := load(path) as Texture2D
-		if tex != null:
-			return tex
+	var tex := body.load_albedo_texture()
+	if tex != null:
+		return tex
 	# Fallback so the click target still has a backdrop in headless /
 	# asset-stripped runs. Tint pulled from the body record so the panel
 	# still reads as the right planet's colour even with no texture.

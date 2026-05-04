@@ -245,18 +245,15 @@ func _ready() -> void:
 
 
 # Wire the Mercator reprojection shader onto the map rect, with the
-# active body's equirectangular albedo as input. Falls back to a plain
-# TextureRect (still equirectangular) if either resource is missing
-# — the markers remain meaningful because their position math is
-# driven by lat/lon, which we re-project below.
+# active body's equirectangular albedo as input. Falls back to a solid-
+# colour TextureRect tinted by `body.fallback_color` if the asset is
+# missing — the markers remain meaningful because their position math
+# is driven by lat/lon, which we re-project below.
 func _install_map_material(rect: TextureRect, body: CelestialBody) -> void:
-	var tex: Texture2D = _load_body_texture(body)
+	var tex := body.load_albedo_texture()
 	if tex != null:
 		rect.texture = tex
 	else:
-		# Render-time fallback so the panel still has a backdrop. Tint
-		# from the body record so a missing texture still reads as the
-		# right planet's colour; markers still draw correctly on top.
 		var img := Image.create(2, 1, false, Image.FORMAT_RGB8)
 		img.set_pixel(0, 0, body.fallback_color)
 		img.set_pixel(1, 0, body.fallback_color)
@@ -273,35 +270,8 @@ func _install_map_material(rect: TextureRect, body: CelestialBody) -> void:
 	rect.material = mat
 
 
-# Look up the active body via the player's stage selection. Defaults
-# to Earth when PlayerLoadout isn't reachable (direct main.tscn boot,
-# headless tests) so the legacy debug entry path still renders against
-# the Earth basemap.
 func _resolve_body() -> CelestialBody:
-	var tree := get_tree()
-	if tree == null:
-		return CelestialBody.make_earth()
-	var loadout := tree.root.get_node_or_null("PlayerLoadout")
-	if loadout == null:
-		return CelestialBody.make_earth()
-	return CelestialBody.for_stage(String(loadout.selected_stage_id))
-
-
-# Pick the source texture for the minimap based on the body's texture
-# set. Earth uses its 4096 day-side JPEG (same one the globe binds);
-# Mars uses the 2304 NASA cylindrical mosaic. Return null if the
-# resource is missing so the caller can drop into its solid-colour
-# fallback path.
-func _load_body_texture(body: CelestialBody) -> Texture2D:
-	var path := ""
-	match body.texture_set:
-		CelestialBody.TEXTURES_MARS:
-			path = "res://resources/3D/mars/2304_mars.jpg"
-		_:
-			path = "res://resources/3D/earth/4096_earth.jpg"
-	if not ResourceLoader.exists(path):
-		return null
-	return load(path) as Texture2D
+	return CelestialBody.active(get_tree())
 
 
 func _process(_delta: float) -> void:
