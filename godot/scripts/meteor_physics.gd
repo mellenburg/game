@@ -106,6 +106,20 @@ static func hp_for(mass_kg: float, density_g_cm3: float) -> float:
 	return HP_PER_KG_PER_DENSITY * maxf(mass_kg, 0.0) * maxf(density_g_cm3, 0.0)
 
 
+## Inverse of `hp_for`: the mass corresponding to a given HP and
+## density. Used by the live-damage path on Satellite to keep
+## meteorite mass coupled to HP — chip away an asteroid's hit points
+## and its physical mass shrinks proportionally, which feeds back
+## into impact damage radius (smaller) and railgun deflection
+## efficiency (larger Δv per slug as the rock gets lighter).
+## Returns 0.0 when density is non-positive so a misconfigured body
+## doesn't divide by zero.
+static func mass_for_hp(hp: float, density_g_cm3: float) -> float:
+	if density_g_cm3 <= 0.0 or HP_PER_KG_PER_DENSITY <= 0.0:
+		return 0.0
+	return maxf(hp, 0.0) / (HP_PER_KG_PER_DENSITY * density_g_cm3)
+
+
 ## Damage radii in km for an impactor of the given mass. Returns a
 ## dictionary with keys "light", "moderate", "heavy" — all three are
 ## populated regardless of tier so callers can decide which to render.

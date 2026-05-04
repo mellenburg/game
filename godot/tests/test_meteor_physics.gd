@@ -98,3 +98,20 @@ func test_composition_name_known() -> void:
 	assert_eq(MeteorPhysics.composition_name(MeteorPhysics.COMP_M_TYPE), "M-type")
 	assert_eq(MeteorPhysics.composition_name(-1), "unknown")
 	assert_eq(MeteorPhysics.composition_name(99), "unknown")
+
+
+func test_mass_for_hp_inverts_hp_for() -> void:
+	# Round-trip: mass_for_hp(hp_for(m, ρ), ρ) == m. Lets the live-damage
+	# path on Satellite recompute mass cleanly from current HP without
+	# carrying a separate spawn-mass field.
+	for m in [1.0e4, 1.0e7, 1.0e10]:
+		for d in [1.6, 3.4, 8.0]:
+			var hp := MeteorPhysics.hp_for(m, d)
+			var roundtrip := MeteorPhysics.mass_for_hp(hp, d)
+			assert_close(roundtrip, m, m * 1.0e-6)
+	# Edge cases: zero / negative density returns zero (no divide).
+	assert_close(MeteorPhysics.mass_for_hp(100.0, 0.0), 0.0, 1.0e-9)
+	assert_close(MeteorPhysics.mass_for_hp(100.0, -1.0), 0.0, 1.0e-9)
+	# Negative HP clamps at zero so a damage-overshoot bug can't drive
+	# mass negative.
+	assert_close(MeteorPhysics.mass_for_hp(-50.0, 3.4), 0.0, 1.0e-9)

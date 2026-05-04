@@ -12,6 +12,7 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
 const Propulsion = preload("res://scripts/propulsion.gd")
+const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
 
 const TEAM_PLAYER: int = 0
 const TEAM_ENEMY: int = 1
@@ -584,6 +585,17 @@ func recompute_mass() -> void:
 	mass = dry_mass_kg + propellant_kg + total_ammo_mass_kg()
 
 
+## True when this body is a meteorite (or decaying-orbit threat)
+## whose physical mass has eroded down to or below the atmospheric
+## burn-up threshold. Such bodies still propagate to the ground but
+## fully ablate on entry — they cause no damage and paint no impact
+## marker — so weapons should disengage and leave them to burn.
+func is_inert_meteorite() -> bool:
+	if not (is_meteorite or is_decaying):
+		return false
+	return MeteorPhysics.is_burn_up(mass)
+
+
 ## Apply damage. Returns true if this hit took the satellite to 0 HP.
 ## Only kills once — repeated calls on a dead satellite are no-ops, so
 ## stray late shots from concurrent attackers don't double-fire the
@@ -602,6 +614,16 @@ func take_damage(amount: float, attacker: Satellite = null) -> bool:
 	hp = maxf(hp - amount, 0.0)
 	if attacker != null:
 		attacker.damage_dealt += applied
+	# Meteorites and decaying-orbit bodies physically erode under fire:
+	# damage represents fragmentation / spalling, so the surviving mass
+	# shrinks in lockstep with HP. That drops the impact's damage radius
+	# (mass × density model on the ImpactMap) and lifts the railgun's
+	# per-slug deflection (recoil and target-push are momentum / mass).
+	# Player ships and unarmed enemies stay at their spawn-time mass —
+	# damage there represents subsystem damage, not mass loss.
+	if (is_meteorite or is_decaying) and density_g_cm3 > 0.0:
+		mass = MeteorPhysics.mass_for_hp(hp, density_g_cm3)
+		_apply_marker_size()
 	if hp <= 0.0:
 		alive = false
 		if attacker != null:

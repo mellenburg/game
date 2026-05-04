@@ -167,6 +167,11 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 		return false
 	if not attacker.orbit_alive or not target.orbit_alive:
 		return false
+	# Don't waste shots on a meteorite / decaying body that's already
+	# eroded below the atmospheric burn-up threshold — the atmosphere
+	# will finish it without our help.
+	if target.has_method("is_inert_meteorite") and target.is_inert_meteorite():
+		return false
 	# Physics ceiling always applies — past MAX_RANGE_KM the falloff
 	# already drives damage to zero. The operator's engagement_range_km
 	# only narrows that envelope while fire control is active; turning

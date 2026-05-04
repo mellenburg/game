@@ -112,6 +112,120 @@ Tunguska to within a factor of two and stays well-behaved across the
 range we routinely spawn.
 
 
+## Mass-HP coupling under fire
+
+A meteorite's HP and physical mass are linked: damage represents
+fragmentation and spalling, so as HP drops the surviving mass drops
+in lockstep. Implemented in `Satellite.take_damage` via
+`MeteorPhysics.mass_for_hp`:
+
+```
+mass_remaining_kg = HP_remaining / (HP_PER_KG_PER_DENSITY * density)
+                  = (HP_remaining / max_HP) * spawn_mass_kg
+```
+
+Three knock-on effects, all derived (no extra plumbing):
+
+* **Smaller impacts when chipped down**. Because the impact-map
+  damage radii read off `sat.mass` at the moment of impact, a body
+  that arrives half-eroded leaves a half-mass crater. The cube-root
+  scaling means radii shrink by ~21% for a 50% mass loss — visible
+  but not dramatic, which feels right.
+* **Burn-up if eroded enough**. Once the mass crosses below
+  `BURN_UP_THRESHOLD_KG` (10 t) the body counts as fully ablating.
+  `EarthSystem._record_meteorite_impact` skips the impact entirely
+  and the body's surface crossing produces no damage, no marker,
+  and no impact-explosion. The "kill" is the atmosphere finishing
+  what we started.
+* **Railgun deflection scales up**. The railgun computes target
+  Δv as `SLUG_MOMENTUM / target.mass`. As the rock loses mass each
+  slug pushes it harder — the late shots in a sustained engagement
+  do more orbit-bending than the first ones. This is the right
+  feedback loop: a player who thins a target deserves a payoff on
+  the maneuver side, not just the HP side.
+
+To prevent overkill against bodies the atmosphere has already won,
+both laser and railgun envelopes skip targets where
+`Satellite.is_inert_meteorite()` is true (meteorite or decaying body
+with mass at or below the burn-up threshold). Weapons disengage
+automatically and re-allocate fire to remaining threats.
+
+
+## Water-impact (ocean) design notes
+
+Not implemented yet, but the impact tracker already records
+`is_ocean: bool` per impact entry so the path is open. Design
+intent for a future pass:
+
+### Energy partitioning
+
+An ocean impactor of mass `m` couples its kinetic energy into:
+
+* **Crater / vapour plume** — significant only for very large bodies
+  (Pg+) that punch through to the seafloor.
+* **Tsunami waves** — the dominant land-damage mode for sub-Pg
+  ocean impacts. Wave amplitude near the impact scales roughly
+  as `m^(1/4)` for a deep-water airburst-style splash, with
+  range-falloff `1/r` at the coastline.
+* **Atmospheric shockwave** — same scale as a land impact but
+  attenuated faster over open water.
+
+For game purposes a small set of rules is enough — full
+hydrodynamic modelling is deep into "not fun" territory.
+
+### Proposed game model
+
+When `entry["is_ocean"]` is true, replace the three concentric
+circles centred on the impact point with a coastline-projected
+damage map:
+
+* **Light damage**: every coastline within `R_light_ocean` of the
+  impact. Boost factor ~3-5× over the land-impact light radius
+  (tsunami waves carry energy further than blast).
+* **Moderate damage**: coastlines within `R_moderate_ocean`.
+  Tsunami strong enough to flood and destroy port infrastructure.
+* **Heavy damage**: coastlines within a smaller radius — the
+  "wave actually destroys the city" zone, which only triggers
+  for Tg-class and up.
+
+Implementation seam:
+
+* `MeteorPhysics.ocean_damage_radii_km(mass_kg)` would mirror
+  `damage_radii_km` but with ocean coefficients (likely
+  `light_ocean ≈ 4 × light_land`, `moderate_ocean ≈ 3 × moderate_land`,
+  `heavy_ocean ≈ 1.5 × heavy_land`).
+* `ImpactMap` would render the ocean map differently: instead of
+  filled circles around the impact, paint coastline pixels within
+  each radius as a soft glow at the appropriate damage colour. A
+  cheap proxy is to keep the concentric circles but mask them with
+  the basemap's land/water alpha so only land within the radius
+  lights up.
+* Composition matters here too: a low-density C-type "snowball"
+  impacting water tends to disrupt at the surface (less coupled
+  energy → smaller tsunami) while an M-type iron rock punches
+  deep before depositing energy (larger tsunami). A
+  `water_coupling(composition)` multiplier on the radii captures
+  this without overhauling the model.
+
+### Per-band coastal effect ladder
+
+Translating the design intent the team agreed on into code:
+
+| Impact mass     | Land outcome                       | Ocean outcome                                        |
+| --------------- | ---------------------------------- | ---------------------------------------------------- |
+| Just above 10 t | Small yellow speck, building-scale | Local splash, no coastal damage (fully absorbed)     |
+| Tunguska (1 Tg) | 25 km regional flatten             | Light damage to coastlines along the same ocean     |
+| Didymos (500 Tg)| Heavy ~150 km, moderate ~500 km    | Moderate damage to coasts, heavy on nearest coast    |
+| Pg-class        | Country annihilation               | Heavy on every coast of the impacted ocean           |
+| Eg-class        | End-of-life globally               | End-of-life globally (atmospheric / climate effects dominate) |
+
+Until this is implemented, ocean impacts use the same radii as land
+impacts and just paint over water — visually correct (a Tunguska in
+the ocean has no nearby coastline to hit) but it under-represents
+the tsunami threat. Worth revisiting once the coastal-cities /
+surface-installations content gets fleshed out.
+
+
 ## Mass bands the game spawns
 
 `MeteorPhysics` and `SpawnDirector` agree on three bands. Roughly:
