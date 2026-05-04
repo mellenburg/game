@@ -203,6 +203,14 @@ func effective_isp_s() -> float:
 #                                  cooling system dumps)
 #   "laser_target_coupling"    — fraction of radiated beam absorbed
 #                                  as damage on a default target
+#   "laser_aperture_diameter_m" — emitter aperture, m. Sets the
+#                                  diffraction-limited beam divergence.
+#   "laser_wavelength_m"       — beam wavelength, m. Range scales as
+#                                  1/λ for fixed aperture.
+#   "laser_rayleigh_range_km"  — near-field/far-field boundary L₀ =
+#                                  D²/λ. Inside this distance the beam
+#                                  is collimated (full damage); past
+#                                  it intensity falls as (L₀/L)².
 #   "railgun_count"    — number of railgun slots filled
 #   "railgun_damage_total"  — sum of per-shot damage across railguns
 #   "railgun_heat_per_shot_j" — joules of heat one shot dumps into the
@@ -311,6 +319,9 @@ func summary_stats() -> Dictionary:
 		"laser_pool_draw_w": LaserWeapon.POOL_DRAIN_W,
 		"laser_wallplug_efficiency": LaserWeapon.WALLPLUG_EFFICIENCY,
 		"laser_target_coupling": LaserWeapon.TARGET_COUPLING_DEFAULT,
+		"laser_aperture_diameter_m": LaserWeapon.APERTURE_DIAMETER_M,
+		"laser_wavelength_m": LaserWeapon.WAVELENGTH_M,
+		"laser_rayleigh_range_km": LaserWeapon.RAYLEIGH_RANGE_KM,
 		"railgun_count": railgun_count,
 		"railgun_damage_total": railgun_damage_total,
 		"railgun_heat_per_shot_j": RailgunWeapon.HEAT_PER_SHOT_J,

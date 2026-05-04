@@ -297,17 +297,41 @@ func test_fire_ignores_zero_or_negative_delta() -> void:
 	assert_close(w.heat_j, 0.0)
 
 
-func test_range_factor_is_linear_with_distance() -> void:
-	# Endpoints clamp; middle is the linear interpolation.
+func test_range_factor_follows_diffraction_curve() -> void:
+	# Near field (≤ Rayleigh range) is full damage; far field falls as
+	# (L₀/L)². MAX_RANGE_KM is fixed at 10·L₀, so the cutoff lands at
+	# the 1% intensity radius — verified directly against the curve.
+	var l0: float = LaserWeapon.RAYLEIGH_RANGE_KM
+	# Endpoints and inside the near field collapse to 1.0.
 	assert_close(LaserWeapon.range_factor(0.0), 1.0)
+	assert_close(LaserWeapon.range_factor(l0 * 0.5), 1.0)
+	assert_close(LaserWeapon.range_factor(l0), 1.0)
+	# Far field: intensity = (L₀/L)². 2·L₀ → 25%, 5·L₀ → 4%.
+	assert_close(LaserWeapon.range_factor(l0 * 2.0), 0.25)
+	assert_close(LaserWeapon.range_factor(l0 * 5.0), 0.04)
+	# Hard cap at MAX_RANGE_KM. The 1% boundary lands exactly at the
+	# cap by construction (10·L₀); past it the envelope and the falloff
+	# both report zero.
 	assert_close(LaserWeapon.range_factor(LaserWeapon.MAX_RANGE_KM), 0.0)
-	assert_close(
-		LaserWeapon.range_factor(LaserWeapon.MAX_RANGE_KM * 0.5), 0.5
-	)
-	# Negative or beyond-max inputs both clamp; this guards against a
+	assert_close(LaserWeapon.range_factor(LaserWeapon.MAX_RANGE_KM * 2.0), 0.0)
+	# Negative inputs clamp to full damage; this guards against a
 	# regression where a degenerate distance leaks negative damage.
 	assert_close(LaserWeapon.range_factor(-100.0), 1.0)
-	assert_close(LaserWeapon.range_factor(LaserWeapon.MAX_RANGE_KM * 2.0), 0.0)
+
+
+func test_rayleigh_range_matches_aperture_and_wavelength() -> void:
+	# L₀ = D² / λ, expressed in km. Pinning so a future tweak to
+	# aperture or wavelength updates the engagement bands consistently
+	# (everything downstream — MAX_RANGE_KM, near-field damage band,
+	# the menu's "Full-damage range" row — is derived from this number).
+	var expected_m: float = (
+		LaserWeapon.APERTURE_DIAMETER_M
+		* LaserWeapon.APERTURE_DIAMETER_M
+		/ LaserWeapon.WAVELENGTH_M
+	)
+	assert_close(LaserWeapon.RAYLEIGH_RANGE_KM, expected_m / 1000.0)
+	# Cap is the 1% intensity radius — exactly 10·L₀.
+	assert_close(LaserWeapon.MAX_RANGE_KM, 10.0 * LaserWeapon.RAYLEIGH_RANGE_KM)
 
 
 func test_damage_scales_with_distance() -> void:

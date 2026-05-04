@@ -738,6 +738,24 @@ func _rebuild_unit_summary() -> void:
 		_hangar_summary.add_child(_summary_row(
 			"Max range", "%.0f km" % float(stats["laser_max_range"])
 		))
+		# Aperture / wavelength set the diffraction-limited beam
+		# divergence; their ratio fixes the Rayleigh range L₀ = D²/λ
+		# (near-field / full-damage band) and the 10×L₀ engagement
+		# ceiling. Surfaced as their own rows so the operator can see
+		# the physical knobs behind the range numbers — doubling
+		# aperture quadruples L₀, halving λ doubles it.
+		_hangar_summary.add_child(_summary_row(
+			"Aperture",
+			"%.2f m" % float(stats["laser_aperture_diameter_m"]),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Wavelength",
+			"%.2f μm" % (float(stats["laser_wavelength_m"]) * 1.0e6),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Full-damage range",
+			"%.0f km" % float(stats["laser_rayleigh_range_km"]),
+		))
 		_hangar_summary.add_child(_summary_row(
 			"Cooldown",
 			_format_cooldown(float(stats["laser_cooldown_sec"])),
