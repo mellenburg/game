@@ -483,8 +483,8 @@ static func _segment_tof_seconds(seg: Dictionary) -> float:
 # instead of zero. Standard nu→E→M chain inside one cycle, plus a
 # TAU·k offset matching the source nu's turn count.
 static func _mean_anomaly_unwrapped(nu: float, e: float) -> float:
-	var cycles := floor((nu + PI) / TAU)
-	var nu_w := nu - cycles * TAU
+	var cycles: float = floor((nu + PI) / TAU)
+	var nu_w: float = nu - cycles * TAU
 	var ecc_anom := 2.0 * atan2(
 		sqrt(1.0 - e) * sin(nu_w * 0.5),
 		sqrt(1.0 + e) * cos(nu_w * 0.5),
