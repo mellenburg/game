@@ -942,12 +942,17 @@ func _record_meteorite_impact(sat: Satellite) -> void:
 			var px := clampi(int(uv.x * float(w)), 0, w - 1)
 			var py := clampi(int(uv.y * float(h)), 0, h - 1)
 			ocean_hint = ImpactTracker.is_ocean_pixel(_albedo_image.get_pixel(px, py))
-	impact_tracker.record_impact(sat.orbit.r, phase, ocean_hint)
-	_spawn_impact_explosion(surface_pos)
+	# HP at impact drives both the 3D explosion radius and the minimap
+	# marker size — a fresh boss leaves a much bigger crater visual
+	# than a fragment that's been chewed down by point defence.
+	var impact_hp: float = maxf(sat.hp, 0.0)
+	impact_tracker.record_impact(sat.orbit.r, phase, ocean_hint, impact_hp)
+	_spawn_impact_explosion(surface_pos, impact_hp)
 
 
-func _spawn_impact_explosion(surface_pos: Vector3) -> void:
+func _spawn_impact_explosion(surface_pos: Vector3, hp: float) -> void:
 	var explosion := ImpactExplosion.new()
+	explosion.peak_radius_km = ImpactExplosion.hp_to_peak_radius_km(hp)
 	add_child(explosion)
 	explosion.set_impact_position(surface_pos)
 
