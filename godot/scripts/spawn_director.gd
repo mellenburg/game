@@ -680,13 +680,25 @@ func _sample_size_class_counts(total: int) -> Dictionary:
 
 
 func _sample_mass_for_class(size_class: int) -> float:
+	# Log-uniform within the band: each order of magnitude inside the
+	# 3-decade small/medium and 1.7-decade large band gets equal
+	# weight, so a wave shows mass variety from the band's floor to
+	# its ceiling. A naive randf_range concentrates ~90% of samples
+	# in the band's top decade, which read as "every rock looks the
+	# same size" in the live game.
 	match size_class:
 		SIZE_SMALL:
-			return _rng.randf_range(SMALL_MASS_MIN_KG, SMALL_MASS_MAX_KG)
+			return MeteorPhysics.sample_log_uniform(
+				_rng, SMALL_MASS_MIN_KG, SMALL_MASS_MAX_KG
+			)
 		SIZE_MEDIUM:
-			return _rng.randf_range(MEDIUM_MASS_MIN_KG, MEDIUM_MASS_MAX_KG)
+			return MeteorPhysics.sample_log_uniform(
+				_rng, MEDIUM_MASS_MIN_KG, MEDIUM_MASS_MAX_KG
+			)
 		_:
-			return _rng.randf_range(LARGE_MASS_MIN_KG, LARGE_MASS_MAX_KG)
+			return MeteorPhysics.sample_log_uniform(
+				_rng, LARGE_MASS_MIN_KG, LARGE_MASS_MAX_KG
+			)
 
 
 # Build a single pending spec. Lateral / altitude / velocity jitter are

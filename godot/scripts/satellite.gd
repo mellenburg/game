@@ -25,13 +25,17 @@ const SCENE_SCALE: float = 1.0 / 1000.0
 # 1000 kg reference.
 const MARKER_BASE_SIZE: float = 0.15
 const MARKER_REFERENCE_MASS_KG: float = 1000.0
-# Clamp band for the cube-root-of-mass marker scale. Meteorite masses
-# now span eleven orders of magnitude (1e4 .. 5e11 kg); without a cap
-# the cube-root-of-mass term would grow the marker to ~800x base for
-# the heaviest bodies, dwarfing Earth itself in the 3D view. The
-# floor keeps small bodies visible without collapsing them to a
-# point; the ceiling caps the largest bodies at a chunky-but-readable
-# size against the planet.
+# Mass-to-marker-size envelope. Two regimes:
+#   * Bodies below the meteorite burn-up threshold (player ships,
+#     unarmed enemies) keep the legacy cube-root-of-mass scaling,
+#     anchored to the 1000 kg reference and clamped so a fully-
+#     fueled default unit looks the same as it always did.
+#   * Meteorites and decaying-orbit threats span ~8 orders of
+#     magnitude in mass, so cube-root scaling explodes to ~800x.
+#     For those, _marker_box_size lerps across the same MIN..MAX
+#     band but uses MeteorPhysics.mass_log_norm — log-decade
+#     scaling — so the player can actually tell a 10-Gg rock from
+#     a 100-Tg one at a glance.
 const MARKER_SCALE_MIN: float = 0.5
 const MARKER_SCALE_MAX: float = 6.0
 const DEFAULT_R := Vector3(-6045.0, -3490.0, 2500.0)
@@ -877,10 +881,21 @@ func _sync_marker_position() -> void:
 # negative mass — should one slip through — doesn't collapse the cube
 # to a point.
 func _marker_box_size() -> Vector3:
-	var ratio := pow(
-		maxf(mass, 1.0) / MARKER_REFERENCE_MASS_KG, 1.0 / 3.0
-	)
-	var scale := clampf(ratio, MARKER_SCALE_MIN, MARKER_SCALE_MAX)
+	var scale: float
+	if is_meteorite or is_decaying:
+		# Log-decade mapping: a body at the burn-up threshold renders at
+		# MIN, one 8 decades above at MAX. Spreads the ~8 orders of
+		# magnitude of meteorite masses across a readable 0.5..6x band.
+		var t := MeteorPhysics.mass_log_norm(mass)
+		scale = lerpf(MARKER_SCALE_MIN, MARKER_SCALE_MAX, t)
+	else:
+		# Player ships and orbital enemies keep the legacy cube-root
+		# scaling against the 1000 kg reference. Clamp so a runaway
+		# mass (shouldn't happen, but defensive) doesn't dwarf Earth.
+		var ratio := pow(
+			maxf(mass, 1.0) / MARKER_REFERENCE_MASS_KG, 1.0 / 3.0
+		)
+		scale = clampf(ratio, MARKER_SCALE_MIN, MARKER_SCALE_MAX)
 	var side := MARKER_BASE_SIZE * scale
 	return Vector3(side, side, side)
 

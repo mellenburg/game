@@ -100,6 +100,66 @@ func test_composition_name_known() -> void:
 	assert_eq(MeteorPhysics.composition_name(99), "unknown")
 
 
+func test_damage_areas_are_exclusive_rings() -> void:
+	# heavy is the inner disc; moderate / light are exclusive rings
+	# outside it. Sum of all three should equal the total light disc
+	# (π × R_light²) — the cross-check that the partition is a clean
+	# nested-rings split, not three overlapping discs.
+	var radii: Dictionary = MeteorPhysics.damage_radii_km(1.0e9)
+	var areas: Dictionary = MeteorPhysics.damage_areas_km2(1.0e9)
+	var r_light: float = float(radii["light"])
+	var expected_total: float = PI * r_light * r_light
+	var summed: float = (
+		float(areas["light"]) + float(areas["moderate"]) + float(areas["heavy"])
+	)
+	assert_close(summed, expected_total, expected_total * 1.0e-6)
+	# Heavy must be the inner disc area.
+	var r_heavy: float = float(radii["heavy"])
+	assert_close(float(areas["heavy"]), PI * r_heavy * r_heavy, 1.0e-3)
+	# Moderate ring carries strictly positive area for any non-degenerate
+	# mass (R_moderate > R_heavy by construction).
+	assert_true(float(areas["moderate"]) > 0.0)
+
+
+func test_sample_log_uniform_covers_decades() -> void:
+	# Log-uniform sampling over a 3-decade band should put roughly a
+	# third of samples in each decade. The legacy randf_range
+	# concentrated >90% of samples in the top decade, which is the bug
+	# this helper fixes. Run a couple thousand samples and check each
+	# decade's share is comfortably above the legacy floor.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 17
+	var lo := 1.0e4
+	var hi := 1.0e7
+	var per_decade := [0, 0, 0]
+	var n := 2000
+	for _i in range(n):
+		var v := MeteorPhysics.sample_log_uniform(rng, lo, hi)
+		# Decade index 0..2: log10(v / lo) in [0, 3).
+		var idx: int = clampi(int(log(v / lo) / log(10.0)), 0, 2)
+		per_decade[idx] += 1
+	# Each decade should hold ~1/3 of samples; allow a generous tolerance
+	# (15-50%) so the test isn't seed-fragile but still catches a
+	# regression to uniform sampling (which would put >85% in decade 2).
+	for c in per_decade:
+		assert_true(int(c) > int(n) * 0.15)
+		assert_true(int(c) < int(n) * 0.50)
+
+
+func test_mass_log_norm_endpoints() -> void:
+	# At and below the burn-up threshold the norm is 0; at the upper
+	# anchor (REF × 10^DECADES) it saturates at 1; in between it lerps.
+	assert_close(MeteorPhysics.mass_log_norm(0.0), 0.0, 1.0e-9)
+	assert_close(MeteorPhysics.mass_log_norm(MeteorPhysics.BURN_UP_THRESHOLD_KG), 0.0, 1.0e-9)
+	var top: float = MeteorPhysics.MARKER_LOG_REF_KG * pow(10.0, MeteorPhysics.MARKER_LOG_DECADES)
+	assert_close(MeteorPhysics.mass_log_norm(top), 1.0, 1.0e-9)
+	# Off the top anchor the norm clamps at 1.0 — no overflow into >1.
+	assert_close(MeteorPhysics.mass_log_norm(top * 100.0), 1.0, 1.0e-9)
+	# Half-way (in log space) lands at 0.5 within float tolerance.
+	var mid: float = MeteorPhysics.MARKER_LOG_REF_KG * pow(10.0, MeteorPhysics.MARKER_LOG_DECADES * 0.5)
+	assert_close(MeteorPhysics.mass_log_norm(mid), 0.5, 1.0e-6)
+
+
 func test_mass_for_hp_inverts_hp_for() -> void:
 	# Round-trip: mass_for_hp(hp_for(m, ρ), ρ) == m. Lets the live-damage
 	# path on Satellite recompute mass cleanly from current HP without

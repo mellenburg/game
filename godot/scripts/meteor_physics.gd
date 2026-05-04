@@ -134,6 +134,64 @@ static func damage_radii_km(mass_kg: float) -> Dictionary:
 	}
 
 
+## Per-tier surface area damaged (km²) by a single impact. The three
+## tiers are concentric, so each band's area is the *exclusive* ring
+## between its outer radius and the next-tier radius in — a square
+## kilometre inside the heavy radius is reported once (as heavy), not
+## three times. The end-of-mission summary sums these across every
+## recorded impact, so this convention keeps the totals readable as
+## "area that suffered exactly this severity".
+static func damage_areas_km2(mass_kg: float) -> Dictionary:
+	var radii: Dictionary = damage_radii_km(mass_kg)
+	var r_light: float = float(radii["light"])
+	var r_moderate: float = float(radii["moderate"])
+	var r_heavy: float = float(radii["heavy"])
+	var heavy_area: float = PI * r_heavy * r_heavy
+	var moderate_area: float = maxf(
+		PI * (r_moderate * r_moderate - r_heavy * r_heavy), 0.0
+	)
+	var light_area: float = maxf(
+		PI * (r_light * r_light - r_moderate * r_moderate), 0.0
+	)
+	return {
+		"light": light_area,
+		"moderate": moderate_area,
+		"heavy": heavy_area,
+	}
+
+
+## Log-uniform mass sampler. The legacy `randf_range(lo, hi)` over a
+## three-decade band concentrates ~90% of samples in the top decade,
+## which made the spawned waves visually monotonous (almost every
+## body landed near the band's high end). Log-uniform sampling means
+## each *order of magnitude* inside the band gets equal weight, so
+## across a wave the player sees genuine size variety from the band's
+## floor to its ceiling. Falls back to plain uniform when either
+## bound is non-positive (well-defined log isn't available there).
+static func sample_log_uniform(
+	rng: RandomNumberGenerator, lo: float, hi: float
+) -> float:
+	if lo <= 0.0 or hi <= 0.0:
+		return rng.randf_range(lo, hi)
+	var lo_ln: float = log(lo)
+	var hi_ln: float = log(hi)
+	return exp(rng.randf_range(lo_ln, hi_ln))
+
+
+## Marker / radar sizing helper: 0.0 for a body at the burn-up
+## threshold, 1.0 for a body at `MARKER_LOG_DECADES` decades above,
+## clamped at the endpoints so any mass produces a finite, monotonic
+## scale. Lets the 3D marker and the impact-map / radar overlays
+## share a single size envelope across the meteorite mass range.
+const MARKER_LOG_REF_KG: float = BURN_UP_THRESHOLD_KG
+const MARKER_LOG_DECADES: float = 8.0
+static func mass_log_norm(mass_kg: float) -> float:
+	if mass_kg <= MARKER_LOG_REF_KG:
+		return 0.0
+	var ratio: float = mass_kg / MARKER_LOG_REF_KG
+	return clampf(log(ratio) / (MARKER_LOG_DECADES * log(10.0)), 0.0, 1.0)
+
+
 ## Coarse damage tier for the impact map's drawing logic. Bodies
 ## below the burn-up threshold get TIER_NONE and should be skipped
 ## entirely. Above that, the tier escalates with mass: small bodies

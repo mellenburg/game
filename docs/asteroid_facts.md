@@ -226,6 +226,54 @@ the tsunami threat. Worth revisiting once the coastal-cities /
 surface-installations content gets fleshed out.
 
 
+## What the player actually sees in a wave
+
+The mass spread inside a wave is what determines whether the
+operator sees variety or "every rock looks the same". Two settings
+control it: the mass bands themselves, and the *sampling
+distribution* inside each band.
+
+The spawner now uses **log-uniform sampling** within each band, so
+each order of magnitude inside a band gets equal weight. (The
+legacy `randf_range` distribution stuffed ~90% of a 3-decade band
+into its top decade — every "small" rock looked like a 5-10 Gg
+boulder, every "medium" rock like a 5-10 Tg city-killer.)
+
+For the current band edges, log-uniform sampling means roughly:
+
+| Band   | Mass range          | Where samples land (≈ third of band each)         |
+| ------ | ------------------- | -------------------------------------------------- |
+| small  | 10 Mg .. 10 Gg      | 1/3 in 10–100 Mg, 1/3 in 100 Mg–1 Gg, 1/3 in 1–10 Gg |
+| medium | 10 Gg .. 10 Tg      | 1/3 in 10–100 Gg, 1/3 in 100 Gg–1 Tg, 1/3 in 1–10 Tg |
+| large  | 10 Tg .. 500 Tg     | 1/3 each across roughly half-decade slices         |
+
+In a 20-body alpha-class wave (default mix: 80% small / 15% medium
+/ 5% large) you'd typically get something like:
+
+* **5–6 bodies in the 10–100 Mg "boulder" range** — small markers,
+  damage radius ~3–7 km, visible single yellow dot on the impact
+  map. Player can chip several to inert with one or two laser shots.
+* **5–6 bodies in the 100 Mg–1 Gg "village-killer" range** — light
+  damage radius ~7–15 km. Lasers handle them with focused fire.
+* **3–4 bodies in the 1–10 Gg range** — heavy enough that several
+  shots are needed; the impact map paints the orange ring.
+* **2–3 medium-band bodies in the 10 Gg–1 Tg range** — Tunguska
+  precursors. Players will see all three damage rings on impact.
+* **1 large-band Tunguska / Didymos-class body** roughly every
+  20-body wave — the boss-class threat the loadout has to plan for.
+
+The 3D marker uses a log-decade scale (`MeteorPhysics.mass_log_norm`)
+so the markers across that span actually look different on screen:
+
+| Mass        | Marker scale (× base 0.15 unit cube) |
+| ----------- | ------------------------------------- |
+| 10 Mg (1e4) | 0.5x  — minimum (just visible)        |
+| 1 Gg (1e6)  | ~1.4x                                 |
+| 1 Tg (1e9)  | ~3.9x                                 |
+| 100 Tg (1e11)| ~5.4x                                |
+| 1 Pg (1e12) | 6.0x  — maximum                       |
+
+
 ## Mass bands the game spawns
 
 `MeteorPhysics` and `SpawnDirector` agree on three bands. Roughly:
