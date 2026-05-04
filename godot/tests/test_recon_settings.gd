@@ -143,12 +143,12 @@ func test_duplicate_class_makes_independent_copy() -> void:
 	var d := c.duplicate_class()
 	d.count_min = 999
 	d.location_arc_deg = 1.0
-	d.time_spread_sec = 1.0
+	d.time_spread_min = 1.0
 	assert_true(c.count_min != d.count_min,
 		"mutation on duplicate must not bleed to source")
 	assert_true(c.location_arc_deg != d.location_arc_deg,
 		"location arc duplicate independence")
-	assert_true(c.time_spread_sec != d.time_spread_sec,
+	assert_true(c.time_spread_min != d.time_spread_min,
 		"time spread duplicate independence")
 
 
@@ -164,12 +164,21 @@ func test_clamp_location_arc_keeps_within_band() -> void:
 
 func test_clamp_time_spread_keeps_within_band() -> void:
 	var c := WaveUnitClass.new()
-	c.time_spread_sec = 0.1
+	c.time_spread_min = 0.1
 	c.clamp_time_spread()
-	assert_close(c.time_spread_sec, WaveUnitClass.TIME_SPREAD_MIN_SEC, 1.0e-9)
-	c.time_spread_sec = 999.0
+	assert_close(c.time_spread_min, WaveUnitClass.TIME_SPREAD_MIN_MIN, 1.0e-9)
+	c.time_spread_min = 9999.0
 	c.clamp_time_spread()
-	assert_close(c.time_spread_sec, WaveUnitClass.TIME_SPREAD_MAX_SEC, 1.0e-9)
+	assert_close(c.time_spread_min, WaveUnitClass.TIME_SPREAD_MAX_MIN, 1.0e-9)
+
+
+func test_time_spread_sec_converts_minutes_to_seconds() -> void:
+	# Editor edits in minutes; spawn director consumes seconds. The
+	# helper is the boundary — pin the conversion here so a future tweak
+	# to the unit doesn't silently slip past the wave timing tests.
+	var c := WaveUnitClass.new()
+	c.time_spread_min = 5.0
+	assert_close(c.time_spread_sec(), 300.0, 1.0e-6)
 
 
 func test_lateral_spread_for_altitude_scales_with_arc() -> void:
@@ -208,14 +217,29 @@ func test_composition_unit_count_sums_classes() -> void:
 
 
 func test_composition_sample_duration_in_range() -> void:
+	# Editor edits hours; sample returns sim-seconds. A 2-5 hour range
+	# yields samples in [7200, 18000] sim-sec.
 	var w := WaveComposition.new()
 	w.duration_min = 2.0
 	w.duration_max = 5.0
 	var rng := _seeded_rng()
 	for _i in range(30):
 		var d := w.sample_duration(rng)
-		assert_true(d >= 2.0 - 1.0e-9 and d <= 5.0 + 1.0e-9,
-			"duration %f outside [2, 5]" % d)
+		assert_true(d >= 7200.0 - 1.0e-6 and d <= 18000.0 + 1.0e-6,
+			"duration %f outside [7200, 18000] sim-sec" % d)
+
+
+func test_composition_sample_delay_in_range() -> void:
+	# Same hours-to-seconds boundary as duration. A 1-3 hour delay
+	# yields samples in [3600, 10800] sim-sec.
+	var w := WaveComposition.new()
+	w.delay_min = 1.0
+	w.delay_max = 3.0
+	var rng := _seeded_rng()
+	for _i in range(30):
+		var d := w.sample_delay(rng)
+		assert_true(d >= 3600.0 - 1.0e-6 and d <= 10800.0 + 1.0e-6,
+			"delay %f outside [3600, 10800] sim-sec" % d)
 
 
 func test_composition_clamp_swaps_inverted_handles() -> void:

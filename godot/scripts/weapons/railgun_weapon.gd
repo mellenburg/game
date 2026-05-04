@@ -67,7 +67,7 @@ const ENERGY_PER_SHOT_J: float = SLUG_MUZZLE_KE_J / WALLPLUG_EFFICIENCY
 # class's target_coupling_for() hook.
 const TARGET_COUPLING_DEFAULT: float = 0.5
 # Sim-seconds for the cooldown bar to climb from 0 (just-fired) back
-# to 1 (ready). At the default time_factor=500 that's ~1.2 seconds
+# to 1 (ready). At the default time_factor=300 that's ~2 seconds
 # of wall-clock — comparable to the laser's full overheat-cool cycle
 # but felt as a single discrete beat between shots rather than a
 # saturation lockout. Sized far slower than the original 12 sim-sec

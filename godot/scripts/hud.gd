@@ -22,6 +22,7 @@ const LosCheck = preload("res://scripts/los_check.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const SimClock = preload("res://scripts/sim_clock.gd")
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
@@ -166,22 +167,34 @@ func _is_hit_target(sat: Satellite) -> bool:
 	return false
 
 
-func update_hud(orbital_set: Node, planning_mode: bool, time_factor: int, dt: int) -> void:
+func update_hud(
+	orbital_set: Node,
+	planning_mode: bool,
+	time_factor: int,
+	dt: int,
+	sim_time: float,
+) -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	if now - _last_text_update < HUD_UPDATE_INTERVAL:
 		return
 	_last_text_update = now
 
-	_update_info_label(planning_mode, time_factor, dt)
+	_update_info_label(planning_mode, time_factor, dt, sim_time)
 	_update_rosters(orbital_set, planning_mode)
 	_update_kill_stats(orbital_set)
 
 
-func _update_info_label(planning_mode: bool, time_factor: int, dt: int) -> void:
+func _update_info_label(
+	planning_mode: bool, time_factor: int, dt: int, sim_time: float
+) -> void:
 	if info_label == null:
 		return
 	var lines := PackedStringArray()
 	lines.append("[font_size=14]")
+	# UTC clock above the time factor — operator's anchor for "when is
+	# the next wave?". Mission schedule and wave timers all run on this
+	# clock, so the displayed UTC time is the canonical timestamp.
+	lines.append("[color=#9aa9b8]%s[/color]" % SimClock.format_utc(sim_time))
 	if planning_mode:
 		lines.append("[color=yellow]PLANNING MODE[/color]")
 	lines.append("Time Factor: %d" % time_factor)

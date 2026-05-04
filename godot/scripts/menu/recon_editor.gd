@@ -59,10 +59,14 @@ const COUNT_MIN_BOUND: float = 1.0
 const COUNT_MAX_BOUND: float = 50.0
 const RATIO_MIN_BOUND: float = 0.0
 const RATIO_MAX_BOUND: float = 1.0
+# Duration / delay are now expressed in *game-time hours* (see
+# WaveComposition). Bounds picked to give the editor room for
+# multi-hour delays between waves and sub-hour spawn windows; mission
+# tick advances in sim-time so these scale with time_factor.
 const DURATION_MIN_BOUND: float = 0.0
-const DURATION_MAX_BOUND: float = 30.0
+const DURATION_MAX_BOUND: float = 6.0
 const DELAY_MIN_BOUND: float = 0.0
-const DELAY_MAX_BOUND: float = 120.0
+const DELAY_MAX_BOUND: float = 24.0
 const UNIT_COUNT_MAX_BOUND: float = 50.0
 
 var _settings: ReconSettings
@@ -243,14 +247,14 @@ func _build_class_panel(
 			c.clamp_location_arc(),
 	))
 
-	col.add_child(_field_label("Time spread (s)"))
+	col.add_child(_field_label("Time spread (min)"))
 	col.add_child(_single_value_slider(
-		c.time_spread_sec,
-		WaveUnitClass.TIME_SPREAD_MIN_SEC,
-		WaveUnitClass.TIME_SPREAD_MAX_SEC,
-		0.5, "%.1f",
+		c.time_spread_min,
+		WaveUnitClass.TIME_SPREAD_MIN_MIN,
+		WaveUnitClass.TIME_SPREAD_MAX_MIN,
+		1.0, "%d",
 		func(v: float) -> void:
-			c.time_spread_sec = v
+			c.time_spread_min = v
 			c.clamp_time_spread(),
 	))
 
@@ -397,19 +401,19 @@ func _build_wave_row(idx: int) -> Control:
 	hbox.add_child(_unit_count_column("γ", w.gamma_units,
 		func(v: int) -> void: w.gamma_units = v))
 
-	hbox.add_child(_wave_range_column("Duration (s)",
+	hbox.add_child(_wave_range_column("Duration (h)",
 		w.duration_min, w.duration_max,
 		DURATION_MIN_BOUND, DURATION_MAX_BOUND,
-		DURATION_DEFAULT_SPREAD, "%.1f",
+		DURATION_DEFAULT_SPREAD, "%.2f",
 		func(low: float, high: float) -> void:
 			w.duration_min = low
 			w.duration_max = high
 			w.clamp_duration()))
 
-	hbox.add_child(_wave_range_column("Delay (s)",
+	hbox.add_child(_wave_range_column("Delay (h)",
 		w.delay_min, w.delay_max,
 		DELAY_MIN_BOUND, DELAY_MAX_BOUND,
-		DELAY_DEFAULT_SPREAD, "%.1f",
+		DELAY_DEFAULT_SPREAD, "%.2f",
 		func(low: float, high: float) -> void:
 			w.delay_min = low
 			w.delay_max = high

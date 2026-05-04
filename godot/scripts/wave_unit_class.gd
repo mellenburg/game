@@ -40,12 +40,17 @@ const COUNT_MAX: int = 50
 const ARC_MIN_DEG: float = 15.0
 const ARC_MAX_DEG: float = 180.0
 
-# Temporal spread, in seconds, over which a wave-unit's objects appear
-# in play. Independent of the 10 s preroll — that lead time is added
-# on top so the radar overlay has the same window to scroll incoming
-# blips into view regardless of how short the spawn burst itself is.
-const TIME_SPREAD_MIN_SEC: float = 1.0
-const TIME_SPREAD_MAX_SEC: float = 20.0
+# Temporal spread, in *game-time minutes*, over which a wave-unit's
+# objects appear in play. Independent of the radar preroll — that lead
+# time is added on top so the radar overlay has the same window to
+# scroll incoming blips into view regardless of how short the spawn
+# burst itself is. Minutes (rather than seconds) because the spawn
+# director's wave tick advances in sim-seconds and a 1-second burst
+# at the default time_factor compresses into a few wall-clock ms;
+# minutes give the editor a natural scale to author meaningful spread.
+const TIME_SPREAD_MIN_MIN: float = 1.0
+const TIME_SPREAD_MAX_MIN: float = 60.0
+const SECONDS_PER_MINUTE: float = 60.0
 
 @export var count_min: int = 20
 @export var count_max: int = 20
@@ -55,7 +60,7 @@ const TIME_SPREAD_MAX_SEC: float = 20.0
 @export var size_medium: float = 0.25
 @export var size_large: float = 0.05
 @export var location_arc_deg: float = 30.0
-@export var time_spread_sec: float = 10.0
+@export var time_spread_min: float = 10.0
 
 
 # Sample a concrete object count for one wave-unit instance. Range
@@ -156,9 +161,16 @@ func clamp_location_arc() -> void:
 
 
 func clamp_time_spread() -> void:
-	time_spread_sec = clampf(
-		time_spread_sec, TIME_SPREAD_MIN_SEC, TIME_SPREAD_MAX_SEC
+	time_spread_min = clampf(
+		time_spread_min, TIME_SPREAD_MIN_MIN, TIME_SPREAD_MAX_MIN
 	)
+
+
+# Sim-second view of the spread for spawn director consumption — the
+# wave timers tick in sim-seconds, so the editor's minute value gets
+# multiplied here at the boundary.
+func time_spread_sec() -> float:
+	return time_spread_min * SECONDS_PER_MINUTE
 
 
 # Approximate lateral spread in km equivalent to the configured arc,
@@ -195,7 +207,7 @@ static func default_alpha() -> WaveUnitClass:
 	c.size_medium = 0.15
 	c.size_large = 0.05
 	c.location_arc_deg = 120.0
-	c.time_spread_sec = 16.0
+	c.time_spread_min = 25.0
 	return c
 
 
@@ -209,7 +221,7 @@ static func default_beta() -> WaveUnitClass:
 	c.size_medium = 0.40
 	c.size_large = 0.15
 	c.location_arc_deg = 60.0
-	c.time_spread_sec = 12.0
+	c.time_spread_min = 20.0
 	return c
 
 
@@ -223,7 +235,7 @@ static func default_gamma() -> WaveUnitClass:
 	c.size_medium = 0.40
 	c.size_large = 0.40
 	c.location_arc_deg = 25.0
-	c.time_spread_sec = 8.0
+	c.time_spread_min = 15.0
 	return c
 
 
@@ -237,5 +249,5 @@ func duplicate_class() -> WaveUnitClass:
 	c.size_medium = size_medium
 	c.size_large = size_large
 	c.location_arc_deg = location_arc_deg
-	c.time_spread_sec = time_spread_sec
+	c.time_spread_min = time_spread_min
 	return c

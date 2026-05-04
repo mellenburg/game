@@ -83,19 +83,20 @@ class _BlipLayer extends Control:
 			)
 
 	func _draw_wave(wave: Object) -> void:
-		# Guard against a wave that hasn't been populated (zero-duration
-		# divisions) — the empty grid is the right visual.
-		var duration: float = wave.duration_sec
+		# Guard against a wave that hasn't been populated (zero-spread /
+		# zero-window divisions) — the empty grid is the right visual.
+		var window: float = wave.warning_window_sec
 		var spread: float = wave.lateral_spread_km
-		if duration <= 0.0 or spread <= 0.0:
+		if window <= 0.0 or spread <= 0.0:
 			return
 		var pending: Array = wave.pending
 		for entry: Dictionary in pending:
 			var lat: Vector2 = entry["lateral"]
 			var t: float = entry["t"]
-			# Bodies still in the preroll window (t > duration) are above
-			# the radar — skip until they scroll into view from the top.
-			if t > duration:
+			# Bodies whose t exceeds the warning window are still queued
+			# beyond the radar's lead-time horizon — skip until they
+			# scroll into view from the top.
+			if t > window:
 				continue
 			# X projection: tangent-axis component of the in-plane offset,
 			# normalised to [-1, 1] of the wave's lateral spread. A wave
@@ -103,10 +104,12 @@ class _BlipLayer extends Control:
 			# semicircle-density bell shape on this axis, matching the
 			# operator's mental model for "incoming spread".
 			var x_norm := clampf(lat.x / spread, -1.0, 1.0)
-			# Y projection: t = duration → top (just queued, far away);
+			# Y projection: t = window → top (just appeared on the radar);
 			# t = 0 → bottom (about to spawn). Godot's local Y grows
-			# downward, so larger t maps to smaller pixel_y.
-			var y_norm := clampf(1.0 - t / duration, 0.0, 1.0)
+			# downward, so larger t maps to smaller pixel_y. The window's
+			# sim-seconds scale with time_factor, so a higher Research
+			# tier (longer warning) naturally extends the visible lead.
+			var y_norm := clampf(1.0 - t / window, 0.0, 1.0)
 			var p := Vector2(
 				origin.x + (x_norm * 0.5 + 0.5) * view_size.x,
 				origin.y + y_norm * view_size.y,
@@ -224,13 +227,13 @@ func _update_readout() -> void:
 	if _readout == null:
 		return
 	var pending_total := 0
-	var max_duration := 0.0
+	var max_window := 0.0
 	for w: MeteoriteWave in waves:
 		if w == null:
 			continue
 		pending_total += w.pending.size()
-		if w.duration_sec > max_duration:
-			max_duration = w.duration_sec
+		if w.warning_window_sec > max_window:
+			max_window = w.warning_window_sec
 	if pending_total == 0:
 		_readout.text = (
 			"[font_size=11][color=#9aa9b8]"
@@ -238,7 +241,10 @@ func _update_readout() -> void:
 			+ "[/color][/font_size]"
 		)
 		return
+	# Window readout in game-time hours — the radar lead is upgradable
+	# via Research and lives on the same hour-scale clock as the wave
+	# delays in the Recon editor.
 	_readout.text = (
 		"[font_size=11][color=#9aa9b8]Pending: [color=#ffd27a]%d[/color]"
-		+ "  Window: [color=#7fcf7f]%.1fs[/color][/color][/font_size]"
-	) % [pending_total, max_duration]
+		+ "  Warning: [color=#7fcf7f]%.1f h[/color][/color][/font_size]"
+	) % [pending_total, max_window / 3600.0]

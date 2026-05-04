@@ -64,19 +64,24 @@ static func default_settings() -> ReconSettings:
 	s.alpha_class = WaveUnitClass.default_alpha()
 	s.beta_class = WaveUnitClass.default_beta()
 	s.gamma_class = WaveUnitClass.default_gamma()
+	# Defaults expressed in game-time hours — at the default time_factor
+	# the first wave fires ~30 min in, with subsequent waves spaced ~3 h
+	# apart. Comparable feel to the legacy realtime values (3 / 25 / 25
+	# / 30 / 30 sec at TF=500 ⇒ ~0.4 h / 3.5 h / 3.5 h / 4.2 h / 4.2 h).
 	s.waves = [
-		_make_wave(3, 0, 0, 2.0, false, 3.0),
-		_make_wave(5, 0, 0, 4.0, false, 25.0),
-		_make_wave(4, 4, 0, 3.5, false, 25.0),
-		_make_wave(5, 3, 2, 4.5, false, 30.0),
-		_make_wave(3, 4, 3, 4.0, true, 30.0),
+		_make_wave(3, 0, 0, 0.25, false, 0.5),
+		_make_wave(5, 0, 0, 0.50, false, 3.0),
+		_make_wave(4, 4, 0, 0.50, false, 3.0),
+		_make_wave(5, 3, 2, 0.60, false, 4.0),
+		_make_wave(3, 4, 3, 0.50, true, 4.0),
 	]
 	return s
 
 
 # Build a wave with min==max ranges so the default schedule is
 # deterministic; the editor gives those ranges a default spread when
-# the user first interacts with them.
+# the user first interacts with them. `duration` and `delay` are in
+# game-time hours — see WaveComposition for the unit conversion rule.
 static func _make_wave(
 	alpha_n: int,
 	beta_n: int,
@@ -103,7 +108,7 @@ static func _make_wave(
 func add_wave() -> WaveComposition:
 	var seed: WaveComposition
 	if waves.is_empty():
-		seed = _make_wave(3, 0, 0, 4.0, false, 25.0)
+		seed = _make_wave(3, 0, 0, 0.5, false, 3.0)
 	else:
 		seed = waves[waves.size() - 1].duplicate_composition()
 		# Fresh wave starts with a single alpha wave-unit so the row

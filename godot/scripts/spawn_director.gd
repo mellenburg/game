@@ -109,14 +109,24 @@ const WAVE_DECAYING_COUNT_MIN: int = 4
 const WAVE_DECAYING_COUNT_MAX: int = 8
 
 # Wave mode: 20 meteorites from a single shared nexus, arrival times
-# distributed uniformly across a 10-second wall-clock window so the
-# player has continuous incoming traffic rather than a single burst.
-# A preroll alert window precedes the spawn window so the operator
-# gets time to react — bodies "scroll into" the radar from the top
-# during the preroll, then begin entering play once it elapses.
+# distributed uniformly across a sim-time window so the player has
+# continuous incoming traffic rather than a single burst. A radar
+# warning window precedes the spawn window so the operator gets time
+# to react — bodies "scroll into" the radar from the top during the
+# warning period, then begin entering play once their per-body timer
+# elapses. Both values are in *sim-seconds*: the wave's tick advances
+# in sim-time so they automatically rescale with time_factor changes.
 const METEORITE_WAVE_COUNT: int = 20
-const METEORITE_WAVE_DURATION_SEC: float = 10.0
-const METEORITE_WAVE_PREROLL_SEC: float = 10.0
+# 10 minutes of sim-time spread for the manual debug wave (I key);
+# loosely matches the legacy 10-real-second window at the previous
+# time_factor=500 default (5000 sim-sec) but rounded down so the
+# debug wave finishes spawning quickly during a playtest.
+const METEORITE_WAVE_DURATION_SEC: float = 600.0
+# Default radar warning window when Research is unavailable (e.g. a
+# direct main.tscn boot with no autoload). Mission gameplay reads
+# the warning window off Research.wave_warning_seconds(), which
+# starts at the same one-hour baseline.
+const DEFAULT_WAVE_WARNING_SEC: float = 3600.0
 
 # Decaying-orbit enemy: spawned just past apogee on a highly
 # eccentric ellipse — perigee 500 km, apogee 50000 km, e ≈ 0.78.
@@ -426,9 +436,10 @@ func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
 func start_meteorite_wave(
 	count: int = METEORITE_WAVE_COUNT,
 	duration_sec: float = METEORITE_WAVE_DURATION_SEC,
-	preroll_sec: float = METEORITE_WAVE_PREROLL_SEC,
+	preroll_sec: float = -1.0,
 ) -> void:
-	_emit_meteorite_wave(_random_unit_vector(), count, duration_sec, preroll_sec)
+	var warning := preroll_sec if preroll_sec >= 0.0 else _resolve_warning_sec()
+	_emit_meteorite_wave(_random_unit_vector(), count, duration_sec, warning)
 
 
 # Begin a meteorite wave whose entry direction is jittered around a
@@ -447,7 +458,7 @@ func start_meteorite_wave_clustered(base_r_hat: Vector3) -> void:
 		perturbed,
 		METEORITE_WAVE_COUNT,
 		METEORITE_WAVE_DURATION_SEC,
-		METEORITE_WAVE_PREROLL_SEC,
+		_resolve_warning_sec(),
 	)
 
 
@@ -487,19 +498,37 @@ func start_wave_unit_clustered(
 	var decaying_ratio := unit_class.sample_decaying_ratio(_rng)
 	var wave := _build_meteorite_wave_at_nexus(perturbed)
 	var spread_km := unit_class.lateral_spread_for_altitude(wave.base_altitude)
-	var duration_sec := unit_class.time_spread_sec
+	var duration_sec := unit_class.time_spread_sec()
+	var warning_sec := _resolve_warning_sec()
 	var specs := _sample_class_wave_specs(
 		count,
 		decaying_ratio,
 		unit_class,
 		duration_sec,
-		METEORITE_WAVE_PREROLL_SEC,
+		warning_sec,
 		spread_km,
 	)
+	wave.warning_window_sec = warning_sec
 	wave.set_specs(specs, duration_sec, spread_km)
 	meteorite_waves.append(wave)
 	if _threat_alert != null:
 		_threat_alert.trigger()
+
+
+# Pull the radar warning lead time off the Research autoload, in
+# sim-seconds. Falls back to DEFAULT_WAVE_WARNING_SEC when the autoload
+# isn't reachable (direct main.tscn boot, headless tests) so the wave
+# code never deals with a zero-warning edge case. Guards on
+# `is_inside_tree()` first so calling this on a freshly-allocated
+# SpawnDirector that's not been added yet doesn't push the engine's
+# "data.tree is null" error.
+func _resolve_warning_sec() -> float:
+	if not is_inside_tree():
+		return DEFAULT_WAVE_WARNING_SEC
+	var research := get_tree().root.get_node_or_null("Research")
+	if research == null:
+		return DEFAULT_WAVE_WARNING_SEC
+	return float(research.wave_warning_seconds())
 
 
 # Build per-object specs for a class-driven wave-unit. Object size
@@ -558,10 +587,11 @@ func _sample_class_wave_specs(
 # wave construction (mass mix, decaying-orbit subset, threat alert) is
 # identical so both produce the same wave shape downstream.
 func _emit_meteorite_wave(
-	r_hat: Vector3, count: int, duration_sec: float, preroll_sec: float
+	r_hat: Vector3, count: int, duration_sec: float, warning_sec: float
 ) -> void:
 	var wave := _build_meteorite_wave_at_nexus(r_hat)
-	var specs := _sample_wave_specs(count, duration_sec, preroll_sec)
+	var specs := _sample_wave_specs(count, duration_sec, warning_sec)
+	wave.warning_window_sec = warning_sec
 	wave.set_specs(specs, duration_sec, METEORITE_LATERAL_SPREAD_KM)
 	meteorite_waves.append(wave)
 	if _threat_alert != null:
