@@ -30,6 +30,7 @@ const SurfacePlacementMap = preload("res://scripts/menu/surface_placement_map.gd
 const Satellite = preload("res://scripts/satellite.gd")
 const ResearchGraph = preload("res://scripts/menu/research_graph.gd")
 const ReconEditor = preload("res://scripts/menu/recon_editor.gd")
+const SystemMap = preload("res://scripts/menu/system_map.gd")
 
 const STAGE_SCENE_PATH := "res://scenes/main.tscn"
 
@@ -64,6 +65,7 @@ const KINDS: Array[int] = [
 
 var _tabs: TabContainer
 var _stage_list: ItemList
+var _system_map: SystemMap
 var _stage_brief_title: Label
 var _stage_brief_meta: Label
 var _stage_brief_summary: Label
@@ -284,26 +286,43 @@ func _section(header: String, fixed_width: float) -> Array:
 # ---------------------------------------------------------------- Campaign
 
 func _build_campaign_tab() -> Control:
-	var hbox := _padded_hbox()
-	var pad: Control = hbox.get_parent() as Control
+	# Two-row layout: Mission Select + System Map share the top row,
+	# Mission Brief sits underneath spanning the full tab width. The
+	# brief used to live in a fixed-width right column; relocating it
+	# below frees horizontal space for the System Map at the cost of
+	# vertical space, which is the right trade because the brief is
+	# short text and the map is the primary navigation affordance.
+	var pad := MarginContainer.new()
+	pad.anchor_right = 1.0
+	pad.anchor_bottom = 1.0
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 12)
+	pad.add_theme_constant_override("margin_bottom", 12)
 
-	# Left column: stage list.
-	var left := _section("Theatre Index", 280)
-	hbox.add_child(left[0])
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 12)
+	pad.add_child(col)
+
+	var top := HBoxContainer.new()
+	top.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	top.size_flags_stretch_ratio = 2.4
+	top.add_theme_constant_override("separation", 12)
+	col.add_child(top)
+
+	# Left: Mission Select list.
+	var left := _section("Mission Select", 280)
+	top.add_child(left[0])
 	_stage_list = ItemList.new()
 	_stage_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_stage_list.allow_reselect = true
 	_stage_list.add_theme_color_override("font_color", COLOR_FG)
 	_stage_list.add_theme_color_override("font_selected_color", COLOR_ACCENT)
 	for stage in PlayerLoadout.STAGES:
-		var label := "%s\n%s · %s · %d waves" % [
-			stage["name"],
-			stage["code"],
-			stage["difficulty"],
-			int(stage["waves"]),
-		]
-		if not bool(stage.get("playable", false)):
-			label += "  [LOCKED]"
+		var label := _stage_list_label(stage)
 		var idx := _stage_list.add_item(label)
 		if not bool(stage.get("playable", false)):
 			_stage_list.set_item_custom_fg_color(idx, COLOR_FG_FAINT)
@@ -313,50 +332,83 @@ func _build_campaign_tab() -> Control:
 	_stage_list.item_selected.connect(_on_stage_selected)
 	left[1].add_child(_stage_list)
 
-	# Centre column: system-map placeholder.
-	var center := _section("Theatre Map", 0)
-	hbox.add_child(center[0])
-	var center_note := Label.new()
-	center_note.text = "(System map placeholder)"
-	center_note.add_theme_color_override("font_color", COLOR_FG_DIM)
-	center_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	center_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	center_note.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	center_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	center[1].add_child(center_note)
+	# Right: stylized solar-system map. Click-to-select mirrors the
+	# Mission Select list so either input updates the same selection.
+	var center := _section("System Map", 0)
+	top.add_child(center[0])
+	_system_map = SystemMap.new()
+	_system_map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_system_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_system_map.body_selected.connect(_on_system_map_body_selected)
+	center[1].add_child(_system_map)
 
-	# Right column: stage brief + LAUNCH.
-	var right := _section("Mission Brief", SIDE_PANEL_WIDTH)
-	hbox.add_child(right[0])
+	# Bottom row: Mission Brief panel spans full width. Text content
+	# expands; LAUNCH button sits in a fixed-width right column so the
+	# call-to-action stays anchored regardless of summary length.
+	var brief := _section("Mission Brief", 0)
+	brief[0].size_flags_stretch_ratio = 1.0
+	col.add_child(brief[0])
+
+	var brief_row := HBoxContainer.new()
+	brief_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	brief_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	brief_row.add_theme_constant_override("separation", 16)
+	brief[1].add_child(brief_row)
+
+	var brief_text := VBoxContainer.new()
+	brief_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	brief_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	brief_text.add_theme_constant_override("separation", 6)
+	brief_row.add_child(brief_text)
 
 	_stage_brief_title = Label.new()
 	_stage_brief_title.add_theme_color_override("font_color", COLOR_FG)
 	_stage_brief_title.add_theme_font_size_override("font_size", 18)
-	right[1].add_child(_stage_brief_title)
+	brief_text.add_child(_stage_brief_title)
 
 	_stage_brief_meta = Label.new()
 	_stage_brief_meta.add_theme_color_override("font_color", COLOR_FG_DIM)
 	_stage_brief_meta.add_theme_font_size_override("font_size", 11)
-	right[1].add_child(_stage_brief_meta)
+	brief_text.add_child(_stage_brief_meta)
 
-	right[1].add_child(_hr())
+	brief_text.add_child(_hr())
 
 	_stage_brief_summary = Label.new()
 	_stage_brief_summary.add_theme_color_override("font_color", COLOR_FG)
 	_stage_brief_summary.add_theme_font_size_override("font_size", 12)
 	_stage_brief_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_stage_brief_summary.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	right[1].add_child(_stage_brief_summary)
+	brief_text.add_child(_stage_brief_summary)
+
+	var launch_col := VBoxContainer.new()
+	launch_col.custom_minimum_size = Vector2(SIDE_PANEL_WIDTH * 0.55, 0)
+	launch_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	launch_col.alignment = BoxContainer.ALIGNMENT_END
+	brief_row.add_child(launch_col)
 
 	_launch_button = Button.new()
 	_launch_button.text = "LAUNCH ▶"
 	_launch_button.custom_minimum_size = Vector2(0, 44)
 	_launch_button.add_theme_font_size_override("font_size", 14)
 	_launch_button.pressed.connect(_on_launch_pressed)
-	right[1].add_child(_launch_button)
+	launch_col.add_child(_launch_button)
 
 	_refresh_stage_brief()
 	return pad
+
+
+# Mission Select row label. Just the body name, with a wave count on
+# playable rows and "[LOCKED]" on the rest. Mission code / difficulty
+# stay in the Mission Brief; surfacing them in the list made the rows
+# read as inventory codes rather than as a roster of destinations.
+func _stage_list_label(stage: Dictionary) -> String:
+	var label := String(stage.get("name", ""))
+	var waves := int(stage.get("waves", 0))
+	if waves > 0:
+		label += "\n%d waves" % waves
+	elif not bool(stage.get("playable", false)):
+		label += "\n[LOCKED]"
+	return label
 
 
 func _on_stage_selected(idx: int) -> void:
@@ -369,6 +421,20 @@ func _on_stage_selected(idx: int) -> void:
 	_refresh_stage_brief()
 
 
+# System Map click handler. The map only emits for playable bodies, so
+# we don't need to re-check playability here — but we do need to keep
+# the Mission Select ItemList highlight in sync, which is the one piece
+# of state the map can't reach on its own.
+func _on_system_map_body_selected(stage_id: String) -> void:
+	PlayerLoadout.selected_stage_id = stage_id
+	for i in range(PlayerLoadout.STAGES.size()):
+		var stage: Dictionary = PlayerLoadout.STAGES[i]
+		if String(stage.get("id", "")) == stage_id:
+			_stage_list.select(i)
+			break
+	_refresh_stage_brief()
+
+
 func _refresh_stage_brief() -> void:
 	var stage := PlayerLoadout.selected_stage()
 	if stage.is_empty():
@@ -377,12 +443,17 @@ func _refresh_stage_brief() -> void:
 		_stage_brief_summary.text = ""
 	else:
 		_stage_brief_title.text = String(stage.get("name", ""))
-		_stage_brief_meta.text = "%s · %s · %d waves" % [
-			stage.get("code", ""),
-			stage.get("difficulty", ""),
-			int(stage.get("waves", 0)),
+		var meta := "%s · %s" % [
+			String(stage.get("code", "")),
+			String(stage.get("difficulty", "")),
 		]
+		var waves := int(stage.get("waves", 0))
+		if waves > 0:
+			meta += " · %d waves" % waves
+		_stage_brief_meta.text = meta
 		_stage_brief_summary.text = String(stage.get("summary", ""))
+	if _system_map != null:
+		_system_map.refresh()
 	_launch_button.disabled = not PlayerLoadout.can_launch()
 	if _launch_button.disabled:
 		# Distinguish "no launches assigned" from "over budget" so the
