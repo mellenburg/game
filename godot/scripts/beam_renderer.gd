@@ -30,18 +30,32 @@ const Satellite = preload("res://scripts/satellite.gd")
 const HOLD_SECONDS: float = 0.04
 const FADE_SECONDS: float = 0.10
 
+# Style identifiers. Callers pass STYLE_LASER for energy beams and
+# STYLE_KINETIC for beam-mode railguns; each maps to its own core
+# radius / halo radius / colors below.
+const STYLE_LASER: String = "laser"
+const STYLE_KINETIC: String = "kinetic"
+
+# Laser: thin neon-green core with a small, dim emission halo. Core
+# radius is half the previous shared default so the beam reads as a
+# precise weapon trace rather than a chunky bar; halo is 1.6x core (vs
+# the kinetic 3x) and its alpha is dropped to ~0.18 so the glow stays
+# subtle.
+const LASER_CORE_RADIUS: float = 0.07
+const LASER_HALO_RADIUS: float = 0.11
+const LASER_CORE_COLOR := Color(0.55, 1.0, 0.35)
+const LASER_HALO_COLOR := Color(0.35, 1.0, 0.30, 0.18)
+
+# Kinetic (beam-mode railgun): the original warm orange profile so
+# operators can still tell the two weapon classes apart at a glance.
 # Scene units (1 unit = 1000 km). The camera orbits at ~38 units; at
 # 45° fov on a 1200-wide viewport, a 1 px line spans ~0.026 units in
 # world space, so the cylinder needs a radius on that order to read
-# as more than a hairline. 0.15 → ~5 px thickness at typical camera
-# distance, comparable to the prior 2.5 px screen-space line.
-const BEAM_CORE_RADIUS: float = 0.15
-# Outer halo: a wider, dimmer cylinder layered behind the core so the
-# beam reads as glowing rather than solid plastic. 3x core radius is
-# wide enough to bloom past the core silhouette without dominating.
-const BEAM_HALO_RADIUS: float = 0.45
-const BEAM_CORE_COLOR := Color(1.0, 0.85, 0.55)
-const BEAM_HALO_COLOR := Color(1.0, 0.40, 0.12, 0.45)
+# as more than a hairline.
+const KINETIC_CORE_RADIUS: float = 0.15
+const KINETIC_HALO_RADIUS: float = 0.45
+const KINETIC_CORE_COLOR := Color(1.0, 0.85, 0.55)
+const KINETIC_HALO_COLOR := Color(1.0, 0.40, 0.12, 0.45)
 
 var _shared_mesh: CylinderMesh
 # key "<attacker_iid>:<weapon_index>" → _Beam.
@@ -58,6 +72,10 @@ class _Beam:
 	var halo_inst: MeshInstance3D = null
 	var core_mat: StandardMaterial3D = null
 	var halo_mat: StandardMaterial3D = null
+	var core_radius: float = 0.0
+	var halo_radius: float = 0.0
+	var core_base_color: Color = Color.WHITE
+	var halo_base_color: Color = Color.WHITE
 
 
 func _ready() -> void:
@@ -75,14 +93,22 @@ func _ready() -> void:
 
 ## Called by EarthSystem each physics tick a weapon successfully fires.
 ## Spawns a beam for this (attacker, weapon_index) if absent, otherwise
-## refreshes target ref + last-fired timestamp.
-func register_fire(attacker: Satellite, weapon_index: int, target: Satellite) -> void:
+## refreshes target ref + last-fired timestamp. `style` selects the
+## visual preset (STYLE_LASER vs STYLE_KINETIC) — only honored on first
+## spawn for a given (attacker, weapon_index); subsequent calls reuse
+## the existing beam's preset.
+func register_fire(
+	attacker: Satellite,
+	weapon_index: int,
+	target: Satellite,
+	style: String = STYLE_KINETIC,
+) -> void:
 	if attacker == null or target == null:
 		return
 	var key := "%d:%d" % [attacker.get_instance_id(), weapon_index]
 	var beam: _Beam = _beams.get(key)
 	if beam == null:
-		beam = _spawn_beam()
+		beam = _spawn_beam(style)
 		beam.attacker = attacker
 		_beams[key] = beam
 	beam.target = target
@@ -93,16 +119,26 @@ func register_fire(attacker: Satellite, weapon_index: int, target: Satellite) ->
 	beam.target_pos = target.orbit.r
 
 
-func _spawn_beam() -> _Beam:
+func _spawn_beam(style: String) -> _Beam:
 	var beam := _Beam.new()
-	# Core: bright near-white inner cylinder, standard alpha-blend so it
-	# always reads as a clearly visible line on GL Compatibility (where
+	if style == STYLE_LASER:
+		beam.core_radius = LASER_CORE_RADIUS
+		beam.halo_radius = LASER_HALO_RADIUS
+		beam.core_base_color = LASER_CORE_COLOR
+		beam.halo_base_color = LASER_HALO_COLOR
+	else:
+		beam.core_radius = KINETIC_CORE_RADIUS
+		beam.halo_radius = KINETIC_HALO_RADIUS
+		beam.core_base_color = KINETIC_CORE_COLOR
+		beam.halo_base_color = KINETIC_HALO_COLOR
+	# Core: bright inner cylinder, standard alpha-blend so it always
+	# reads as a clearly visible line on GL Compatibility (where
 	# additive-only beams without a glow post-process can wash out).
-	beam.core_mat = _make_material(BEAM_CORE_COLOR, BaseMaterial3D.BLEND_MODE_MIX)
+	beam.core_mat = _make_material(beam.core_base_color, BaseMaterial3D.BLEND_MODE_MIX)
 	beam.core_inst = _make_instance(beam.core_mat)
 	# Halo: wider, additive, semi-transparent — gives the beam its
 	# energy-glow read against dark space without depending on glow.
-	beam.halo_mat = _make_material(BEAM_HALO_COLOR, BaseMaterial3D.BLEND_MODE_ADD)
+	beam.halo_mat = _make_material(beam.halo_base_color, BaseMaterial3D.BLEND_MODE_ADD)
 	beam.halo_inst = _make_instance(beam.halo_mat)
 	return beam
 
@@ -193,27 +229,27 @@ func _orient_beam(beam: _Beam, alpha: float) -> void:
 	# right way to stretch along the basis's local axes.
 	beam.core_inst.transform = Transform3D(
 		Basis(
-			x_axis * BEAM_CORE_RADIUS,
+			x_axis * beam.core_radius,
 			y_axis * length,
-			z_axis * BEAM_CORE_RADIUS,
+			z_axis * beam.core_radius,
 		),
 		origin,
 	)
 	beam.halo_inst.transform = Transform3D(
 		Basis(
-			x_axis * BEAM_HALO_RADIUS,
+			x_axis * beam.halo_radius,
 			y_axis * length,
-			z_axis * BEAM_HALO_RADIUS,
+			z_axis * beam.halo_radius,
 		),
 		origin,
 	)
 	# Fade by mutating each cached material's alpha in place. Halo
-	# alpha is the constant base * fade so it never overpowers the core.
-	var core_color := BEAM_CORE_COLOR
+	# alpha is the per-style base * fade so it never overpowers the core.
+	var core_color := beam.core_base_color
 	core_color.a = alpha
 	beam.core_mat.albedo_color = core_color
-	var halo_color := BEAM_HALO_COLOR
-	halo_color.a = BEAM_HALO_COLOR.a * alpha
+	var halo_color := beam.halo_base_color
+	halo_color.a = beam.halo_base_color.a * alpha
 	beam.halo_mat.albedo_color = halo_color
 
 
