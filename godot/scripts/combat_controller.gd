@@ -99,12 +99,17 @@ func process_combat(
 
 # Slug-mode railgun fire: shooter effects apply now (recoil, ammo,
 # energy, cooldown), target effects defer to slug arrival via the
-# on_arrival callable. The captured refs (attacker, target, weapon,
-# pending data) all need is_instance_valid guards inside the closure
-# because the slug can be in flight for many sim-seconds; an
-# arbitrary fraction of that window can include the shooter or
-# target being freed by another weapon, an orbit decay, or a target
-# kill from a sibling slug arriving first.
+# on_arrival callable.
+#
+# Closure captures instance_ids (ints) rather than Satellite refs:
+# the simulation queue_free's dead satellites, and a slug can be in
+# flight for many sim-seconds, so capturing the Node directly trips
+# Godot's "lambda capture was freed" warning the moment the target
+# (or attacker) is cleaned up. instance_from_id returns null for a
+# freed id, which is_instance_valid then catches cleanly. Weapon
+# (RefCounted) and the captured `pending` Dictionary are safe by
+# value; _hud is read off self at call time so it tracks live state
+# without a capture.
 func _fire_railgun_with_slug(
 	attacker: Satellite,
 	weapon: RailgunWeapon,
@@ -114,26 +119,22 @@ func _fire_railgun_with_slug(
 	var pending = weapon.prepare_shot(attacker, target, sim_delta)
 	if pending == null:
 		return false
-	var hud_ref := _hud
+	var attacker_iid: int = attacker.get_instance_id()
+	var target_iid: int = target.get_instance_id()
 	var on_arrival := func() -> void:
-		# Target may have been destroyed by another weapon between
-		# fire and arrival; apply_impact tolerates that, but skip the
-		# HUD flash so we don't blink a roster box for a body that's
-		# already dead.
-		if not is_instance_valid(target) or not target.alive:
+		var t = instance_from_id(target_iid)
+		if t == null or not is_instance_valid(t) or not t.alive:
 			return
-		var attacker_for_credit: Satellite = (
-			attacker if is_instance_valid(attacker) else null
-		)
-		weapon.apply_impact(attacker_for_credit, target, pending)
+		var a = instance_from_id(attacker_iid)
+		var attacker_for_credit = a if a != null and is_instance_valid(a) else null
+		weapon.apply_impact(attacker_for_credit, t, pending)
 		# HUD flash fires on arrival (not at trigger pull) so the
 		# roster red flash lines up with the slug visually striking
 		# the box. Drop the flash if the impact actually killed the
 		# attribution path — the kill happened, but there's no live
-		# shooter to credit, and the roster box already reflects the
-		# new state.
+		# shooter to credit.
 		if attacker_for_credit != null:
-			hud_ref.register_hit(attacker_for_credit, target)
+			_hud.register_hit(attacker_for_credit, t)
 	_slug_renderer.register_fire(attacker, target, on_arrival)
 	return true
 
