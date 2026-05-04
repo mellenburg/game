@@ -131,9 +131,12 @@ func test_railgun_fire_reserves_target_then_releases_on_slug_arrival() -> void:
 	assert_true(cc._fire_railgun_with_slug(attacker, weapon, enemy, 1.0))
 	assert_eq(cc.reserved_target_count(), 1)
 	# Tick the slug renderer with enough sim-time that the slug
-	# crosses the ~3000 km gap. At MUZZLE_VELOCITY_KMS = 20 km/s,
-	# 1 second of sim covers 20000 km — comfortably past arrival.
-	sr.tick(1.0)
+	# crosses the ~3000 km gap. At MUZZLE_VELOCITY_KMS = 20 km/s a
+	# single sim-second only advances 20 km, so derive the required
+	# tick from the constant rather than guessing — any future bump
+	# to muzzle velocity or test distance keeps the assertion honest.
+	var arrival_tick: float = (4000.0 / SlugRenderer.MUZZLE_VELOCITY_KMS)
+	sr.tick(arrival_tick)
 	assert_eq(sr.active_slug_count(), 0)
 	assert_eq(cc.reserved_target_count(), 0)
 	attacker.queue_free()
