@@ -6,13 +6,14 @@ extends MeshInstance3D
 ## but the textures, radius, sidereal day, and axial tilt all come
 ## from the active CelestialBody.
 ##
-## Earth uses Godot's import pipeline for the day / night / normal /
-## clouds JPEGs against planet.gdshader. Mars has no on-disk textures
-## (the build environment is offline and the repo ships no Mars set);
-## its surface is rendered by mars_planet.gdshader, which paints the
-## globe in-fragment from layered noise. Both shaders share the same
-## sun_direction uniform contract so the SunLight node doesn't care
-## which body is up.
+## Both Earth and Mars feed planet.gdshader. The albedo set comes off
+## disk via Godot's import pipeline: Earth ships day / night / normal /
+## clouds JPEGs in resources/3D/earth/, Mars ships a single global
+## albedo (NASA Photojournal PIA02066) in resources/3D/mars/. The
+## night-lights / clouds / normal samplers are bound to a 1×1 black
+## image on Mars so the shader's day/night/cloud branches collapse to
+## pure day-side albedo (Mars has no city lights, no Earth-class cloud
+## bands, and the source map already has its terrain detail baked in).
 
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 const CelestialBody = preload("res://scripts/celestial_body.gd")
@@ -26,6 +27,10 @@ const SCENE_SCALE: float = 1.0 / 1000.0
 @export var night_path: String = "res://resources/3D/earth/4096_night_lights.jpg"
 @export var normal_path: String = "res://resources/3D/earth/4096_normal.jpg"
 @export var clouds_path: String = "res://resources/3D/earth/4096_clouds.jpg"
+# Mars albedo. No companion night / clouds / normal — Mars has no city
+# lights, its atmosphere is too thin for an Earth-style cloud band,
+# and the source map already bakes in shaded relief.
+const MARS_ALBEDO_PATH := "res://resources/3D/mars/2304_mars.jpg"
 
 var earth_phase: float = 0.0
 var rotation_rate: float
@@ -79,15 +84,7 @@ func _axial_tilt_basis() -> Basis:
 
 
 func _setup_material() -> void:
-	# Pick the shader and bindings keyed off the active body. Earth's
-	# day-side, night-lights, normal, and cloud JPEGs feed planet.gdshader;
-	# Mars uses the procedural mars_planet.gdshader (the build environment
-	# is offline and the repo has no Mars textures, so the surface is
-	# painted in-fragment from layered noise) and binds nothing.
-	var shader_path := "res://shaders/planet.gdshader"
-	if body.texture_set == CelestialBody.TEXTURES_MARS_PROCEDURAL:
-		shader_path = "res://shaders/mars_planet.gdshader"
-	var shader := load(shader_path) as Shader
+	var shader := load("res://shaders/planet.gdshader") as Shader
 	if shader == null:
 		# Fall back to a plain unshaded material if the shader is missing
 		# (e.g. running headless tests without resources imported).
@@ -98,8 +95,11 @@ func _setup_material() -> void:
 
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
-	if body.texture_set == CelestialBody.TEXTURES_EARTH:
-		_bind_earth_textures(mat)
+	match body.texture_set:
+		CelestialBody.TEXTURES_MARS:
+			_bind_mars_textures(mat)
+		_:
+			_bind_earth_textures(mat)
 	mat.set_shader_parameter("sun_direction", Vector3(1.0, 0.0, 0.0))
 	material_override = mat
 
@@ -117,6 +117,27 @@ func _bind_earth_textures(mat: ShaderMaterial) -> void:
 		mat.set_shader_parameter("normal_texture", normal_map)
 	if clouds:
 		mat.set_shader_parameter("clouds_texture", clouds)
+
+
+# Mars: bind the NASA albedo to the day-side sampler, and a 1×1 black
+# placeholder to the night and clouds samplers so those branches in the
+# shared planet shader add nothing (no city lights to draw, no Earth-
+# style cloud band to overlay). The normal_texture sampler is declared
+# in the shader but never sampled in the current planet.gdshader, so
+# leaving it unbound is safe.
+func _bind_mars_textures(mat: ShaderMaterial) -> void:
+	var albedo := _load_texture(MARS_ALBEDO_PATH)
+	if albedo:
+		mat.set_shader_parameter("albedo_texture", albedo)
+	var black := _make_solid_texture(Color(0.0, 0.0, 0.0))
+	mat.set_shader_parameter("night_texture", black)
+	mat.set_shader_parameter("clouds_texture", black)
+
+
+func _make_solid_texture(color: Color) -> ImageTexture:
+	var img := Image.create(1, 1, false, Image.FORMAT_RGB8)
+	img.set_pixel(0, 0, color)
+	return ImageTexture.create_from_image(img)
 
 
 func _load_texture(path: String) -> Texture2D:

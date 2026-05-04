@@ -23,13 +23,12 @@ const ID_EARTH := "earth"
 const ID_MARS := "mars"
 
 # Texture-set identifier. The "earth" set drives Earth's day/night/
-# normal/clouds JPEGs from disk against planet.gdshader; "mars_procedural"
-# swaps the planet shader for mars_planet.gdshader, which paints Mars's
-# surface in-fragment from layered noise (no textures bound — the repo
-# ships no Mars JPEGs and the build environment is offline). Other
+# normal/clouds JPEGs from resources/3D/earth/; "mars" drives the
+# single global Mars albedo (NASA Photojournal PIA02066) shipped under
+# resources/3D/mars/. Both bind to the shared planet.gdshader. Other
 # bodies can be added by extending the binding logic in earth.gd.
 const TEXTURES_EARTH := "earth"
-const TEXTURES_MARS_PROCEDURAL := "mars_procedural"
+const TEXTURES_MARS := "mars"
 
 var id: String
 var display_name: String
@@ -89,7 +88,7 @@ static func make_mars() -> CelestialBody:
 	body.surface_gravity_g = 0.3794
 	body.sidereal_day_s = 88642.66
 	body.axial_tilt_rad = 25.19 * PI / 180.0
-	body.texture_set = TEXTURES_MARS_PROCEDURAL
+	body.texture_set = TEXTURES_MARS
 	body.fallback_color = Color(0.82, 0.40, 0.28)
 	return body
 
