@@ -199,8 +199,8 @@ func lateral_spread_for_altitude(altitude_km: float) -> float:
 # bigger threat per wave-unit even though it takes up less sky.
 static func default_alpha() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
-	c.count_min = 10
-	c.count_max = 15
+	c.count_min = 5
+	c.count_max = 8
 	c.decaying_ratio_min = 0.10
 	c.decaying_ratio_max = 0.20
 	c.size_small = 0.80
@@ -213,8 +213,8 @@ static func default_alpha() -> WaveUnitClass:
 
 static func default_beta() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
-	c.count_min = 15
-	c.count_max = 20
+	c.count_min = 7
+	c.count_max = 10
 	c.decaying_ratio_min = 0.20
 	c.decaying_ratio_max = 0.35
 	c.size_small = 0.45
@@ -227,8 +227,8 @@ static func default_beta() -> WaveUnitClass:
 
 static func default_gamma() -> WaveUnitClass:
 	var c := WaveUnitClass.new()
-	c.count_min = 20
-	c.count_max = 25
+	c.count_min = 10
+	c.count_max = 13
 	c.decaying_ratio_min = 0.30
 	c.decaying_ratio_max = 0.50
 	c.size_small = 0.20

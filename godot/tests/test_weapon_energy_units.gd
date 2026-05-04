@@ -126,12 +126,14 @@ func test_laser_default_pool_drain_is_three_hundred_thirty_three_mw() -> void:
 
 
 func test_satellite_default_pool_and_reactor_match_design() -> void:
-	# 40 GJ / 1 GW: pool sized to hold ~3 railgun shots (each ~13.3 GJ
-	# wall-plug) before going dry. Refill from empty takes 40 sim-sec
-	# — long enough that a sustained railgun engagement is energy-
-	# bound, not cooldown-bound.
-	assert_close(Satellite.DEFAULT_ENERGY_MAX_J, 4.0e10, 1.0)
-	assert_close(Satellite.DEFAULT_REACTOR_POWER_W, 1.0e9, 1.0)
+	# Pool is sized to *barely* hold one railgun shot — a default unit
+	# can fire exactly once before going dry. The 100 MW reactor then
+	# takes ~133 sim-sec to refill from empty, which makes energy the
+	# dominant gate on sustained fire rather than heat or ammo.
+	assert_close(
+		Satellite.DEFAULT_ENERGY_MAX_J, RailgunWeapon.ENERGY_PER_SHOT_J, 1.0
+	)
+	assert_close(Satellite.DEFAULT_REACTOR_POWER_W, 1.0e8, 1.0)
 
 
 func test_railgun_refuses_fire_when_magazine_empty() -> void:
@@ -209,12 +211,11 @@ func test_target_coupling_default_returns_per_class_value() -> void:
 
 func test_satellite_tick_combat_charges_pool_in_joules() -> void:
 	# Pool fill rate is reactor_power_w joules/sec. One sim-sec of
-	# charge from a 1 GW reactor adds 1 GJ; the default 40 GJ pool
-	# tops up in 40 sim-sec from empty. tick_combat with a large
-	# delta clamps at energy_max instead of overshooting.
+	# charge from a 100 MW reactor adds 100 MJ; tick_combat with a
+	# large delta clamps at energy_max instead of overshooting.
 	var sat := Satellite.new()
 	sat.energy = 0.0
 	sat.tick_combat(1.0)
-	assert_close(sat.energy, 1.0e9, 1.0)
-	sat.tick_combat(1000.0)  # would overshoot 40 GJ; clamp holds.
+	assert_close(sat.energy, Satellite.DEFAULT_REACTOR_POWER_W, 1.0)
+	sat.tick_combat(1000.0)  # would overshoot the pool; clamp holds.
 	assert_close(sat.energy, sat.energy_max, 1.0)
