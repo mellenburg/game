@@ -123,6 +123,12 @@ func _ready() -> void:
 	# same setup).
 	PlayerLoadout.launched = false
 
+	# The menu is a pure pointer-driven UI. The in-game camera leaves
+	# the mouse captured, and a scene change doesn't reset Input state,
+	# so without this the cursor stays hidden (and click/tap delivery
+	# to buttons can be blocked) on the way back from a finished run.
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
 	anchor_right = 1.0
 	anchor_bottom = 1.0
 	_paint_background()
