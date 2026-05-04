@@ -51,7 +51,7 @@ const RANGE_RATE_KM_PER_SEC: float = 10000.0
 # move from a tight 1 000 km cap to the default 50 000 km in ~2 s.
 const MAX_RADIUS_RATE_KM_PER_SEC: float = 25000.0
 
-@export var time_factor: int = 500
+@export var time_factor: int = 300
 var planning_dt: int = 0
 var planning_mode: bool = false
 
@@ -320,13 +320,19 @@ func _process(delta: float) -> void:
 	camera.process_movement(delta)
 	_process_continuous_input(delta)
 	_process_one_shot_input()
-	_tick_mission(delta)
-	spawn_director.tick_waves(delta)
+	# Mission scheduler and wave preroll/spawn timers tick in
+	# *sim-time*, not wall-clock — that way a wave's UTC arrival time
+	# is locked to the schedule's absolute sim-second offset and stays
+	# put even if the operator later changes time_factor. Pausing the
+	# sim (time_factor=0) likewise pauses the mission clock.
+	var sim_delta := float(time_factor) * delta
+	_tick_mission(sim_delta)
+	spawn_director.tick_waves(sim_delta)
 	_check_mission_complete()
 	_auto_switch_map_mode()
 	_update_range_circle()
 	_render_orbits(delta)
-	hud.update_hud(self, planning_mode, time_factor, planning_dt)
+	hud.update_hud(self, planning_mode, time_factor, planning_dt, sim_time)
 	hud.draw_target_lines(self, camera)
 
 

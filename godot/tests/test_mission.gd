@@ -21,23 +21,29 @@ func _seeded_rng(seed_value: int = 1) -> RandomNumberGenerator:
 # tests can assert exact timestamps. Mission resolves the random
 # ranges through `sample_*` helpers; equal min/max collapses to a
 # fixed value, which is what the default ReconSettings ships with.
+# `duration` and `delay` here are passed in *sim-seconds* — the test
+# helper converts to the editor's hour units so the assertions can stay
+# in raw seconds without having to think about the boundary.
+const SECONDS_PER_HOUR: float = 3600.0
+
+
 func _wave(
 	alpha_n: int,
 	beta_n: int,
 	gamma_n: int,
-	duration: float,
+	duration_sec: float,
 	randomized: bool,
-	delay: float,
+	delay_sec: float,
 ) -> WaveComposition:
 	var w := WaveComposition.new()
 	w.alpha_units = alpha_n
 	w.beta_units = beta_n
 	w.gamma_units = gamma_n
-	w.duration_min = duration
-	w.duration_max = duration
+	w.duration_min = duration_sec / SECONDS_PER_HOUR
+	w.duration_max = duration_sec / SECONDS_PER_HOUR
 	w.randomized = randomized
-	w.delay_min = delay
-	w.delay_max = delay
+	w.delay_min = delay_sec / SECONDS_PER_HOUR
+	w.delay_max = delay_sec / SECONDS_PER_HOUR
 	return w
 
 
@@ -49,6 +55,18 @@ func _drain(m: Mission, total_seconds: float, step: float) -> Array[Dictionary]:
 		for e: Dictionary in r:
 			out.append(e)
 	return out
+
+
+# Game-time spans that comfortably cover the default 5-wave mission.
+# The default schedule (hours: 0.5 / 3.0 / 3.0 / 4.0 / 4.0 between
+# waves, 0.25–0.6 spawn windows) wraps inside ~15 hours = 54000
+# sim-seconds; 60000 is the round-up that keeps "drain to completion"
+# tests robust if a future balance pass pushes the last wave a bit later.
+const FULL_DRAIN_SEC: float = 60000.0
+# Tick step for the drain helper. 30 sim-sec is fine for emission-
+# count tests (they only care that everything fired before the drain
+# ends); finer granularity is not worth the iteration cost.
+const DRAIN_STEP_SEC: float = 30.0
 
 
 func test_idle_mission_emits_nothing() -> void:
@@ -64,16 +82,19 @@ func test_default_settings_total_emissions() -> void:
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
-	var emissions := _drain(m, 200.0, 0.05)
+	var emissions := _drain(m, FULL_DRAIN_SEC, DRAIN_STEP_SEC)
 	assert_eq(emissions.size(), 36)
 	assert_eq(m.total_wave_units(), 36)
 
 
-func test_default_first_wave_fires_at_three_seconds() -> void:
+func test_default_first_wave_fires_at_half_hour() -> void:
+	# Default first-wave delay is 0.5 game-time hours = 1800 sim-seconds.
+	# Mission tick is fed sim-seconds, so the threshold is the absolute
+	# sim-time elapsed since mission start.
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
-	var early := m.tick(2.99)
+	var early := m.tick(1799.99)
 	assert_eq(early.size(), 0)
 	var ready := m.tick(0.02)
 	assert_eq(ready.size(), 1)
@@ -85,7 +106,7 @@ func test_first_in_wave_set_once_per_wave() -> void:
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
-	var emissions := _drain(m, 200.0, 0.05)
+	var emissions := _drain(m, FULL_DRAIN_SEC, DRAIN_STEP_SEC)
 	var firsts: Dictionary = {}
 	for e: Dictionary in emissions:
 		var wid := int(e["wave_id"])
@@ -102,7 +123,7 @@ func test_emission_size_class_counts_match_settings() -> void:
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
-	var emissions := _drain(m, 200.0, 0.05)
+	var emissions := _drain(m, FULL_DRAIN_SEC, DRAIN_STEP_SEC)
 	var counts: Dictionary = {}
 	for e: Dictionary in emissions:
 		var sc := int(e["size_class"])
@@ -193,19 +214,21 @@ func test_no_emissions_after_drained() -> void:
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
-	m.tick(500.0)
+	m.tick(FULL_DRAIN_SEC)
 	assert_true(m.all_waves_spawned())
-	assert_eq(m.tick(500.0).size(), 0)
+	assert_eq(m.tick(FULL_DRAIN_SEC).size(), 0)
 
 
 func test_all_waves_spawned_only_after_last_emission() -> void:
+	# Default schedule's last wave-unit fires below FULL_DRAIN_SEC; the
+	# midpoint at half that span must still have unfired wave-units left.
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
 	assert_false(m.all_waves_spawned())
-	m.tick(112.5)
+	m.tick(FULL_DRAIN_SEC * 0.5)
 	assert_false(m.all_waves_spawned())
-	m.tick(20.0)
+	m.tick(FULL_DRAIN_SEC)
 	assert_true(m.all_waves_spawned())
 
 
@@ -217,7 +240,7 @@ func test_mark_complete_blocks_further_emissions() -> void:
 	assert_true(m.is_complete())
 	# A completed mission's tick() must not emit anything regardless
 	# of how much time is fed in — the controller has decided we're done.
-	assert_eq(m.tick(500.0).size(), 0)
+	assert_eq(m.tick(FULL_DRAIN_SEC).size(), 0)
 
 
 func test_total_waves_counts_distinct_wave_ids() -> void:
@@ -242,17 +265,17 @@ func test_current_wave_number_starts_at_zero() -> void:
 func test_current_wave_number_advances_with_first_in_wave() -> void:
 	# Step the mission forward through each wave's first wave-unit
 	# and confirm current_wave_number bumps to that wave's 1-based id.
+	# Wave delays in the default schedule (sim-seconds): 1800, 12600,
+	# 23400, 37800, 52200.
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
-	# Wave 1 fires at t=3.
-	m.tick(3.5)
+	m.tick(1801.0)
 	assert_eq(m.current_wave_number(), 1)
-	# Wave 2 fires at t=28 (delay 25 from wave 1's first unit).
-	m.tick(25.0)
+	m.tick(12600.0 - 1801.0 + 1.0)
 	assert_eq(m.current_wave_number(), 2)
 	# Drain the rest.
-	m.tick(500.0)
+	m.tick(FULL_DRAIN_SEC)
 	assert_eq(m.current_wave_number(), 5)
 
 
@@ -263,7 +286,7 @@ func test_current_wave_number_persists_after_drain() -> void:
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
-	m.tick(500.0)
+	m.tick(FULL_DRAIN_SEC)
 	assert_true(m.all_waves_spawned())
 	assert_eq(m.current_wave_number(), 5)
 
@@ -276,7 +299,7 @@ func test_emissions_carry_baked_object_count() -> void:
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
-	var emissions := _drain(m, 200.0, 0.05)
+	var emissions := _drain(m, FULL_DRAIN_SEC, DRAIN_STEP_SEC)
 	assert_true(emissions.size() > 0)
 	for e: Dictionary in emissions:
 		var c := int(e.get("object_count", 0))
@@ -296,8 +319,9 @@ func test_per_wave_object_total_capped_at_250() -> void:
 	s.gamma_class.count_max = 50
 	var w := WaveComposition.new()
 	w.gamma_units = 10
-	w.duration_min = 5.0
-	w.duration_max = 5.0
+	# 5 sim-second window (≈0.0014 h); single tick below covers it.
+	w.duration_min = 5.0 / SECONDS_PER_HOUR
+	w.duration_max = 5.0 / SECONDS_PER_HOUR
 	w.delay_min = 0.0
 	w.delay_max = 0.0
 	s.waves = [w]
@@ -327,8 +351,10 @@ func test_per_wave_total_unchanged_when_already_under_cap() -> void:
 	s.alpha_class.count_max = 10
 	var w := WaveComposition.new()
 	w.alpha_units = 5
-	w.duration_min = 2.0
-	w.duration_max = 2.0
+	# 2 sim-sec window — enough granularity for the 5-unit test, well
+	# inside the single tick below.
+	w.duration_min = 2.0 / SECONDS_PER_HOUR
+	w.duration_max = 2.0 / SECONDS_PER_HOUR
 	w.delay_min = 0.0
 	w.delay_max = 0.0
 	s.waves = [w]
@@ -352,8 +378,8 @@ func test_seeded_rng_produces_stable_timeline() -> void:
 	var mb := Mission.new()
 	ma.start_from_settings(sa, _seeded_rng(99))
 	mb.start_from_settings(sb, _seeded_rng(99))
-	var ea := _drain(ma, 200.0, 0.05)
-	var eb := _drain(mb, 200.0, 0.05)
+	var ea := _drain(ma, FULL_DRAIN_SEC, DRAIN_STEP_SEC)
+	var eb := _drain(mb, FULL_DRAIN_SEC, DRAIN_STEP_SEC)
 	assert_eq(ea.size(), eb.size())
 	for i in range(ea.size()):
 		assert_close(float(ea[i]["t"]), float(eb[i]["t"]), 1.0e-9)

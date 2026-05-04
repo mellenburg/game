@@ -111,6 +111,24 @@ const GROUND_DEFENSE_CHAIN: Dictionary = {
 	],
 }
 
+# Lead time the wave radar gets before each body actually enters play.
+# `value` is in *game-time hours* — radar visibility scales with
+# time_factor automatically because the wave preroll counter ticks in
+# sim-seconds. The starting tier reproduces (roughly) the legacy 10-real-
+# second window at the previous time_factor=500 default (5000 sim-sec
+# ≈ 1.4 h); upgrades extend that lead so a forewarned operator can
+# pre-position units long before impact.
+const WAVE_WARNING_CHAIN: Dictionary = {
+	"category": "Early Warning",
+	"shape": "diamond",
+	"stat_template": "%.1f h advance warning",
+	"tiers": [
+		{"id": "warning_1h", "label": "Early Warning I", "cost": 0, "value": 1.0, "flavor": "Standard radar suite. Roughly an hour of warning before bodies enter play."},
+		{"id": "warning_2h", "label": "Early Warning II", "cost": 200, "value": 2.0, "flavor": "Wider-aperture phased array. Doubles the radar lead time."},
+		{"id": "warning_4h", "label": "Early Warning III", "cost": 500, "value": 4.0, "flavor": "Deep-space sensor mesh. Four hours' notice on every incoming wave."},
+	],
+}
+
 var research_points: int = STARTING_POINTS
 # node_id (String) → true. Absence means locked. Use `is_unlocked`
 # rather than indexing directly so callers don't depend on the dict
@@ -214,6 +232,22 @@ func ground_defense_capacity() -> int:
 	return _capacity_from_chain(GROUND_DEFENSE_CHAIN["tiers"])
 
 
+# Highest unlocked early-warning tier in *game-time hours*. SpawnDirector
+# multiplies by 3600 to set the per-wave preroll window; the starter
+# tier (1.0 h) is unlocked at reset() so the radar always has at least
+# that much lead time.
+func wave_warning_hours() -> float:
+	var hours: float = 0.0
+	for tier in WAVE_WARNING_CHAIN["tiers"]:
+		if is_unlocked(String(tier["id"])):
+			hours = maxf(hours, float(tier.get("value", 0.0)))
+	return hours
+
+
+func wave_warning_seconds() -> float:
+	return wave_warning_hours() * 3600.0
+
+
 # Aggregate the catalog into the order the Research tab renders. Every
 # entry exposes `category`, `shape`, `stat_template`, and `tiers` so a
 # single render loop in the graph view handles components and
@@ -224,6 +258,7 @@ func all_chains() -> Array:
 		out.append(cat)
 	out.append(LAUNCH_CAPACITY_CHAIN)
 	out.append(GROUND_DEFENSE_CHAIN)
+	out.append(WAVE_WARNING_CHAIN)
 	return out
 
 
@@ -283,7 +318,11 @@ func _stats_for(chain: Dictionary, tier: Dictionary) -> String:
 		var part := UnitPart.get_by_id(String(tier["part_id"]))
 		return template % part.multiplier
 	if tier.has("value"):
-		return template % int(tier["value"])
+		# Pass the raw Variant through — `%` adapts to int (%d) and float
+		# (%.1f) templates without us needing to know which the chain
+		# uses. Capacity chains store ints, the warning chain stores hours
+		# as floats; both render correctly off the chain's own template.
+		return template % tier["value"]
 	return ""
 
 

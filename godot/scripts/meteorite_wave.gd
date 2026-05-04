@@ -48,6 +48,15 @@ var base_velocity: Vector3 = Vector3.ZERO
 var duration_sec: float = 0.0
 var lateral_spread_km: float = 0.0
 
+# Radar warning lead time (sim-seconds) the operator gets before each
+# body actually enters play — every spec's `t` was sampled as
+# (uniform-in-duration + warning_window_sec), so the body becomes
+# visible on the radar exactly when t crosses below this value and
+# scrolls down to t = 0 over `warning_window_sec` of sim-time.
+# Set by SpawnDirector at wave creation time, read by RadarMap to
+# decouple radar visibility from the spawn duration.
+var warning_window_sec: float = 0.0
+
 
 ## Fill the queue with `count` independent pre-sampled per-body specs.
 ## Each spec carries an independent uniform spawn delay in

@@ -130,6 +130,37 @@ func test_prereq_for_returns_empty_for_first_tier() -> void:
 	assert_eq(r.prereq_for("laser_elite"), "laser_advanced")
 
 
+func test_wave_warning_starts_at_one_hour() -> void:
+	# Tier 0 of the early-warning chain is unlocked at reset() and
+	# corresponds to one hour of game-time radar lead. The seconds
+	# helper is what SpawnDirector reads, so pin the conversion here.
+	var r := _make_research()
+	assert_close(r.wave_warning_hours(), 1.0)
+	assert_close(r.wave_warning_seconds(), 3600.0)
+
+
+func test_wave_warning_promotes_with_tiers() -> void:
+	var r := _make_research()
+	assert_true(r.unlock("warning_2h"))
+	assert_close(r.wave_warning_hours(), 2.0)
+	assert_close(r.wave_warning_seconds(), 7200.0)
+	assert_true(r.unlock("warning_4h"))
+	assert_close(r.wave_warning_hours(), 4.0)
+	assert_close(r.wave_warning_seconds(), 14400.0)
+
+
+func test_wave_warning_chain_listed_in_all_chains() -> void:
+	# The Research tab renders chains off `all_chains`; if the warning
+	# chain isn't appended there, the editor never surfaces it.
+	var r := _make_research()
+	var found := false
+	for chain in r.all_chains():
+		if String(chain.get("category", "")) == "Early Warning":
+			found = true
+			break
+	assert_true(found, "wave warning chain missing from all_chains()")
+
+
 func test_elite_part_catalog_multipliers() -> void:
 	# Elite-tier facets are 3× the default; pin the contract here so a
 	# future tweak to the elite multiplier is loud, the same way the
