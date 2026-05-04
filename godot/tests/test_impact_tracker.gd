@@ -117,6 +117,25 @@ func test_record_impact_appends_entry() -> void:
 	assert_true(entry["lat"] >= -90.0 and entry["lat"] <= 90.0)
 	assert_true(entry["lon"] >= -180.0 and entry["lon"] <= 180.0)
 	assert_false(entry["is_ocean"])
+	# Default HP is 0.0 when the caller doesn't pass a value — the
+	# minimap treats that as "use the floor scale".
+	assert_close(float(entry["hp"]), 0.0, 1.0e-6)
+
+
+func test_record_impact_stores_hp() -> void:
+	var t := ImpactTracker.new()
+	var basis := (
+		ImpactTracker.AXIAL_TILT
+		* Basis(Vector3(0.0, 0.0, 1.0), 0.0)
+		* ImpactTracker.POLE_ALIGN
+	)
+	var world := basis * Vector3(7000.0, 0.0, 0.0)
+	var entry := t.record_impact(world, 0.0, false, 250.0)
+	assert_close(float(entry["hp"]), 250.0, 1.0e-6)
+	# Negative HP would imply over-killed bookkeeping; the tracker
+	# clamps at zero so the minimap math stays well-defined.
+	var entry_neg := t.record_impact(world, 0.0, false, -5.0)
+	assert_close(float(entry_neg["hp"]), 0.0, 1.0e-6)
 
 
 func test_is_ocean_pixel_blue_dominant() -> void:

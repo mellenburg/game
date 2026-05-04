@@ -174,7 +174,13 @@ static func _match(table: Array[Dictionary], lon: float, lat: float) -> String:
 ## that stepped slightly past the ground still maps to a clean (lat,
 ## lon). `is_ocean_hint` should come from sampling the day-side
 ## albedo texture at the resulting UV — pass `false` to skip the hint.
-func record_impact(p_world: Vector3, earth_phase: float, is_ocean_hint: bool) -> Dictionary:
+## `hp` is the impactor's remaining HP at the moment of contact; it's
+## stored on the entry so the minimap can scale its marker to the
+## delivered threat (a 1000-HP boss draws a fatter dot than a 10-HP
+## straggler that mostly burnt up under fire).
+func record_impact(
+	p_world: Vector3, earth_phase: float, is_ocean_hint: bool, hp: float = 0.0
+) -> Dictionary:
 	var surface := p_world.normalized() * EARTH_RADIUS_KM
 	var local := eci_to_mesh_local(surface, earth_phase)
 	var uv := mesh_local_to_uv(local)
@@ -187,6 +193,7 @@ func record_impact(p_world: Vector3, earth_phase: float, is_ocean_hint: bool) ->
 		"region": region,
 		"is_ocean": is_ocean_hint,
 		"sim_time": sim_time,
+		"hp": maxf(hp, 0.0),
 	}
 	impacts.append(entry)
 	return entry

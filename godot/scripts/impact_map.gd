@@ -40,6 +40,16 @@ class _MarkerLayer extends Control:
 	var marker_outer: Color = Color(1.0, 0.25, 0.05, 0.95)
 	var marker_inner: Color = Color(1.0, 0.85, 0.4, 0.95)
 	var marker_radius: float = 4.0
+	# HP-driven marker scaling envelope. Same log-decade idiom the
+	# 3D ImpactExplosion uses, applied to the 2D dot radius so a
+	# heavy impactor draws a visibly fatter splat than a battered
+	# straggler. Floor + ceiling tuned against marker_radius so the
+	# smallest dots stay readable and the largest don't swamp
+	# adjacent impacts on the Mercator overlay.
+	var marker_hp_ref_min: float = 10.0
+	var marker_hp_log_decades: float = 3.0
+	var marker_min_scale: float = 0.6
+	var marker_max_scale: float = 2.0
 	# Surface-installation marker palette: green to match the in-world
 	# COLOR_SURFACE tint, distinct from the red/orange impact dots so
 	# the two readouts coexist on the same map without ambiguity.
@@ -64,9 +74,18 @@ class _MarkerLayer extends Control:
 		for entry in tracker.impacts:
 			var lat: float = entry["lat"]
 			var lon: float = entry["lon"]
+			var hp: float = float(entry.get("hp", 0.0))
 			var p := _latlon_to_local(lat, lon)
-			draw_circle(p, marker_radius + 1.5, marker_outer)
-			draw_circle(p, marker_radius - 1.0, marker_inner)
+			var r := marker_radius * _hp_marker_scale(hp)
+			draw_circle(p, r + 1.5, marker_outer)
+			draw_circle(p, maxf(r - 1.0, 0.5), marker_inner)
+
+	func _hp_marker_scale(hp: float) -> float:
+		var ratio := maxf(hp, marker_hp_ref_min) / marker_hp_ref_min
+		var hp_norm := clampf(
+			log(ratio) / log(pow(10.0, marker_hp_log_decades)), 0.0, 1.0
+		)
+		return lerpf(marker_min_scale, marker_max_scale, hp_norm)
 
 	# Surface-unit markers are drawn UNDER the impact dots so a
 	# meteorite that lands on top of an emplacement still shows the
