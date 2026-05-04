@@ -39,11 +39,18 @@ const STYLE_KINETIC: String = "kinetic"
 # Laser: thin neon-green core with a small, dim emission halo. Core
 # is a hairline (0.035 unit radius) so the beam reads as a precise
 # weapon trace; halo is ~1.7x core with low alpha so the glow stays
-# subtle.
+# subtle. Pulses at LASER_PULSE_HZ to make the beam pop against the
+# starfield — at 12 Hz the modulation reads as a rapid throb rather
+# than a strobe.
 const LASER_CORE_RADIUS: float = 0.035
 const LASER_HALO_RADIUS: float = 0.06
 const LASER_CORE_COLOR := Color(0.55, 1.0, 0.35)
 const LASER_HALO_COLOR := Color(0.35, 1.0, 0.30, 0.18)
+const LASER_PULSE_HZ: float = 12.0
+# Alpha at the trough of the pulse, as a fraction of the un-pulsed
+# alpha. 0.25 keeps the beam visible at the dimmest point while
+# leaving plenty of contrast against the peak.
+const LASER_PULSE_FLOOR: float = 0.25
 
 # Kinetic (beam-mode railgun): the original warm orange profile so
 # operators can still tell the two weapon classes apart at a glance.
@@ -75,6 +82,8 @@ class _Beam:
 	var halo_radius: float = 0.0
 	var core_base_color: Color = Color.WHITE
 	var halo_base_color: Color = Color.WHITE
+	# Hz of the rapid alpha pulse. 0 disables (kinetic style stays solid).
+	var pulse_hz: float = 0.0
 
 
 func _ready() -> void:
@@ -125,6 +134,7 @@ func _spawn_beam(style: String) -> _Beam:
 		beam.halo_radius = LASER_HALO_RADIUS
 		beam.core_base_color = LASER_CORE_COLOR
 		beam.halo_base_color = LASER_HALO_COLOR
+		beam.pulse_hz = LASER_PULSE_HZ
 	else:
 		beam.core_radius = KINETIC_CORE_RADIUS
 		beam.halo_radius = KINETIC_HALO_RADIUS
@@ -195,6 +205,14 @@ func _process(_delta: float) -> void:
 			alpha = 1.0
 		else:
 			alpha = clampf(1.0 - (since - HOLD_SECONDS) / FADE_SECONDS, 0.0, 1.0)
+		# Rapid alpha pulse for laser beams. Wall-clock driven so the
+		# pulse rate stays the same regardless of time_factor; sine
+		# remapped to [LASER_PULSE_FLOOR, 1.0] so the beam never fully
+		# disappears between pulses.
+		if beam.pulse_hz > 0.0:
+			var phase: float = TAU * beam.pulse_hz * now
+			var s: float = 0.5 + 0.5 * sin(phase)
+			alpha *= LASER_PULSE_FLOOR + (1.0 - LASER_PULSE_FLOOR) * s
 		_orient_beam(beam, alpha)
 	for key: String in stale:
 		_despawn(key)
