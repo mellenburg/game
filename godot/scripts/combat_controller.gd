@@ -24,6 +24,19 @@ var _slug_renderer: SlugRenderer = null
 # BeamRenderer like lasers do (the legacy instant-beam visual). Lasers
 # always go through BeamRenderer regardless of this flag.
 var _slug_render_enabled: bool = true
+# Set of target instance_ids with a railgun slug currently in flight.
+# While a target is in this set no other railgun will pick it — the
+# first slug's damage hasn't landed yet, so without the gate every
+# railgun in the fleet would dump a round at the same body the first
+# shot is about to one-kill. Population happens in
+# `_fire_railgun_with_slug`; the slug renderer's on_arrival /
+# on_drop callbacks erase the entry when the round either applies
+# damage or is dropped (attacker died, slug-render toggled off).
+# Sync (beam-mode) railguns and lasers don't reserve: their damage
+# lands on the same tick, so the next attacker's envelope check
+# already sees the dead body. Stored as a Dictionary because
+# GDScript lacks a Set primitive — values are unused.
+var _reserved_target_iids: Dictionary = {}
 
 
 func setup(
@@ -40,7 +53,9 @@ func setup(
 ## fall back to BeamRenderer (false). Dropping out of slug-mode
 ## clears any in-flight slugs so they don't linger after the visual
 ## surface is silenced; the inverse transition has nothing to clear
-## (BeamRenderer's lasers tick down on their own).
+## (BeamRenderer's lasers tick down on their own). clear_all routes
+## each pending slug through on_drop, which empties the reservation
+## map naturally — no separate reservation-clear is needed here.
 func set_slug_render_enabled(enabled: bool) -> void:
 	if _slug_render_enabled == enabled:
 		return
@@ -83,7 +98,25 @@ func process_combat(
 			# Targeting is the weapon's responsibility — laser ranks
 			# in-envelope candidates by attacker.targeting_mode, the
 			# railgun picks randomly across LOS-clear safe shots.
-			var target: Satellite = w.pick_target(sat, candidates, sim_time)
+			# Slug-mode railguns get a candidate list pre-filtered to
+			# exclude bodies that already have an in-flight slug
+			# headed their way; the gate prevents fleet-wide overkill
+			# where the first slug is already a one-shot kill but
+			# every other railgun queues a round before the damage
+			# lands. Lasers and beam-mode railguns see the full list:
+			# their damage applies synchronously, so the next
+			# attacker's envelope check naturally skips a freshly
+			# dead body.
+			var weapon_candidates: Array = candidates
+			if (
+				w is RailgunWeapon
+				and _slug_render_enabled
+				and not _reserved_target_iids.is_empty()
+			):
+				weapon_candidates = _exclude_reserved(candidates)
+			var target: Satellite = w.pick_target(
+				sat, weapon_candidates, sim_time
+			)
 			if target == null:
 				continue
 			# Two paths: slug-render railguns split shooter and target
@@ -136,7 +169,20 @@ func _fire_railgun_with_slug(
 		return false
 	var attacker_iid: int = attacker.get_instance_id()
 	var target_iid: int = target.get_instance_id()
+	# Reserve the target before the slug spawns: any subsequent
+	# railgun in this same tick (or later ticks until arrival)
+	# that consults `_exclude_reserved` will skip this body. Both
+	# the on_arrival and on_drop callbacks erase the entry, so the
+	# reservation lives for exactly the slug's flight.
+	_reserved_target_iids[target_iid] = true
+	var reserved := _reserved_target_iids
 	var on_arrival := func() -> void:
+		# Release the reservation before applying damage. Doing it
+		# first means a downstream take_damage path (which can
+		# call into Satellite kill bookkeeping and reorder
+		# satellites in the fleet array) never observes a stale
+		# reservation pointing at a freed instance id.
+		reserved.erase(target_iid)
 		var t = instance_from_id(target_iid)
 		if t == null or not is_instance_valid(t) or not t.alive:
 			return
@@ -150,7 +196,13 @@ func _fire_railgun_with_slug(
 		# shooter to credit.
 		if attacker_for_credit != null:
 			_hud.register_hit(attacker_for_credit, t)
-	_slug_renderer.register_fire(attacker, target, on_arrival)
+	# on_drop fires when the slug stops existing without arriving
+	# (attacker died, operator toggled slug-render off). Damage is
+	# forfeited, but the reservation must release or the target
+	# stays locked out of every railgun for the rest of the run.
+	var on_drop := func() -> void:
+		reserved.erase(target_iid)
+	_slug_renderer.register_fire(attacker, target, on_arrival, on_drop)
 	return true
 
 
@@ -166,5 +218,29 @@ func _collect_targetable(satellites: Array[Satellite]) -> Array[Satellite]:
 		if sat.alive and sat.orbit_alive:
 			out.append(sat)
 	return out
+
+
+# Drop already-reserved bodies from the candidate list so a railgun
+# in slug mode never picks a target that another railgun's slug is
+# already on its way to strike. Allocating a new array each call is
+# cheap (the candidate list is tens of entries at most, and the
+# branch in the caller skips this entirely when the reservation
+# map is empty).
+func _exclude_reserved(cands: Array[Satellite]) -> Array[Satellite]:
+	var out: Array[Satellite] = []
+	for c in cands:
+		if c == null:
+			continue
+		if not _reserved_target_iids.has(c.get_instance_id()):
+			out.append(c)
+	return out
+
+
+## Test affordance: how many target bodies currently have an
+## in-flight railgun slug reserved against them. Lets unit tests
+## verify reservation lifecycle without poking the private
+## dictionary directly.
+func reserved_target_count() -> int:
+	return _reserved_target_iids.size()
 
 
