@@ -454,6 +454,10 @@ func _on_stage_selected(idx: int) -> void:
 	CelestialBody.for_stage(
 		PlayerLoadout.selected_stage_id
 	).apply_to_propagator()
+	# Surface Ops basemap follows the stage selection — refresh now so
+	# tabbing in already shows the right planet's surface.
+	if _surface_placement != null:
+		_surface_placement.refresh()
 	_refresh_stage_brief()
 
 
@@ -464,6 +468,8 @@ func _on_stage_selected(idx: int) -> void:
 func _on_system_map_body_selected(stage_id: String) -> void:
 	PlayerLoadout.selected_stage_id = stage_id
 	CelestialBody.for_stage(stage_id).apply_to_propagator()
+	if _surface_placement != null:
+		_surface_placement.refresh()
 	for i in range(PlayerLoadout.STAGES.size()):
 		var stage: Dictionary = PlayerLoadout.STAGES[i]
 		if String(stage.get("id", "")) == stage_id:

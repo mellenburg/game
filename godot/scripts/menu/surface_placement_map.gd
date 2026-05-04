@@ -1,10 +1,11 @@
 extends Control
 ## Equirectangular world map widget for the menu's Surface Ops tab.
-## Shows the same Earth basemap the in-game ImpactMap uses (so the
-## player's placements map cleanly to the gameplay-time minimap), and
-## emits `placed(lat_deg, lon_deg)` whenever the operator clicks
-## anywhere inside the map area. Existing surface installations from
-## PlayerLoadout are drawn as green markers on top of the map.
+## Shows the same basemap the in-game ImpactMap uses for the active
+## body (Earth's day-side JPEG on Earth missions, the NASA PIA02066
+## cylindrical mosaic on Mars), and emits `placed(lat_deg, lon_deg)`
+## whenever the operator clicks anywhere inside the map area. Existing
+## surface installations from PlayerLoadout are drawn as green markers
+## on top of the map.
 ##
 ## Equirectangular (rather than the in-game ImpactMap's Mercator) so
 ## clicking near the poles still resolves to a sensible lat/lon — the
@@ -12,6 +13,7 @@ extends Control
 ## blows up near the poles, which would feel wrong on a click target.
 
 const PlayerLoadoutType = preload("res://scripts/player_loadout.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
 
 signal placed(lat_deg: float, lon_deg: float)
 
@@ -86,6 +88,11 @@ const PANEL_BG := Color(0.04, 0.04, 0.08, 1.0)
 var _panel: Panel
 var _map_rect: TextureRect
 var _marker_layer: _MarkerLayer
+# Stage id whose basemap is currently bound. refresh() compares this
+# against the live PlayerLoadout selection and reloads the texture
+# when they diverge — that's the seam the menu uses to swap Earth →
+# Mars after the operator picks a different mission.
+var _bound_stage_id: String = ""
 
 
 func _ready() -> void:
@@ -109,8 +116,8 @@ func _ready() -> void:
 	_map_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_map_rect.stretch_mode = TextureRect.STRETCH_SCALE
 	_map_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_map_rect.texture = _load_basemap()
 	add_child(_map_rect)
+	_apply_basemap_for_selected_stage()
 
 	_marker_layer = _MarkerLayer.new()
 	_marker_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -125,8 +132,26 @@ func _ready() -> void:
 func refresh() -> void:
 	if _marker_layer == null:
 		return
+	# Stage id may have changed since the last refresh (operator picked
+	# a different mission on the Campaign tab). Reload the basemap so
+	# the click target matches the body the placements will deploy to.
+	_apply_basemap_for_selected_stage()
 	_marker_layer.configs = PlayerLoadout.surface_units
 	_marker_layer.queue_redraw()
+
+
+# Look up the active body off PlayerLoadout's selected stage and bind
+# the matching cylindrical map to the rect. Skips the texture load when
+# the stage hasn't changed since the last bind so flipping back to a
+# tab the operator already configured doesn't churn texture memory.
+func _apply_basemap_for_selected_stage() -> void:
+	if _map_rect == null:
+		return
+	var stage_id := String(PlayerLoadout.selected_stage_id)
+	if stage_id == _bound_stage_id and _map_rect.texture != null:
+		return
+	_bound_stage_id = stage_id
+	_map_rect.texture = _load_basemap_for_stage(stage_id)
 
 
 # Forward the basemap rect's pixel extents into the marker layer so the
@@ -142,17 +167,23 @@ func _update_marker_extents() -> void:
 	)
 
 
-func _load_basemap() -> Texture2D:
-	const path := "res://resources/3D/earth/4096_earth.jpg"
+func _load_basemap_for_stage(stage_id: String) -> Texture2D:
+	var body := CelestialBody.for_stage(stage_id)
+	var path := ""
+	match body.texture_set:
+		CelestialBody.TEXTURES_MARS:
+			path = "res://resources/3D/mars/2304_mars.jpg"
+		_:
+			path = "res://resources/3D/earth/4096_earth.jpg"
 	if ResourceLoader.exists(path):
 		var tex := load(path) as Texture2D
 		if tex != null:
 			return tex
-	# Fallback so the click target still has a backdrop in headless
-	# / asset-stripped runs. Plain dark blue gradient — markers and grid
-	# still draw correctly on top.
+	# Fallback so the click target still has a backdrop in headless /
+	# asset-stripped runs. Tint pulled from the body record so the panel
+	# still reads as the right planet's colour even with no texture.
 	var img := Image.create(4, 4, false, Image.FORMAT_RGB8)
-	img.fill(Color(0.10, 0.18, 0.30))
+	img.fill(body.fallback_color)
 	return ImageTexture.create_from_image(img)
 
 
