@@ -3,12 +3,12 @@ extends "res://tests/framework.gd"
 ## doesn't need a SceneTree (Satellite is a Node3D).
 ##
 ## The laser is a continuous-fire energy weapon: pool joules drain at
-## POOL_DRAIN_W per sim-sec while firing, and a heat budget
-## (`ready_fraction`) ticks down while firing and back up while idle.
-## Hitting 0% latches the `overheated` flag, which only clears once
-## the bar climbs back to 100%. Damage is computed from radiated
-## power × target coupling / J_PER_HP — physical units rather than
-## the abstract DPS the previous balance pass used.
+## POOL_DRAIN_W per sim-sec while firing, and waste heat (joules)
+## accumulates at POOL_DRAIN_W × HEAT_FRACTION while firing. Hitting
+## HEAT_CAPACITY_J latches the `overheated` flag, which only clears
+## once the cooling system bleeds heat back to zero. Damage is
+## computed from radiated power × target coupling / J_PER_HP — physical
+## units rather than the abstract DPS the previous balance pass used.
 
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
@@ -60,6 +60,9 @@ const ZERO_RANGE_DPS: float = (
 	LaserWeapon.RADIATED_POWER_W * LaserWeapon.TARGET_COUPLING_DEFAULT
 	/ Weapon.J_PER_HP
 )
+# Heat-per-sim-sec while firing, in joules. Tests assert against this
+# directly so the new heat-in-joules invariants stay legible.
+const HEAT_PER_SEC_W: float = LaserWeapon.POOL_DRAIN_W * LaserWeapon.HEAT_FRACTION
 # Pool seed for tests that just need "enough energy to fire for a few
 # seconds without going dry". Matches the default DEFAULT_ENERGY_MAX_J
 # (40 GJ) so fakes feel like a fresh-from-spawn satellite. Tests that
@@ -82,19 +85,43 @@ func _make_enemy(pos: Vector3) -> FakeSat:
 	return s
 
 
-func test_cool_rate_is_quarter_of_heat_rate() -> void:
-	# Core invariant of the impulse model: heating outruns cooling 4:1.
-	# `cool_rate` is now a field driven by the radiator complement; a
-	# bare construction defaults to COOL_PER_SEC, which is the
-	# pre-parts baseline this invariant was sized against.
+func test_heat_fraction_matches_wallplug_inverse() -> void:
+	# Heat = waste energy, so heat_fraction must be 1 - wallplug efficiency.
+	# Pinning so a future tweak to either constant doesn't silently break
+	# energy conservation in the heat model.
 	var w := LaserWeapon.new()
-	assert_close(w.heat_rate(), 4.0 * w.cool_rate)
+	assert_close(w.heat_fraction, 1.0 - LaserWeapon.WALLPLUG_EFFICIENCY)
+	assert_close(LaserWeapon.HEAT_FRACTION, 0.7)
 
 
 func test_idle_weapon_is_ready() -> void:
 	var w := LaserWeapon.new()
-	assert_close(w.ready_fraction, 1.0)
+	assert_close(w.heat_j, 0.0)
+	assert_close(w.heat_capacity_j, LaserWeapon.HEAT_CAPACITY_J, 1.0)
+	assert_close(w.ready_progress(), 1.0)
 	assert_false(w.overheated)
+	# Idle weapon doesn't demand cooling — cooling power is freed up
+	# for whichever sibling gun is hot. This is the field
+	# CombatController polls when splitting cooling power across
+	# multiple weapons on the same hull.
+	assert_false(w.demands_cooling())
+
+
+func test_demands_cooling_after_fire() -> void:
+	# Any non-zero heat means the weapon wants cooling this tick.
+	# Pinning so the controller's "split evenly across demanders" rule
+	# stays consistent with what fire() leaves behind.
+	var w := LaserWeapon.new()
+	var attacker := _make_player()
+	attacker.energy = STARTING_ENERGY_J
+	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	w.fire(attacker, target, 1.0)
+	assert_true(w.heat_j > 0.0)
+	assert_true(w.demands_cooling())
+	# Drain back to zero ⇒ no demand.
+	w.cool(w.heat_j, 1.0)
+	assert_close(w.heat_j, 0.0)
+	assert_false(w.demands_cooling())
 
 
 func test_cannot_fire_with_no_energy() -> void:
@@ -107,81 +134,79 @@ func test_cannot_fire_with_no_energy() -> void:
 	assert_close(target.hp, 100.0)
 
 
-func test_fire_applies_damage_and_drains_energy_per_second() -> void:
+func test_fire_applies_damage_drains_energy_and_adds_heat() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	# Fire for 2 sim-sec → 2 * DPS * range_factor(d) damage, 2 * cost
-	# drain, 2 * heat consumed. Distance is 1000 km so the falloff
-	# factor is non-trivial (~0.95) and shows up in the assertion.
+	# drain, 2 * heat-per-sec joules of heat. Distance is 1000 km so the
+	# falloff factor is non-trivial (~0.95) and shows up in the assertion.
 	var dist: float = (target.orbit.r - attacker.orbit.r).length()
 	var rf: float = LaserWeapon.range_factor(dist)
 	assert_true(w.fire(attacker, target, 2.0))
 	assert_close(target.hp, 100.0 - 2.0 * ZERO_RANGE_DPS * rf)
 	# Energy and heat costs are flat in time — distance only modulates
-	# damage, not the per-second burn. That's a deliberate design call
-	# (see laser_weapon.gd) so long-range potshots cost as much as they
-	# would point-blank.
-	# Tolerance scaled to the pool size — assert_close's 1e-6 default
-	# is meaningless against billions of joules. 1 J of slop is plenty
-	# tight given POOL_DRAIN_W ~ 333 MW.
+	# damage, not the per-second burn. Tolerance scaled to the pool
+	# size — assert_close's 1e-6 default is meaningless against billions
+	# of joules.
 	assert_close(
 		attacker.energy,
 		STARTING_ENERGY_J - 2.0 * LaserWeapon.POOL_DRAIN_W,
 		1.0,
 	)
-	assert_close(w.ready_fraction, 1.0 - 2.0 * LaserWeapon.HEAT_PER_SEC)
+	assert_close(w.heat_j, 2.0 * HEAT_PER_SEC_W, 1.0)
 	assert_false(w.overheated)
 
 
-func test_idle_tick_cools_at_quarter_rate() -> void:
+func test_cool_drains_heat_at_supplied_power() -> void:
+	# Burn the bar down by firing for some time, then verify cool() pulls
+	# heat down at exactly the supplied power × dt.
 	var w := LaserWeapon.new()
-	# Burn the bar down by firing for some time, then verify cool() climbs
-	# back at exactly 1/4 the heat rate.
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_true(w.fire(attacker, target, 4.0))
-	var after_fire := w.ready_fraction
-	w.tick(4.0)
-	assert_close(w.ready_fraction, after_fire + 4.0 * LaserWeapon.COOL_PER_SEC)
+	var heat_after_fire: float = w.heat_j
+	# 100 MW of cooling for 1 sec drains 100 MJ of heat.
+	w.cool(1.0e8, 1.0)
+	assert_close(w.heat_j, heat_after_fire - 1.0e8, 1.0)
 
 
-func test_continuous_fire_overheats_eventually() -> void:
-	# Sustained fire should trip the overheat lockout once ready hits 0.
-	# Use a giant energy pool by repeatedly topping up so heat is the
-	# only limiter under test.
+func test_continuous_fire_overheats_at_capacity() -> void:
+	# Sustained fire should trip the overheat lockout once heat hits
+	# capacity. Use a giant energy pool so heat is the only limiter.
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	target.hp = 1.0e9  # large so it survives the burn
-	# Sim-seconds to fully overheat = 1 / HEAT_PER_SEC; pad slightly so
-	# the final tick crosses zero.
-	var burn := 1.0 / LaserWeapon.HEAT_PER_SEC + 1.0
+	# Sim-sec to fully overheat = HEAT_CAPACITY_J / heat-per-sec; pad
+	# slightly so the final tick crosses zero.
+	var burn := LaserWeapon.HEAT_CAPACITY_J / HEAT_PER_SEC_W + 1.0
 	attacker.energy = burn * LaserWeapon.POOL_DRAIN_W * 2.0
 	assert_true(w.fire(attacker, target, burn))
-	assert_close(w.ready_fraction, 0.0)
+	assert_close(w.heat_j, LaserWeapon.HEAT_CAPACITY_J, 1.0)
 	assert_true(w.overheated)
 	assert_false(w.can_fire(attacker))
 
 
 func test_overheated_weapon_refuses_to_fire_until_fully_cool() -> void:
-	# Latch behavior: once overheated, even a partial tick of cooling
-	# must not let the weapon fire again until ready hits 1.0.
+	# Latch behavior: once overheated, even a partial cool tick must not
+	# let the weapon fire again until heat hits 0.
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	target.hp = 1.0e9
-	var burn := 1.0 / LaserWeapon.HEAT_PER_SEC + 1.0
+	var burn := LaserWeapon.HEAT_CAPACITY_J / HEAT_PER_SEC_W + 1.0
 	attacker.energy = burn * LaserWeapon.POOL_DRAIN_W * 2.0
 	w.fire(attacker, target, burn)
 	assert_true(w.overheated)
 
-	# Cool halfway back. Bar is at 50%, but lockout is still latched.
-	var half_recover := 0.5 / LaserWeapon.COOL_PER_SEC
-	w.tick(half_recover)
-	assert_close(w.ready_fraction, 0.5, 1.0e-4)
+	# Cool halfway back. Heat is at 50%, but lockout is still latched.
+	# Use a 10 MW cooler running for whatever time drains exactly half.
+	var half := LaserWeapon.HEAT_CAPACITY_J * 0.5
+	w.cool(half, 1.0)  # 1 sec at 'half' watts ⇒ removes exactly half
+	assert_close(w.heat_j, half, 1.0)
 	assert_true(w.overheated)
 	# Re-fill the pool — refusal to fire must come from the lockout,
 	# not an empty reservoir.
@@ -189,9 +214,9 @@ func test_overheated_weapon_refuses_to_fire_until_fully_cool() -> void:
 	assert_false(w.can_fire(attacker))
 	assert_false(w.fire(attacker, target, 1.0))
 
-	# Finish cooling. Lockout clears as ready_fraction hits 1.0.
-	w.tick(half_recover + 1.0)
-	assert_close(w.ready_fraction, 1.0)
+	# Finish cooling. Lockout clears as heat hits 0.
+	w.cool(half * 1.1, 1.0)
+	assert_close(w.heat_j, 0.0)
 	assert_false(w.overheated)
 	assert_true(w.can_fire(attacker))
 
@@ -244,19 +269,20 @@ func test_does_not_engage_dead_target() -> void:
 	assert_false(w.fire(attacker, enemy, 1.0))
 
 
-func test_tick_ignores_zero_or_negative_delta() -> void:
+func test_cool_ignores_zero_or_negative_inputs() -> void:
 	var w := LaserWeapon.new()
-	# Fire briefly to push ready below 1.0 so cooling has somewhere to
-	# go; then verify a no-op tick really is a no-op.
+	# Fire briefly to push heat above 0 so cooling has somewhere to go.
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
 	w.fire(attacker, target, 1.0)
-	var ready_before := w.ready_fraction
-	w.tick(0.0)
-	assert_close(w.ready_fraction, ready_before)
-	w.tick(-5.0)
-	assert_close(w.ready_fraction, ready_before)
+	var heat_before := w.heat_j
+	w.cool(0.0, 1.0)
+	assert_close(w.heat_j, heat_before)
+	w.cool(1.0e7, 0.0)
+	assert_close(w.heat_j, heat_before)
+	w.cool(-1.0e7, 1.0)
+	assert_close(w.heat_j, heat_before)
 
 
 func test_fire_ignores_zero_or_negative_delta() -> void:
@@ -268,7 +294,7 @@ func test_fire_ignores_zero_or_negative_delta() -> void:
 	assert_false(w.fire(attacker, target, -1.0))
 	assert_close(target.hp, 100.0)
 	assert_close(attacker.energy, STARTING_ENERGY_J)
-	assert_close(w.ready_fraction, 1.0)
+	assert_close(w.heat_j, 0.0)
 
 
 func test_range_factor_is_linear_with_distance() -> void:

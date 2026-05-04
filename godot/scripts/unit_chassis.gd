@@ -14,10 +14,10 @@ const ID_HEAVY: String = "heavy"
 var id: String
 var label: String
 # Number of slots of each kind. The default chassis has one of each;
-# heavy doubles weapons + radiators (more guns, more cooling) and keeps
-# energy storage + reactor at one each.
+# heavy doubles weapons + cooling systems (more guns, more cooling) and
+# keeps energy storage + reactor at one each.
 var weapon_slots: int
-var radiator_slots: int
+var cooling_system_slots: int
 var energy_storage_slots: int
 var reactor_slots: int
 var thruster_slots: int
@@ -27,7 +27,7 @@ static func make(
 	chassis_id: String,
 	label: String,
 	weapon_slots: int,
-	radiator_slots: int,
+	cooling_system_slots: int,
 	energy_storage_slots: int,
 	reactor_slots: int,
 	thruster_slots: int = 1,
@@ -36,7 +36,7 @@ static func make(
 	c.id = chassis_id
 	c.label = label
 	c.weapon_slots = weapon_slots
-	c.radiator_slots = radiator_slots
+	c.cooling_system_slots = cooling_system_slots
 	c.energy_storage_slots = energy_storage_slots
 	c.reactor_slots = reactor_slots
 	c.thruster_slots = thruster_slots
@@ -67,8 +67,8 @@ static func slot_count_for_kind(chassis_id: String, kind: int) -> int:
 	match kind:
 		UnitPart.KIND_WEAPON:
 			return c.weapon_slots
-		UnitPart.KIND_RADIATOR:
-			return c.radiator_slots
+		UnitPart.KIND_COOLING_SYSTEM:
+			return c.cooling_system_slots
 		UnitPart.KIND_ENERGY_STORAGE:
 			return c.energy_storage_slots
 		UnitPart.KIND_REACTOR:

@@ -16,15 +16,15 @@ const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 func test_default_chassis_has_one_slot_per_kind() -> void:
 	var c := UnitChassis.get_by_id(UnitChassis.ID_DEFAULT)
 	assert_eq(c.weapon_slots, 1)
-	assert_eq(c.radiator_slots, 1)
+	assert_eq(c.cooling_system_slots, 1)
 	assert_eq(c.energy_storage_slots, 1)
 	assert_eq(c.reactor_slots, 1)
 
 
-func test_heavy_chassis_doubles_weapons_and_radiators() -> void:
+func test_heavy_chassis_doubles_weapons_and_cooling() -> void:
 	var c := UnitChassis.get_by_id(UnitChassis.ID_HEAVY)
 	assert_eq(c.weapon_slots, 2)
-	assert_eq(c.radiator_slots, 2)
+	assert_eq(c.cooling_system_slots, 2)
 	assert_eq(c.energy_storage_slots, 1)
 	assert_eq(c.reactor_slots, 1)
 
@@ -37,7 +37,7 @@ func test_advanced_parts_double_default_facet() -> void:
 	var pairs: Array = [
 		["laser_default", "laser_advanced"],
 		["railgun_default", "railgun_advanced"],
-		["radiator_default", "radiator_advanced"],
+		["cooling_system_default", "cooling_system_advanced"],
 		["energy_storage_default", "energy_storage_advanced"],
 		["reactor_default", "reactor_advanced"],
 	]
@@ -54,7 +54,7 @@ func test_set_chassis_pads_slots_with_default_part() -> void:
 	var u := UnitConfig.make_default("U-1", "T-01")
 	assert_eq(u.weapon_part_ids.size(), 1)
 	assert_eq(u.weapon_part_ids[0], "laser_default")
-	assert_eq(u.radiator_part_ids[0], "radiator_default")
+	assert_eq(u.cooling_system_part_ids[0], "cooling_system_default")
 	assert_eq(u.energy_storage_part_ids[0], "energy_storage_default")
 	assert_eq(u.reactor_part_ids[0], "reactor_default")
 
@@ -73,15 +73,15 @@ func test_set_chassis_preserves_existing_picks() -> void:
 
 
 func test_total_multiplier_sums_across_slots() -> void:
-	# Heavy chassis with two advanced radiators ⇒ total radiator
+	# Heavy chassis with two advanced cooling systems ⇒ total cooling
 	# multiplier 4.0 (two slots × 2.0 each). SpawnDirector multiplies
-	# this through to each weapon's cool_mult so the test pins the
-	# aggregation rule SpawnDirector consumes.
+	# this through Satellite.DEFAULT_COOLING_POWER_W so the test pins
+	# the aggregation rule SpawnDirector consumes.
 	var u := UnitConfig.make_default("U-1", "T-01")
 	u.set_chassis(UnitChassis.ID_HEAVY)
-	u.set_part_id(UnitPart.KIND_RADIATOR, 0, "radiator_advanced")
-	u.set_part_id(UnitPart.KIND_RADIATOR, 1, "radiator_advanced")
-	assert_close(u.total_multiplier_for_kind(UnitPart.KIND_RADIATOR), 4.0)
+	u.set_part_id(UnitPart.KIND_COOLING_SYSTEM, 0, "cooling_system_advanced")
+	u.set_part_id(UnitPart.KIND_COOLING_SYSTEM, 1, "cooling_system_advanced")
+	assert_close(u.total_multiplier_for_kind(UnitPart.KIND_COOLING_SYSTEM), 4.0)
 
 
 func test_summary_stats_default_unit_matches_baseline_constants() -> void:
@@ -138,25 +138,27 @@ func test_summary_stats_advanced_parts_double_facets() -> void:
 	)
 
 
-func test_summary_stats_railgun_cooldown_scales_with_radiator() -> void:
-	# Default railgun + advanced radiator ⇒ cool_rate doubles, so the
-	# reported cooldown halves. Verifies the radiator complement
-	# (which now supplies cool_rate directly) flows through to the
-	# weapon's cooldown stat — the same value SpawnDirector writes to
-	# RailgunWeapon.cool_rate at spawn.
+func test_summary_stats_railgun_cooldown_scales_with_cooling() -> void:
+	# Default railgun + advanced cooling system ⇒ cooling power
+	# doubles, so the reported sole-demander cooldown halves. Verifies
+	# the cooling complement flows through to the weapon's cooldown
+	# stat — the same value SpawnDirector writes to
+	# Satellite.cooling_power_w at spawn.
 	var u := UnitConfig.make_default("U-1", "T-01")
 	u.set_part_id(UnitPart.KIND_WEAPON, 0, "railgun_default")
-	u.set_part_id(UnitPart.KIND_RADIATOR, 0, "radiator_advanced")
+	u.set_part_id(UnitPart.KIND_COOLING_SYSTEM, 0, "cooling_system_advanced")
 	var s := u.summary_stats()
 	assert_eq(int(s["railgun_count"]), 1)
 	assert_close(
 		float(s["railgun_damage_total"]),
 		RailgunWeapon.base_damage_per_shot(),
 	)
-	assert_close(
-		float(s["railgun_cooldown_sec"]),
-		1.0 / (2.0 * RailgunWeapon.COOL_PER_SEC),
+	# heat_capacity / (DEFAULT_COOLING_POWER × 2) is the sole-demander
+	# recovery time at the advanced tier.
+	var expected: float = RailgunWeapon.HEAT_CAPACITY_J / (
+		2.0 * Satellite.DEFAULT_COOLING_POWER_W
 	)
+	assert_close(float(s["railgun_cooldown_sec"]), expected, 1.0e-3)
 
 
 func test_summary_stats_railgun_physical_fields() -> void:
@@ -233,16 +235,17 @@ func test_summary_stats_laser_physical_fields() -> void:
 	)
 
 
-func test_summary_stats_no_radiator_yields_infinite_cooldown() -> void:
-	# Strip the radiator slot's part. With cool_rate driven entirely
-	# by the radiator complement, an empty radiator row means weapons
-	# couldn't recover after firing — the summary surfaces this as
-	# INF so the operator can see the unit is inert.
+func test_summary_stats_no_cooling_yields_infinite_cooldown() -> void:
+	# Strip the cooling-system slot's part. With cooling driven entirely
+	# by the cooling complement, an empty row means weapons couldn't
+	# recover after firing — the summary surfaces this as INF so the
+	# operator can see the unit is inert.
 	var u := UnitConfig.make_default("U-1", "T-01")
-	u.set_part_id(UnitPart.KIND_RADIATOR, 0, "")
+	u.set_part_id(UnitPart.KIND_COOLING_SYSTEM, 0, "")
 	var s := u.summary_stats()
 	assert_false(is_finite(float(s["laser_cooldown_sec"])))
 	assert_false(is_finite(float(s["railgun_cooldown_sec"])))
+	assert_close(float(s["cooling_power_w"]), 0.0)
 
 
 func test_summary_stats_heavy_dual_weapon_sums_damage() -> void:

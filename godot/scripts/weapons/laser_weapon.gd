@@ -1,11 +1,12 @@
 class_name LaserWeapon
 extends "res://scripts/weapons/weapon.gd"
 ## Continuous-fire energy beam. Damage and energy drain are per
-## simulated second; firing heats the emitter (ready_fraction drops),
-## idling cools it. Heat saturates 4x faster than it dissipates, so a
-## sustained beam earns a long lockout. Range-limited: damage scales
-## linearly from full at zero distance to zero at MAX_RANGE_KM, and the
-## engagement envelope rejects targets beyond the attacker's
+## simulated second; firing dumps waste heat (heat_fraction × pool draw)
+## into the weapon's heat_j until heat_capacity_j is reached, at which
+## point the overheat latch trips and the weapon refuses to fire until
+## the cooling system bleeds it back to zero. Range-limited: damage
+## scales linearly from full at zero distance to zero at MAX_RANGE_KM,
+## and the engagement envelope rejects targets beyond the attacker's
 ## engagement_range_km cap (so operators can save energy by holding
 ## fire until enemies are inside an optimal-damage band).
 
@@ -28,10 +29,9 @@ const TARGETING_MAX_DANGER: int = 1
 # falls out of (radiated × coupling / Weapon.J_PER_HP).
 const RADIATED_POWER_W: float = 1.0e8
 # Pool→radiated conversion. Real fiber lasers run ~30-40% wall-plug
-# efficient; the rest is heat dumped through the radiator stack
-# (which is what cool_rate / radiator parts model). 30% is the
-# conservative end and means the laser draws ~333 MW from the bus
-# while firing — sized so a 1 GW reactor can sustain ~3 lasers
+# efficient; the rest is heat dumped through the cooling stack. 30%
+# is the conservative end and means the laser draws ~333 MW from the
+# bus while firing — sized so a 1 GW reactor can sustain ~3 lasers
 # concurrent before draining the pool.
 const WALLPLUG_EFFICIENCY: float = 0.3
 # Default beam-on-armour absorption: ~40% of the radiated beam
@@ -42,15 +42,19 @@ const TARGET_COUPLING_DEFAULT: float = 0.4
 # Joules drawn from the shared pool per simulated second of fire.
 # Pre-derived so the hot fire() path doesn't redo the divide.
 const POOL_DRAIN_W: float = RADIATED_POWER_W / WALLPLUG_EFFICIENCY
-# Fraction of ready_fraction consumed per sim-second of fire. 0.025
-# means 40 sim-sec of continuous fire takes the weapon from full
-# ready to overheated.
-const HEAT_PER_SEC: float = 0.025
-# Baseline recovery per sim-second of idle, used as the bare-instance
-# default and the per-radiator contribution. 4x slower than heat by
-# design — 160 sim-sec to fully cool from overheated when the unit
-# carries one default-tier radiator.
-const COOL_PER_SEC: float = HEAT_PER_SEC / 4.0
+# Fraction of pool draw that becomes waste heat in the emitter — the
+# inverse of wall-plug efficiency by definition. Surfaced as its own
+# constant (rather than recomputed on the fly) so a future tweak to
+# the heat model can override one without disturbing the other.
+const HEAT_FRACTION: float = 1.0 - WALLPLUG_EFFICIENCY
+# Sim-seconds of sustained fire before heat reaches capacity. 40 sec
+# matches the legacy ready_fraction model's overheat budget so
+# existing balance assumptions hold across the refactor.
+const HEAT_BUDGET_SEC: float = 40.0
+# Heat capacity in joules: how much waste heat the emitter can hold
+# before the overheat latch trips. Sized so HEAT_BUDGET_SEC of
+# continuous fire fully fills it.
+const HEAT_CAPACITY_J: float = POOL_DRAIN_W * HEAT_FRACTION * HEAT_BUDGET_SEC
 # Distance at which damage drops to zero. Linear falloff between 0 km
 # (full damage) and MAX_RANGE_KM (no damage). 40 000 km ≈ 6.3 Earth
 # radii — wide enough that two LEO satellites on opposite sides of
@@ -68,19 +72,15 @@ const MIN_ENGAGEMENT_RANGE_KM: float = 500.0
 # built. Default 1.0 keeps every existing call site (and every unit
 # test that constructs a bare `LaserWeapon.new()`) on the original
 # numbers; SpawnDirector overrides it from the weapon part's tier.
-# Heat accumulation is intrinsic to the emitter and stays unmultiplied
-# — the same shot still loads the same thermal energy; the radiator
-# (which feeds the base class's `cool_rate` field) only flushes it
-# faster.
+# Heat capacity / fraction stay tier-independent — the same shot
+# loads the same thermal energy; the cooling system (which feeds
+# Satellite.cooling_power_w) only flushes it faster.
 var damage_mult: float = 1.0
 
 
-# Bare construction defaults cool_rate to the per-class baseline so
-# tests that build a LaserWeapon without a unit still cool at the
-# pre-parts rate. SpawnDirector overwrites this at spawn time with
-# the unit's aggregate radiator contribution.
 func _init() -> void:
-	cool_rate = COOL_PER_SEC
+	heat_capacity_j = HEAT_CAPACITY_J
+	heat_fraction = HEAT_FRACTION
 	wallplug_efficiency = WALLPLUG_EFFICIENCY
 	target_coupling_default = TARGET_COUPLING_DEFAULT
 
@@ -107,10 +107,6 @@ func damage_per_second(target = null) -> float:
 
 func pool_draw_w() -> float:
 	return POOL_DRAIN_W
-
-
-func heat_rate() -> float:
-	return HEAT_PER_SEC
 
 
 func can_fire(attacker) -> bool:
@@ -214,7 +210,10 @@ func fire(attacker, target, sim_delta: float) -> bool:
 	# headroom. Whatever slack is left over is just lost — at our
 	# physics-tick granularity the rounding is negligible.
 	var max_by_energy: float = attacker.energy / POOL_DRAIN_W
-	var max_by_heat: float = ready_fraction / HEAT_PER_SEC
+	var heat_per_sec: float = POOL_DRAIN_W * heat_fraction
+	var max_by_heat: float = INF
+	if heat_per_sec > 0.0:
+		max_by_heat = (heat_capacity_j - heat_j) / heat_per_sec
 	var dt: float = minf(sim_delta, minf(max_by_energy, max_by_heat))
 	if dt <= 0.0:
 		return false
@@ -222,7 +221,7 @@ func fire(attacker, target, sim_delta: float) -> bool:
 	var dmg_scale: float = range_factor(distance)
 	target.take_damage(damage_per_second(target) * dt * dmg_scale, attacker)
 	attacker.energy = maxf(attacker.energy - POOL_DRAIN_W * dt, 0.0)
-	ready_fraction = clampf(ready_fraction - HEAT_PER_SEC * dt, 0.0, 1.0)
-	if ready_fraction <= 0.0:
+	heat_j = clampf(heat_j + heat_per_sec * dt, 0.0, heat_capacity_j)
+	if heat_j >= heat_capacity_j:
 		overheated = true
 	return true

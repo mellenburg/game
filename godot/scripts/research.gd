@@ -53,13 +53,13 @@ const COMPONENT_CHAINS: Array = [
 		],
 	},
 	{
-		"category": "Radiators",
+		"category": "Cooling Systems",
 		"shape": "hex",
-		"stat_template": "%.1fx weapon cool rate",
+		"stat_template": "%.1fx weapon cooling power",
 		"tiers": [
-			{"id": "radiator_basic", "label": "Basic Radiator", "cost": 0, "part_id": "radiator_default", "flavor": "Folded panel array. Sheds excess heat to vacuum."},
-			{"id": "radiator_advanced", "label": "Advanced Radiator", "cost": 150, "part_id": "radiator_advanced", "flavor": "Phase-change loop in a graphene substrate."},
-			{"id": "radiator_elite", "label": "Elite Radiator", "cost": 400, "part_id": "radiator_elite", "flavor": "Liquid-droplet radiator — orders of magnitude more emissive area per kilogram."},
+			{"id": "cooling_system_basic", "label": "Basic Cooling System", "cost": 0, "part_id": "cooling_system_default", "flavor": "Folded panel array. Sheds excess heat to vacuum."},
+			{"id": "cooling_system_advanced", "label": "Advanced Cooling System", "cost": 150, "part_id": "cooling_system_advanced", "flavor": "Phase-change loop in a graphene substrate."},
+			{"id": "cooling_system_elite", "label": "Elite Cooling System", "cost": 400, "part_id": "cooling_system_elite", "flavor": "Liquid-droplet radiator — orders of magnitude more emissive area per kilogram."},
 		],
 	},
 	{

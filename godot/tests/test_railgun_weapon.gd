@@ -82,8 +82,29 @@ func _make_enemy(pos: Vector3) -> FakeSat:
 
 func test_idle_railgun_is_ready() -> void:
 	var w := RailgunWeapon.new()
-	assert_close(w.ready_fraction, 1.0)
+	assert_close(w.heat_j, 0.0)
+	assert_close(w.heat_capacity_j, RailgunWeapon.HEAT_CAPACITY_J, 1.0)
+	assert_close(w.ready_progress(), 1.0)
 	assert_false(w.overheated)
+
+
+func test_heat_capacity_equals_one_shot_of_heat() -> void:
+	# Per the design spec: the railgun's heat capacity must be exactly
+	# one shot. Firing once fully fills it; the overheat latch then
+	# refuses to fire again until the cooling system has bled every
+	# joule. Pinning the equality here so a future tweak can't silently
+	# let the rails fire twice before tripping.
+	assert_close(
+		RailgunWeapon.HEAT_CAPACITY_J,
+		RailgunWeapon.HEAT_PER_SHOT_J,
+		1.0,
+	)
+	# The heat dump is the wallplug waste of one shot.
+	assert_close(
+		RailgunWeapon.HEAT_PER_SHOT_J,
+		RailgunWeapon.ENERGY_PER_SHOT_J * (1.0 - RailgunWeapon.WALLPLUG_EFFICIENCY),
+		1.0,
+	)
 
 
 func test_cannot_fire_when_disabled() -> void:
@@ -137,23 +158,25 @@ func test_fire_applies_damage_and_drains_energy_and_locks_cooldown() -> void:
 		attacker.energy, energy_before - RailgunWeapon.ENERGY_PER_SHOT_J, 1.0,
 	)
 	assert_eq(w.ammo_count, ammo_before - 1)
-	assert_close(w.ready_fraction, 0.0)
+	assert_close(w.heat_j, RailgunWeapon.HEAT_CAPACITY_J, 1.0)
 	assert_true(w.overheated)
 	# Locked: even with full energy, can't fire again until cool.
 	attacker.energy = STARTING_ENERGY_J
 	assert_false(w.can_fire(attacker))
 
 
-func test_cooldown_recovers_at_design_rate() -> void:
-	# Tick the weapon for COOLDOWN_SEC sim-seconds and verify the bar
-	# climbs back to 1.0 and the lockout clears.
+func test_cool_clears_overheat_when_heat_hits_zero() -> void:
+	# Apply enough cooling power × dt to drain the rail's full heat
+	# capacity and verify the lockout clears.
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0))
 	w.fire(attacker, target, 1.0)
 	assert_true(w.overheated)
-	w.tick(RailgunWeapon.COOLDOWN_SEC)
-	assert_close(w.ready_fraction, 1.0)
+	# Drain in one tick by applying the full capacity worth of cooling
+	# in 1 sim-sec. cool() clamps at 0.
+	w.cool(RailgunWeapon.HEAT_CAPACITY_J, 1.0)
+	assert_close(w.heat_j, 0.0)
 	assert_false(w.overheated)
 
 
@@ -345,4 +368,4 @@ func test_fire_ignores_zero_or_negative_delta() -> void:
 	assert_false(w.fire(attacker, target, 0.0))
 	assert_false(w.fire(attacker, target, -1.0))
 	assert_close(target.hp, 100.0)
-	assert_close(w.ready_fraction, 1.0)
+	assert_close(w.heat_j, 0.0)

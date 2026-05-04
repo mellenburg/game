@@ -29,7 +29,7 @@ func test_reset_seeds_starting_tier_only_for_each_chain() -> void:
 	# Tier 0 of every chain is unlocked, tier 1+ is not.
 	assert_true(r.is_unlocked("laser_basic"))
 	assert_true(r.is_unlocked("railgun_basic"))
-	assert_true(r.is_unlocked("radiator_basic"))
+	assert_true(r.is_unlocked("cooling_system_basic"))
 	assert_true(r.is_unlocked("storage_basic"))
 	assert_true(r.is_unlocked("reactor_basic"))
 	assert_true(r.is_unlocked("launch_capacity_3"))
@@ -100,7 +100,7 @@ func test_part_unlocked_tracks_component_chain() -> void:
 	var r := _make_research()
 	# Default-tier parts are reachable from the start.
 	assert_true(r.is_part_unlocked("laser_default"))
-	assert_true(r.is_part_unlocked("radiator_default"))
+	assert_true(r.is_part_unlocked("cooling_system_default"))
 	# Advanced / elite gated until their tier is unlocked.
 	assert_false(r.is_part_unlocked("laser_advanced"))
 	assert_false(r.is_part_unlocked("laser_elite"))
@@ -168,7 +168,7 @@ func test_elite_part_catalog_multipliers() -> void:
 	var pairs: Array = [
 		["laser_default", "laser_elite"],
 		["railgun_default", "railgun_elite"],
-		["radiator_default", "radiator_elite"],
+		["cooling_system_default", "cooling_system_elite"],
 		["energy_storage_default", "energy_storage_elite"],
 		["reactor_default", "reactor_elite"],
 	]
