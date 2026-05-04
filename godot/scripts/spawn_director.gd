@@ -207,6 +207,12 @@ func spawn_starting_fleet(
 			nu,
 		)
 		sat.weapons = _default_loadout_for(i)
+		# Loadout was just reassigned, so the wet-mass total (dry +
+		# propellant + ammo) needs a refresh — slot 2's railgun adds
+		# a 20 t magazine that Satellite._init's earlier compute has
+		# already accounted for, but slots 0/1 (lasers only) need
+		# their mass dropped back to the no-ammo case.
+		sat.recompute_mass()
 		_satellite_container.add_child(sat)
 		_satellites.append(sat)
 		nu = fposmod(nu + _rng.randf_range(gap_min, gap_max), TAU)
@@ -259,9 +265,10 @@ func _find_unit(pool: Array[UnitConfig], unit_id: String) -> UnitConfig:
 #   * weapons: one Weapon per filled weapon slot, with damage / cool
 #     multipliers driven by that weapon's tier and the satellite's
 #     aggregate radiator multiplier.
-#   * energy_max: storage parts' total multiplier × default ENERGY_MAX
-#     (default tier with one slot ⇒ 1× default; advanced tier ⇒ 2×).
-#   * energy_rate_per_sim_sec: same logic against the reactor row.
+#   * energy_max: storage parts' total multiplier × default
+#     DEFAULT_ENERGY_MAX_J (default tier with one slot ⇒ 1× default;
+#     advanced tier ⇒ 2×).
+#   * reactor_power_w: same logic against the reactor row.
 # A unit whose storage / reactor row is empty contributes zero to that
 # facet, which is intentional: a unit with no reactor cannot recharge.
 func _apply_unit_to_satellite(sat: Satellite, unit: UnitConfig) -> void:
@@ -269,22 +276,22 @@ func _apply_unit_to_satellite(sat: Satellite, unit: UnitConfig) -> void:
 	var storage_mult := unit.total_multiplier_for_kind(UnitPart.KIND_ENERGY_STORAGE)
 	var reactor_mult := unit.total_multiplier_for_kind(UnitPart.KIND_REACTOR)
 	sat.unit_name = unit.name
-	sat.energy_max = Satellite.ENERGY_MAX * storage_mult
-	sat.energy_rate_per_sim_sec = Satellite.ENERGY_RATE_PER_SIM_SEC * reactor_mult
+	sat.energy_max = Satellite.DEFAULT_ENERGY_MAX_J * storage_mult
+	sat.reactor_power_w = Satellite.DEFAULT_REACTOR_POWER_W * reactor_mult
 	sat.weapons = _build_weapons(unit, radiator_mult)
 	# Propulsion: seed thrust / Isp / propellant from the unit's
 	# thruster row. Units with an empty thruster row (saved from a
 	# pre-thruster build) collapse to zero capacity, which leaves the
 	# satellite unable to maneuver — by design; the operator should
 	# fit a thruster part to make the unit mobile. Wet mass is
-	# dry + propellant so railgun recoil math sees the same number a
-	# fully-fueled unit would carry into orbit.
+	# dry + propellant + ammo so railgun recoil math sees the same
+	# number a fully-fueled, fully-loaded unit carries into orbit.
 	sat.thrust_n = unit.total_thrust_n()
 	sat.isp_s = unit.effective_isp_s()
 	sat.max_propellant_kg = unit.total_propellant_capacity_kg()
 	sat.propellant_kg = sat.max_propellant_kg
 	sat.dry_mass_kg = Satellite.DEFAULT_DRY_MASS_KG
-	sat.mass = sat.dry_mass_kg + sat.propellant_kg
+	sat.recompute_mass()
 
 
 # Translate the unit's weapon-slot row into a Weapon array, applying

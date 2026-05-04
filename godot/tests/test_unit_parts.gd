@@ -87,20 +87,28 @@ func test_total_multiplier_sums_across_slots() -> void:
 func test_summary_stats_default_unit_matches_baseline_constants() -> void:
 	# Default chassis with default-tier parts in every slot ⇒ stats
 	# track the un-multiplied weapon constants and the satellite's
-	# legacy ENERGY_MAX / ENERGY_RATE_PER_SIM_SEC. Pinning this here so
-	# a future tweak to the default tier (or to the constants those
-	# defaults derive from) is loud rather than silent.
+	# default joule pool / watt reactor. Pinning this here so a future
+	# tweak to the default tier (or to the constants those defaults
+	# derive from) is loud rather than silent.
 	var u := UnitConfig.make_default("U-1", "T-01")
 	var s := u.summary_stats()
 	assert_close(float(s["hp"]), Satellite.MAX_HP)
-	assert_close(float(s["mass_kg"]), Satellite.DEFAULT_MASS_KG)
+	# Default chassis ships a single laser slot — no railgun magazine —
+	# so wet mass collapses to dry + propellant.
+	assert_close(
+		float(s["mass_kg"]),
+		Satellite.DEFAULT_DRY_MASS_KG + Satellite.DEFAULT_PROPELLANT_KG,
+	)
 	assert_eq(int(s["laser_count"]), 1)
-	assert_close(float(s["laser_dps_total"]), LaserWeapon.DAMAGE_PER_SEC)
+	assert_close(
+		float(s["laser_dps_total"]),
+		LaserWeapon.base_damage_per_second_at_zero_range(),
+	)
 	assert_close(float(s["laser_max_range"]), LaserWeapon.MAX_RANGE_KM)
 	assert_eq(int(s["railgun_count"]), 0)
-	assert_close(float(s["energy_storage"]), Satellite.ENERGY_MAX)
+	assert_close(float(s["energy_storage"]), Satellite.DEFAULT_ENERGY_MAX_J)
 	assert_close(
-		float(s["energy_production"]), Satellite.ENERGY_RATE_PER_SIM_SEC,
+		float(s["energy_production"]), Satellite.DEFAULT_REACTOR_POWER_W,
 	)
 
 
@@ -114,13 +122,19 @@ func test_summary_stats_advanced_parts_double_facets() -> void:
 	u.set_part_id(UnitPart.KIND_ENERGY_STORAGE, 0, "energy_storage_advanced")
 	u.set_part_id(UnitPart.KIND_REACTOR, 0, "reactor_advanced")
 	var s := u.summary_stats()
+	# Tolerance scaled to the GJ pool — assert_close's 1e-6 default
+	# can't measure 20 GJ vs 20 GJ + 1 J.
 	assert_close(
-		float(s["laser_dps_total"]), 2.0 * LaserWeapon.DAMAGE_PER_SEC,
+		float(s["laser_dps_total"]),
+		2.0 * LaserWeapon.base_damage_per_second_at_zero_range(),
 	)
-	assert_close(float(s["energy_storage"]), 2.0 * Satellite.ENERGY_MAX)
+	assert_close(
+		float(s["energy_storage"]),
+		2.0 * Satellite.DEFAULT_ENERGY_MAX_J, 1.0,
+	)
 	assert_close(
 		float(s["energy_production"]),
-		2.0 * Satellite.ENERGY_RATE_PER_SIM_SEC,
+		2.0 * Satellite.DEFAULT_REACTOR_POWER_W, 1.0,
 	)
 
 
@@ -136,11 +150,86 @@ func test_summary_stats_railgun_cooldown_scales_with_radiator() -> void:
 	var s := u.summary_stats()
 	assert_eq(int(s["railgun_count"]), 1)
 	assert_close(
-		float(s["railgun_damage_total"]), RailgunWeapon.DAMAGE_PER_SHOT,
+		float(s["railgun_damage_total"]),
+		RailgunWeapon.base_damage_per_shot(),
 	)
 	assert_close(
 		float(s["railgun_cooldown_sec"]),
 		1.0 / (2.0 * RailgunWeapon.COOL_PER_SEC),
+	)
+
+
+func test_summary_stats_railgun_physical_fields() -> void:
+	# Pins the new physical readouts the Hangar's RAILGUNS section
+	# renders: slug mass, muzzle velocity, slug KE, wall-plug energy
+	# per shot, magazine size, and the recoil Δv against full wet mass.
+	# All independent of the weapon's tier multiplier (which only
+	# scales damage), so a default-tier railgun pins the bare physics.
+	var u := UnitConfig.make_default("U-1", "T-01")
+	u.set_part_id(UnitPart.KIND_WEAPON, 0, "railgun_default")
+	var s := u.summary_stats()
+	assert_close(
+		float(s["railgun_slug_mass_kg"]), RailgunWeapon.SLUG_MASS_KG,
+	)
+	assert_close(
+		float(s["railgun_muzzle_velocity_m_s"]),
+		RailgunWeapon.MUZZLE_VELOCITY_M_S,
+	)
+	assert_close(
+		float(s["railgun_slug_ke_j"]), RailgunWeapon.SLUG_MUZZLE_KE_J, 1.0,
+	)
+	assert_close(
+		float(s["railgun_energy_per_shot_j"]),
+		RailgunWeapon.ENERGY_PER_SHOT_J, 1.0,
+	)
+	assert_eq(
+		int(s["railgun_magazine_size"]), RailgunWeapon.MAGAZINE_SIZE,
+	)
+	assert_close(
+		float(s["railgun_target_coupling"]),
+		RailgunWeapon.TARGET_COUPLING_DEFAULT,
+	)
+	# Recoil Δv = momentum / wet_mass. Default railgun magazine adds
+	# 20 t to the 1 t airframe ⇒ ~21 t wet, so 400 kg·km/s of
+	# momentum lands as ~19 m/s of recoil per shot. Asserted against
+	# the analytic value rather than a hard-coded number so a future
+	# thruster / chassis tweak doesn't silently shift the assertion.
+	var ammo_mass: float = (
+		float(RailgunWeapon.MAGAZINE_SIZE) * RailgunWeapon.SLUG_MASS_KG
+	)
+	var wet: float = (
+		Satellite.DEFAULT_DRY_MASS_KG
+		+ Satellite.DEFAULT_PROPELLANT_KG
+		+ ammo_mass
+	)
+	var expected_recoil := (
+		RailgunWeapon.SLUG_MOMENTUM_KG_KM_S * 1000.0 / wet
+	)
+	assert_close(float(s["railgun_recoil_dv_ms"]), expected_recoil, 1.0e-6)
+
+
+func test_summary_stats_laser_physical_fields() -> void:
+	# Pins the new physical readouts the Hangar's LASERS section
+	# renders: radiated power, pool draw, wall-plug efficiency, and
+	# target coupling. Tier-independent (the multiplier only scales
+	# damage), so a default-tier laser is the right fixture for the
+	# bare physics constants.
+	var u := UnitConfig.make_default("U-1", "T-01")
+	u.set_part_id(UnitPart.KIND_WEAPON, 0, "laser_default")
+	var s := u.summary_stats()
+	assert_close(
+		float(s["laser_radiated_power_w"]), LaserWeapon.RADIATED_POWER_W, 1.0,
+	)
+	assert_close(
+		float(s["laser_pool_draw_w"]), LaserWeapon.POOL_DRAIN_W, 1.0,
+	)
+	assert_close(
+		float(s["laser_wallplug_efficiency"]),
+		LaserWeapon.WALLPLUG_EFFICIENCY,
+	)
+	assert_close(
+		float(s["laser_target_coupling"]),
+		LaserWeapon.TARGET_COUPLING_DEFAULT,
 	)
 
 
@@ -170,7 +259,7 @@ func test_summary_stats_heavy_dual_weapon_sums_damage() -> void:
 	assert_eq(int(s["laser_count"]), 2)
 	assert_close(
 		float(s["laser_dps_total"]),
-		LaserWeapon.DAMAGE_PER_SEC * (2.0 + 1.0),
+		LaserWeapon.base_damage_per_second_at_zero_range() * (2.0 + 1.0),
 	)
 
 

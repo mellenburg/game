@@ -20,13 +20,28 @@ const LosCheck = preload("res://scripts/los_check.gd")
 const TARGETING_MAX_DAMAGE: int = 0
 const TARGETING_MAX_DANGER: int = 1
 
-# Damage applied to target.hp per sim-second of beam contact at zero
-# range. Effective damage is scaled by range_factor(distance).
-const DAMAGE_PER_SEC: float = 5.0
-# Fraction of attacker.energy drained per sim-second of fire. The
-# drain is constant — energy cost doesn't scale with damage, so
-# firing at long range really does waste the reservoir.
-const ENERGY_PER_SEC: float = 0.005
+# Beam radiated power (watts) at the emitter aperture. 100 MW is in
+# the "advanced spacecraft" band — three orders above fielded DEWs
+# (LaWS / HELIOS at 30-150 kW), but consistent with what a fission-
+# powered orbital platform could plausibly support. This is the
+# energy-per-sim-second deposited at zero range; per-target damage
+# falls out of (radiated × coupling / Weapon.J_PER_HP).
+const RADIATED_POWER_W: float = 1.0e8
+# Pool→radiated conversion. Real fiber lasers run ~30-40% wall-plug
+# efficient; the rest is heat dumped through the radiator stack
+# (which is what cool_rate / radiator parts model). 30% is the
+# conservative end and means the laser draws ~333 MW from the bus
+# while firing — sized so a 1 GW reactor can sustain ~3 lasers
+# concurrent before draining the pool.
+const WALLPLUG_EFFICIENCY: float = 0.3
+# Default beam-on-armour absorption: ~40% of the radiated beam
+# becomes absorbed damage; the rest reflects (most for shiny metal,
+# less for blackened armour) or scatters off the tracking error
+# cone. Per-target overrides land here later via target_coupling_for().
+const TARGET_COUPLING_DEFAULT: float = 0.4
+# Joules drawn from the shared pool per simulated second of fire.
+# Pre-derived so the hot fire() path doesn't redo the divide.
+const POOL_DRAIN_W: float = RADIATED_POWER_W / WALLPLUG_EFFICIENCY
 # Fraction of ready_fraction consumed per sim-second of fire. 0.025
 # means 40 sim-sec of continuous fire takes the weapon from full
 # ready to overheated.
@@ -66,18 +81,32 @@ var damage_mult: float = 1.0
 # the unit's aggregate radiator contribution.
 func _init() -> void:
 	cool_rate = COOL_PER_SEC
+	wallplug_efficiency = WALLPLUG_EFFICIENCY
+	target_coupling_default = TARGET_COUPLING_DEFAULT
 
 
 func display_name() -> String:
 	return "Laser"
 
 
-func damage_per_second() -> float:
-	return DAMAGE_PER_SEC * damage_mult
+## Class-level "what's the per-second damage of an un-tiered laser
+## against a default-coupling target at zero range?" — used by the
+## Hangar summary to report a tier-baseline DPS without instantiating
+## a weapon. Reads the same physics constants the live fire() path
+## does, so the panel stays honest if power / coupling is retuned.
+static func base_damage_per_second_at_zero_range() -> float:
+	return RADIATED_POWER_W * TARGET_COUPLING_DEFAULT / J_PER_HP
 
 
-func cost_per_second() -> float:
-	return ENERGY_PER_SEC
+## Per-instance DPS at zero range, including this weapon's tier
+## multiplier. Range falloff is multiplied in by the caller.
+func damage_per_second(target = null) -> float:
+	var coupling: float = target_coupling_for(target)
+	return RADIATED_POWER_W * coupling / J_PER_HP * damage_mult
+
+
+func pool_draw_w() -> float:
+	return POOL_DRAIN_W
 
 
 func heat_rate() -> float:
@@ -184,15 +213,15 @@ func fire(attacker, target, sim_delta: float) -> bool:
 	# tick: requested sim_delta, remaining energy, or remaining heat
 	# headroom. Whatever slack is left over is just lost — at our
 	# physics-tick granularity the rounding is negligible.
-	var max_by_energy: float = attacker.energy / ENERGY_PER_SEC
+	var max_by_energy: float = attacker.energy / POOL_DRAIN_W
 	var max_by_heat: float = ready_fraction / HEAT_PER_SEC
 	var dt: float = minf(sim_delta, minf(max_by_energy, max_by_heat))
 	if dt <= 0.0:
 		return false
 	var distance: float = (target.orbit.r - attacker.orbit.r).length()
 	var dmg_scale: float = range_factor(distance)
-	target.take_damage(damage_per_second() * dt * dmg_scale, attacker)
-	attacker.energy = maxf(attacker.energy - ENERGY_PER_SEC * dt, 0.0)
+	target.take_damage(damage_per_second(target) * dt * dmg_scale, attacker)
+	attacker.energy = maxf(attacker.energy - POOL_DRAIN_W * dt, 0.0)
 	ready_fraction = clampf(ready_fraction - HEAT_PER_SEC * dt, 0.0, 1.0)
 	if ready_fraction <= 0.0:
 		overheated = true

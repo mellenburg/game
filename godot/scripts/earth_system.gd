@@ -15,6 +15,7 @@ const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
+const SlugRenderer = preload("res://scripts/slug_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const ImpactMap = preload("res://scripts/impact_map.gd")
 const RadarMap = preload("res://scripts/radar_map.gd")
@@ -132,6 +133,7 @@ var _mission_settings: ReconSettings = null
 @onready var satellite_container: Node3D = $Satellites as Node3D
 @onready var planning_container: Node3D = $PlanningSatellites as Node3D
 @onready var beam_renderer: BeamRenderer = $BeamRenderer as BeamRenderer
+@onready var slug_renderer: SlugRenderer = $SlugRenderer as SlugRenderer
 @onready var range_circle: RangeCircle = $RangeCircle as RangeCircle
 @onready var impact_map: ImpactMap = $CanvasLayer/HUD/ImpactMap as ImpactMap
 @onready var radar_map: RadarMap = $CanvasLayer/HUD/RadarMap as RadarMap
@@ -178,7 +180,7 @@ func _ready() -> void:
 
 	combat_controller = CombatController.new()
 	add_child(combat_controller)
-	combat_controller.setup(hud, beam_renderer)
+	combat_controller.setup(hud, beam_renderer, slug_renderer)
 
 	if radar_map != null:
 		radar_map.waves = spawn_director.meteorite_waves
@@ -405,6 +407,11 @@ func _physics_process(delta: float) -> void:
 		else:
 			sat.advance_time(sim_delta)
 	combat_controller.process_combat(real_satellites, sim_time, sim_delta)
+	# Advance any in-flight railgun slugs by the same sim-delta the
+	# combat tick just used. The slug homes on its target's *current*
+	# position each frame — non-physical but the tracer stays pointed
+	# at something the operator can recognise.
+	slug_renderer.tick(sim_delta)
 	_remove_dead_satellites()
 
 	if planning_mode:
@@ -698,6 +705,15 @@ func _process_one_shot_input() -> void:
 			_toggle_targeting_mode_on_selected()
 	if Input.is_action_just_pressed("toggle_railgun"):
 		_toggle_railgun_on_all()
+	if Input.is_action_just_pressed("toggle_slug_render"):
+		# Visual-only toggle — the simulation has already applied damage
+		# at fire-time. Off ⇒ railguns route through the laser-style
+		# beam visual (less busy when many guns are firing); On ⇒
+		# moving slug projectiles. CombatController owns the flag so
+		# the routing decision stays where the visuals are dispatched.
+		combat_controller.set_slug_render_enabled(
+			not combat_controller.is_slug_render_enabled()
+		)
 
 
 # Toggle fire-control mode on the active player satellite. Mutates

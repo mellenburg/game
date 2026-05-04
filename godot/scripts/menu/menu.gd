@@ -671,6 +671,27 @@ func _rebuild_unit_summary() -> void:
 			"Cooldown",
 			_format_cooldown(float(stats["laser_cooldown_sec"])),
 		))
+		# Energy chain: pool draw → wall-plug efficiency → radiated
+		# beam → target coupling → absorbed damage. Showing each stage
+		# explicitly so the operator can trace why a 100 MW emitter
+		# only deals ~8 HP/s at zero range (30% bus → beam, 40% beam →
+		# damage, 5 MJ/HP).
+		_hangar_summary.add_child(_summary_row(
+			"Energy / sec",
+			"%s /s" % _format_joules(float(stats["laser_pool_draw_w"])),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Radiated power",
+			_format_watts(float(stats["laser_radiated_power_w"])),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Wall-plug efficiency",
+			"%.0f%%" % (float(stats["laser_wallplug_efficiency"]) * 100.0),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Energy coupling on target",
+			"%.0f%%" % (float(stats["laser_target_coupling"]) * 100.0),
+		))
 
 	if int(stats["railgun_count"]) > 0:
 		_hangar_summary.add_child(_summary_section("RAILGUNS"))
@@ -681,13 +702,55 @@ func _rebuild_unit_summary() -> void:
 			"Cooldown",
 			_format_cooldown(float(stats["railgun_cooldown_sec"])),
 		))
+		# Slug + magazine: physical inputs the player can reason about.
+		# Velocity prints in km/s for readability (10 km/s reads cleaner
+		# than 10000 m/s); slug KE and pool draw use the joule formatter
+		# so MJ/GJ prefixes line up with the ENERGY section above.
+		_hangar_summary.add_child(_summary_row(
+			"Slug mass",
+			"%.0f kg" % float(stats["railgun_slug_mass_kg"]),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Muzzle velocity",
+			"%.1f km/s" % (
+				float(stats["railgun_muzzle_velocity_m_s"]) * 1.0e-3
+			),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Slug KE",
+			_format_joules(float(stats["railgun_slug_ke_j"])),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Energy / shot",
+			_format_joules(float(stats["railgun_energy_per_shot_j"])),
+		))
+		_hangar_summary.add_child(_summary_row(
+			"Magazine",
+			"%d rounds" % int(stats["railgun_magazine_size"]),
+		))
+		# Recoil at full wet mass — the floor; the operator should know
+		# their first shot of an engagement is the gentlest, and that
+		# every subsequent shot kicks harder as the magazine empties.
+		_hangar_summary.add_child(_summary_row(
+			"Recoil / shot (full mag)",
+			"%.1f m/s" % float(stats["railgun_recoil_dv_ms"]),
+		))
+		# Energy coupling = fraction of slug KE absorbed as damage. The
+		# rest fragments / passes through / spalls off the back face.
+		# Momentum transfer is full Newton's third regardless of this
+		# number; the target catches the slug's full momentum vector
+		# whether 10% or 100% of the KE deposits as HP damage.
+		_hangar_summary.add_child(_summary_row(
+			"Energy coupling on target",
+			"%.0f%%" % (float(stats["railgun_target_coupling"]) * 100.0),
+		))
 
 	_hangar_summary.add_child(_summary_section("ENERGY"))
 	_hangar_summary.add_child(_summary_row(
-		"Storage", "%.2f" % float(stats["energy_storage"])
+		"Storage", _format_joules(float(stats["energy_storage"]))
 	))
 	_hangar_summary.add_child(_summary_row(
-		"Production", "%.5f /s" % float(stats["energy_production"])
+		"Production", _format_watts(float(stats["energy_production"]))
 	))
 
 	# Propulsion section. Skipped when the unit carries no thruster
@@ -748,6 +811,33 @@ func _format_cooldown(seconds: float) -> String:
 	if not is_finite(seconds):
 		return "n/a (no radiator)"
 	return "%.0f s" % seconds
+
+
+# Joules → human-readable energy. Uses GJ above 1 GJ (10^9 J), MJ
+# above 1 MJ, kJ above 1 kJ, otherwise raw J. Defaults to one
+# decimal place — capacities up to "9.5 GJ" read cleanly without
+# trailing zeros from a fixed format.
+func _format_joules(joules: float) -> String:
+	if joules >= 1.0e9:
+		return "%.1f GJ" % (joules * 1.0e-9)
+	if joules >= 1.0e6:
+		return "%.1f MJ" % (joules * 1.0e-6)
+	if joules >= 1.0e3:
+		return "%.1f kJ" % (joules * 1.0e-3)
+	return "%.0f J" % joules
+
+
+# Watts → human-readable power, same prefix ladder as _format_joules.
+# Reactor outputs are at the GW / MW end of the scale; the kW / W
+# branches are belt-and-braces for tiny / zero-reactor builds.
+func _format_watts(watts: float) -> String:
+	if watts >= 1.0e9:
+		return "%.2f GW" % (watts * 1.0e-9)
+	if watts >= 1.0e6:
+		return "%.1f MW" % (watts * 1.0e-6)
+	if watts >= 1.0e3:
+		return "%.1f kW" % (watts * 1.0e-3)
+	return "%.0f W" % watts
 
 
 func _summary_section(title: String) -> Control:
@@ -1005,10 +1095,7 @@ func _format_launch_cost(launch: Launch) -> String:
 	if launch.has_unit():
 		var unit: UnitConfig = PlayerLoadout.unit_for_id(launch.unit_id)
 		if unit != null:
-			var wet_mass: float = (
-				Satellite.DEFAULT_DRY_MASS_KG + unit.total_propellant_capacity_kg()
-			)
-			prop_kg = launch.propellant_cost_kg(wet_mass)
+			prop_kg = launch.propellant_cost_kg(unit.wet_mass_kg())
 	if launch.has_unit():
 		return "Δv %d m/s  ·  %d kg" % [
 			int(round(dv_ms)), int(round(prop_kg)),
