@@ -31,7 +31,6 @@ const COLOR_OK := Color(0.40, 0.85, 0.55)
 
 var _root_panel: PanelContainer
 var _content_root: VBoxContainer
-var _saved_mouse_mode: Input.MouseMode = Input.MOUSE_MODE_VISIBLE
 
 
 func _ready() -> void:
@@ -72,7 +71,6 @@ func _show_summary() -> void:
 		# the player on a blank overlay.
 		get_tree().change_scene_to_file(MENU_SCENE_PATH)
 		return
-	_saved_mouse_mode = Input.mouse_mode
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().paused = true
 	visible = true
@@ -190,7 +188,12 @@ func _on_acknowledge_pressed() -> void:
 	# immediately — change_scene_to_file is queued, so leaving the tree
 	# paused would freeze the menu's first frame too.
 	get_tree().paused = false
-	Input.mouse_mode = _saved_mouse_mode
+	# Force the cursor visible — we're heading to the menu, not back to
+	# the in-game camera, so restoring the saved (captured) mouse mode
+	# would leave the player unable to click anything. The menu's _ready
+	# also sets this defensively, but doing it here means the cursor
+	# reappears immediately even before the scene swap completes.
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	# PlayerLoadout.launched stays true here; the pre-game menu's
 	# _ready clears it so a fresh Launch is required to re-enter.
 	get_tree().change_scene_to_file(MENU_SCENE_PATH)
