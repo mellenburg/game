@@ -43,42 +43,128 @@ const LAUNCH_PROPELLANT_BUDGET_KG: float = 50000.0
 # selected_stage_id; only entries with playable=true permit Launch.
 # The current MVP ships exactly one playable stage — the rest are
 # placeholders so the campaign tab has a list to render against.
+#
+# Layout fields (`orbit_radius`, `angle_deg`, `body_radius`, `color`)
+# drive the stylized System Map widget on the Campaign tab. They are
+# not physically meaningful — orbits are spaced for legibility, with
+# Ceres seated visually in the asteroid belt between Mars and Jupiter.
 const STAGES: Array = [
 	{
-		"id": "luna",
-		"name": "Lunar L1",
+		"id": "mercury",
+		"name": "Mercury",
 		"code": "CMP-001",
+		"difficulty": "—",
+		"waves": 0,
+		"playable": false,
+		"summary": "Sun-skimming relay survey. (Locked)",
+		"orbit_radius": 0.10,
+		"angle_deg": 40.0,
+		"body_radius": 5.0,
+		"color": Color(0.62, 0.58, 0.55),
+	},
+	{
+		"id": "venus",
+		"name": "Venus",
+		"code": "CMP-002",
+		"difficulty": "—",
+		"waves": 0,
+		"playable": false,
+		"summary": "Cloud-layer aerostat defence. (Locked)",
+		"orbit_radius": 0.18,
+		"angle_deg": 200.0,
+		"body_radius": 8.0,
+		"color": Color(0.93, 0.82, 0.55),
+	},
+	{
+		"id": "earth",
+		"name": "Earth",
+		"code": "CMP-003",
 		"difficulty": "EASY",
 		"waves": 4,
 		"playable": true,
 		"summary": "Defend the Earth-Moon L1 station from light drone harassment.",
+		"orbit_radius": 0.27,
+		"angle_deg": 110.0,
+		"body_radius": 9.0,
+		"color": Color(0.36, 0.58, 0.92),
+	},
+	{
+		"id": "mars",
+		"name": "Mars",
+		"code": "CMP-004",
+		"difficulty": "—",
+		"waves": 0,
+		"playable": false,
+		"summary": "Phobos staging hold. (Locked)",
+		"orbit_radius": 0.36,
+		"angle_deg": 305.0,
+		"body_radius": 7.0,
+		"color": Color(0.82, 0.40, 0.28),
 	},
 	{
 		"id": "ceres",
-		"name": "Ceres Belt Picket",
-		"code": "CMP-003",
-		"difficulty": "HARD",
-		"waves": 12,
+		"name": "Ceres",
+		"code": "CMP-005",
+		"difficulty": "—",
+		"waves": 0,
 		"playable": false,
-		"summary": "Picket the Belt interior anchor against sustained hostile waves.",
+		"summary": "Picket the Belt interior anchor. (Locked)",
+		"orbit_radius": 0.46,
+		"angle_deg": 60.0,
+		"body_radius": 4.0,
+		"color": Color(0.78, 0.74, 0.66),
 	},
 	{
-		"id": "europa",
-		"name": "Europa Survey",
-		"code": "CMP-004",
-		"difficulty": "HARD",
-		"waves": 10,
+		"id": "jupiter",
+		"name": "Jupiter",
+		"code": "CMP-006",
+		"difficulty": "—",
+		"waves": 0,
 		"playable": false,
 		"summary": "Survey escort under Jovian radiation. (Locked)",
+		"orbit_radius": 0.58,
+		"angle_deg": 230.0,
+		"body_radius": 16.0,
+		"color": Color(0.86, 0.70, 0.50),
 	},
 	{
 		"id": "saturn",
-		"name": "Saturn · Hyperion",
-		"code": "CMP-005",
-		"difficulty": "BRUTAL",
-		"waves": 16,
+		"name": "Saturn",
+		"code": "CMP-007",
+		"difficulty": "—",
+		"waves": 0,
 		"playable": false,
 		"summary": "Capital-ship engagement at Hyperion. (Locked)",
+		"orbit_radius": 0.70,
+		"angle_deg": 145.0,
+		"body_radius": 14.0,
+		"color": Color(0.90, 0.82, 0.60),
+	},
+	{
+		"id": "uranus",
+		"name": "Uranus",
+		"code": "CMP-008",
+		"difficulty": "—",
+		"waves": 0,
+		"playable": false,
+		"summary": "Cold-orbit ice picket. (Locked)",
+		"orbit_radius": 0.82,
+		"angle_deg": 20.0,
+		"body_radius": 11.0,
+		"color": Color(0.62, 0.84, 0.88),
+	},
+	{
+		"id": "neptune",
+		"name": "Neptune",
+		"code": "CMP-009",
+		"difficulty": "—",
+		"waves": 0,
+		"playable": false,
+		"summary": "Outer-system blockade run. (Locked)",
+		"orbit_radius": 0.94,
+		"angle_deg": 270.0,
+		"body_radius": 11.0,
+		"color": Color(0.30, 0.46, 0.88),
 	},
 ]
 
@@ -102,7 +188,7 @@ func _surface_cap() -> int:
 		return 0
 	return int(node.ground_defense_capacity())
 
-var selected_stage_id: String = "luna"
+var selected_stage_id: String = "earth"
 var unit_pool: Array[UnitConfig] = []
 var launches: Array[Launch] = []
 # Surface installations placed by the player on the Surface Ops tab.
