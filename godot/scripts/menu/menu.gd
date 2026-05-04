@@ -397,20 +397,17 @@ func _build_campaign_tab() -> Control:
 	return pad
 
 
-# Mission Select row label. Locked entries get a "[LOCKED]" suffix; the
-# wave count is omitted from placeholder rows where waves==0 so the
-# locked planets don't read as "0 waves" missions.
+# Mission Select row label. Just the body name, with a wave count on
+# playable rows and "[LOCKED]" on the rest. Mission code / difficulty
+# stay in the Mission Brief; surfacing them in the list made the rows
+# read as inventory codes rather than as a roster of destinations.
 func _stage_list_label(stage: Dictionary) -> String:
-	var label := "%s\n%s · %s" % [
-		stage.get("name", ""),
-		stage.get("code", ""),
-		stage.get("difficulty", ""),
-	]
+	var label := String(stage.get("name", ""))
 	var waves := int(stage.get("waves", 0))
 	if waves > 0:
-		label += " · %d waves" % waves
-	if not bool(stage.get("playable", false)):
-		label += "  [LOCKED]"
+		label += "\n%d waves" % waves
+	elif not bool(stage.get("playable", false)):
+		label += "\n[LOCKED]"
 	return label
 
 
