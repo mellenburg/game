@@ -21,7 +21,7 @@ var chassis_id: String = UnitChassis.ID_DEFAULT
 # them and pads with the default part for that kind so a freshly-built
 # unit is always fully kitted.
 var weapon_part_ids: Array[String] = []
-var radiator_part_ids: Array[String] = []
+var cooling_system_part_ids: Array[String] = []
 var energy_storage_part_ids: Array[String] = []
 var reactor_part_ids: Array[String] = []
 var thruster_part_ids: Array[String] = []
@@ -45,7 +45,9 @@ static func make_default(unit_id: String, unit_name: String) -> UnitConfig:
 func set_chassis(new_chassis_id: String) -> void:
 	chassis_id = new_chassis_id
 	weapon_part_ids = _resize_part_ids(weapon_part_ids, UnitPart.KIND_WEAPON)
-	radiator_part_ids = _resize_part_ids(radiator_part_ids, UnitPart.KIND_RADIATOR)
+	cooling_system_part_ids = _resize_part_ids(
+		cooling_system_part_ids, UnitPart.KIND_COOLING_SYSTEM,
+	)
 	energy_storage_part_ids = _resize_part_ids(
 		energy_storage_part_ids, UnitPart.KIND_ENERGY_STORAGE,
 	)
@@ -69,8 +71,8 @@ func part_ids_for_kind(kind: int) -> Array[String]:
 	match kind:
 		UnitPart.KIND_WEAPON:
 			return weapon_part_ids
-		UnitPart.KIND_RADIATOR:
-			return radiator_part_ids
+		UnitPart.KIND_COOLING_SYSTEM:
+			return cooling_system_part_ids
 		UnitPart.KIND_ENERGY_STORAGE:
 			return energy_storage_part_ids
 		UnitPart.KIND_REACTOR:
@@ -90,7 +92,7 @@ func set_part_id(kind: int, slot_index: int, part_id: String) -> void:
 # Sum of multipliers across every slot of the given kind. Slots holding
 # an unknown / empty part contribute 0 (UnitPart.get_by_id falls back to
 # multiplier 0.0). Used by SpawnDirector to compute the satellite's
-# energy_max and energy_rate from the whole storage / reactor row at
+# cooling_power_w / energy_max / energy_rate from the whole row at
 # once.
 func total_multiplier_for_kind(kind: int) -> float:
 	var total: float = 0.0
@@ -166,22 +168,31 @@ func effective_isp_s() -> float:
 # Predicted satellite stats for the unit's current chassis + parts,
 # returned as a Dictionary the Hangar tab's summary panel renders. The
 # numbers here are the spec SpawnDirector implements: weapon damage
-# scales on the weapon part's tier; cool rate (and therefore the
-# weapon's cooldown duration) is supplied by the unit's radiator
-# complement; energy_max / energy_rate scale on the storage / reactor
-# rows. Units stay raw — the menu does its own formatting.
+# scales on the weapon part's tier; cooling power (and therefore
+# weapon overheat-recovery time) is supplied by the unit's cooling-
+# system complement; energy_max / energy_rate scale on the storage /
+# reactor rows. Units stay raw — the menu does its own formatting.
+#
+# Cooldown stats here assume the worst case for the target weapon: it
+# alone is demanding cooling, so it gets 100% of the cooling power.
+# Real engagements with multiple hot weapons split the cooling — see
+# CombatController for the per-tick allocation.
 #
 # Keys:
 #   "hp"               — initial / max hit points
 #   "mass_kg"          — wet mass: dry structure + onboard propellant
 #                        (railgun recoil math reads this)
 #   "dry_mass_kg"      — structural mass alone (Tsiolkovsky's m_f)
+#   "cooling_power_w"  — total joules-per-second of heat removal
 #   "laser_count"      — number of laser slots filled
 #   "laser_dps_total"  — sum of laser damage_per_second at full pool
 #   "laser_max_range"  — laser engagement ceiling, km
+#   "laser_heat_capacity_j" — joules of heat the emitter holds before
+#                              the overheat latch trips
 #   "laser_cooldown_sec" — sim-sec for an overheated laser to fully
-#                          cool back to ready. INF when the unit has
-#                          no radiator (the weapon could never recover).
+#                          cool, assuming it has 100% of the cooling
+#                          system. INF when the unit has no cooling
+#                          (the weapon could never recover).
 #   "laser_radiated_power_w"   — beam power at the emitter aperture,
 #                                 per gun, watts
 #   "laser_pool_draw_w"        — per-gun joules drawn from the bus per
@@ -189,13 +200,16 @@ func effective_isp_s() -> float:
 #                                 wall-plug efficiency)
 #   "laser_wallplug_efficiency" — fraction of pool draw that becomes
 #                                  radiated beam (rest is heat the
-#                                  radiator dumps)
+#                                  cooling system dumps)
 #   "laser_target_coupling"    — fraction of radiated beam absorbed
 #                                  as damage on a default target
 #   "railgun_count"    — number of railgun slots filled
 #   "railgun_damage_total"  — sum of per-shot damage across railguns
-#   "railgun_cooldown_sec" — sim-sec between railgun shots. INF when
-#                            the unit has no radiator.
+#   "railgun_heat_per_shot_j" — joules of heat one shot dumps into the
+#                                rails (= heat capacity by design)
+#   "railgun_cooldown_sec" — sim-sec between railgun shots, assuming
+#                            sole cooling demand. INF when the unit
+#                            has no cooling.
 #   "railgun_slug_mass_kg"      — mass of one slug
 #   "railgun_muzzle_velocity_m_s" — slug exit velocity
 #   "railgun_slug_ke_j"         — slug kinetic energy on exit
@@ -219,7 +233,7 @@ func effective_isp_s() -> float:
 #   "propellant_capacity_kg" — total propellant tank size, kg
 #   "delta_v_capacity_ms" — Δv pool the unit can spend in-game, m/s
 func summary_stats() -> Dictionary:
-	var radiator_mult := total_multiplier_for_kind(UnitPart.KIND_RADIATOR)
+	var cooling_mult := total_multiplier_for_kind(UnitPart.KIND_COOLING_SYSTEM)
 	var storage_mult := total_multiplier_for_kind(UnitPart.KIND_ENERGY_STORAGE)
 	var reactor_mult := total_multiplier_for_kind(UnitPart.KIND_REACTOR)
 
@@ -242,16 +256,18 @@ func summary_stats() -> Dictionary:
 					RailgunWeapon.base_damage_per_shot() * part.multiplier
 				)
 
-	# Cooldown duration is the inverse of the radiator-supplied cool
-	# rate (per-class baseline × aggregate radiator multiplier). With
-	# no radiator the rate is zero and the cooldown is infinite — the
-	# weapon would fire once and never recover. Surface that directly
-	# so the operator can't ship a unit whose guns can't sustain fire.
+	# Cooldown duration is heat_capacity / cooling_power. With no cooling
+	# the rate is zero and the cooldown is infinite — the weapon would
+	# fire once and never recover. Surface that directly so the operator
+	# can't ship a unit whose guns can't sustain fire.
+	var cooling_power_w: float = (
+		Satellite.DEFAULT_COOLING_POWER_W * cooling_mult
+	)
 	var laser_cooldown: float = INF
 	var railgun_cooldown: float = INF
-	if radiator_mult > 0.0:
-		laser_cooldown = 1.0 / (LaserWeapon.COOL_PER_SEC * radiator_mult)
-		railgun_cooldown = 1.0 / (RailgunWeapon.COOL_PER_SEC * radiator_mult)
+	if cooling_power_w > 0.0:
+		laser_cooldown = LaserWeapon.HEAT_CAPACITY_J / cooling_power_w
+		railgun_cooldown = RailgunWeapon.HEAT_CAPACITY_J / cooling_power_w
 
 	# Propulsion summary: thrust (N), Isp (s), propellant capacity (kg),
 	# and the resulting Δv pool (m/s) under Tsiolkovsky at the unit's
@@ -285,9 +301,11 @@ func summary_stats() -> Dictionary:
 		"hp": Satellite.MAX_HP,
 		"mass_kg": wet_mass,
 		"dry_mass_kg": Satellite.DEFAULT_DRY_MASS_KG,
+		"cooling_power_w": cooling_power_w,
 		"laser_count": laser_count,
 		"laser_dps_total": laser_dps_total,
 		"laser_max_range": LaserWeapon.MAX_RANGE_KM,
+		"laser_heat_capacity_j": LaserWeapon.HEAT_CAPACITY_J,
 		"laser_cooldown_sec": laser_cooldown,
 		"laser_radiated_power_w": LaserWeapon.RADIATED_POWER_W,
 		"laser_pool_draw_w": LaserWeapon.POOL_DRAIN_W,
@@ -295,6 +313,7 @@ func summary_stats() -> Dictionary:
 		"laser_target_coupling": LaserWeapon.TARGET_COUPLING_DEFAULT,
 		"railgun_count": railgun_count,
 		"railgun_damage_total": railgun_damage_total,
+		"railgun_heat_per_shot_j": RailgunWeapon.HEAT_PER_SHOT_J,
 		"railgun_cooldown_sec": railgun_cooldown,
 		"railgun_slug_mass_kg": RailgunWeapon.SLUG_MASS_KG,
 		"railgun_muzzle_velocity_m_s": RailgunWeapon.MUZZLE_VELOCITY_M_S,
@@ -321,15 +340,15 @@ func summary_stats() -> Dictionary:
 	}
 
 
-# Short single-line summary, e.g. "Default · Laser + Radiator + Storage
-# + Reactor". Used in the unit pool's list rows so the player can pick
-# units by silhouette without opening the editor.
+# Short single-line summary, e.g. "Default · Laser + Cooling System
+# + Storage + Reactor". Used in the unit pool's list rows so the player
+# can pick units by silhouette without opening the editor.
 func summary() -> String:
 	var chassis := UnitChassis.get_by_id(chassis_id)
 	var parts: Array[String] = []
 	for kind in [
 		UnitPart.KIND_WEAPON,
-		UnitPart.KIND_RADIATOR,
+		UnitPart.KIND_COOLING_SYSTEM,
 		UnitPart.KIND_ENERGY_STORAGE,
 		UnitPart.KIND_REACTOR,
 		UnitPart.KIND_THRUSTER,

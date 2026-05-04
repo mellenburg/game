@@ -56,7 +56,7 @@ const COLOR_WARN := Color(1.0, 0.55, 0.35)
 # vertical layout (weapons on top → reactors at bottom).
 const KINDS: Array[int] = [
 	UnitPart.KIND_WEAPON,
-	UnitPart.KIND_RADIATOR,
+	UnitPart.KIND_COOLING_SYSTEM,
 	UnitPart.KIND_ENERGY_STORAGE,
 	UnitPart.KIND_REACTOR,
 	UnitPart.KIND_THRUSTER,
@@ -610,8 +610,8 @@ func _rebuild_unit_editor() -> void:
 	var chassis_catalog := UnitChassis.catalog()
 	for i in range(chassis_catalog.size()):
 		var c: UnitChassis = chassis_catalog[i]
-		chassis_picker.add_item("%s (%dW · %dR · %dE · %dC)" % [
-			c.label, c.weapon_slots, c.radiator_slots,
+		chassis_picker.add_item("%s (%dW · %dC · %dE · %dR)" % [
+			c.label, c.weapon_slots, c.cooling_system_slots,
 			c.energy_storage_slots, c.reactor_slots,
 		])
 		chassis_picker.set_item_metadata(i, c.id)
@@ -753,6 +753,12 @@ func _rebuild_unit_summary() -> void:
 		"Production", _format_watts(float(stats["energy_production"]))
 	))
 
+	_hangar_summary.add_child(_summary_section("COOLING"))
+	_hangar_summary.add_child(_summary_row(
+		"Heat removal",
+		"%s /s" % _format_joules(float(stats["cooling_power_w"])),
+	))
+
 	# Propulsion section. Skipped when the unit carries no thruster
 	# (capacity 0 ⇒ nothing to render). Δv capacity is the headline:
 	# the m/s pool the unit can spend on in-game maneuvers, computed
@@ -802,14 +808,15 @@ func _summary_row(key: String, value: String) -> Control:
 	return row
 
 
-# Format a cooldown duration in sim-seconds. INF surfaces the
-# "no radiator" case as a clear "n/a" so the operator sees that the
+# Format a cooldown duration in sim-seconds. INF surfaces the "no
+# cooling system" case as a clear "n/a" so the operator sees that the
 # weapon could fire once and never recover; finite values render as
-# whole sim-seconds (the granularity that matches the integer wall
-# numbers radiators produce).
+# whole sim-seconds. Cooldowns shown here assume the weapon has 100%
+# of the unit's cooling budget — engagements with multiple hot
+# weapons split it (see CombatController).
 func _format_cooldown(seconds: float) -> String:
 	if not is_finite(seconds):
-		return "n/a (no radiator)"
+		return "n/a (no cooling)"
 	return "%.0f s" % seconds
 
 

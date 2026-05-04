@@ -1,24 +1,25 @@
 class_name UnitPart
 extends RefCounted
 ## Catalog of buildable parts. Every part falls into one of four kinds
-## (weapon / radiator / energy storage / reactor); each kind has three
-## tiers — default (1.0× facet, the pre-existing hardcoded numbers),
-## advanced (2.0× facet), and elite (3.0× facet). The Research autoload
-## decides which tiers the player can equip at any given time; this
-## file just publishes the catalog. SpawnDirector reads the multipliers
-## when materialising a Satellite from a UnitConfig: weapon damage
-## scales on the weapon's own multiplier, radiator multipliers feed
-## each weapon's cool-rate, and energy-storage / reactor multipliers
+## (weapon / cooling system / energy storage / reactor); each kind has
+## three tiers — default (1.0× facet, the pre-existing hardcoded
+## numbers), advanced (2.0× facet), and elite (3.0× facet). The Research
+## autoload decides which tiers the player can equip at any given time;
+## this file just publishes the catalog. SpawnDirector reads the
+## multipliers when materialising a Satellite from a UnitConfig: weapon
+## damage scales on the weapon's own multiplier, cooling-system
+## multipliers feed the satellite's cooling_power_w (split across
+## active weapons each tick), and energy-storage / reactor multipliers
 ## feed the satellite's energy_max / energy_rate.
 
 const KIND_WEAPON: int = 0
-const KIND_RADIATOR: int = 1
+const KIND_COOLING_SYSTEM: int = 1
 const KIND_ENERGY_STORAGE: int = 2
 const KIND_REACTOR: int = 3
 const KIND_THRUSTER: int = 4
 
 const KIND_LABELS: Array[String] = [
-	"Weapon", "Radiator", "Energy Storage", "Reactor", "Thruster",
+	"Weapon", "Cooling System", "Energy Storage", "Reactor", "Thruster",
 ]
 
 # Weapon classes only mean something when kind == KIND_WEAPON. Stored as
@@ -38,10 +39,10 @@ var label: String
 # Tier multiplier on the part's facet. 1.0 = default tier (matches the
 # pre-existing hardcoded numbers), 2.0 = advanced, 3.0 = elite. Spawn-time
 # materialisation multiplies the relevant facet by this value:
-#   weapon  → damage_per_second / damage_per_shot
-#   radiator → weapon cool_rate
-#   energy   → satellite.energy_max
-#   reactor  → satellite.energy_rate
+#   weapon         → damage_per_second / damage_per_shot
+#   cooling system → satellite.cooling_power_w
+#   energy         → satellite.energy_max
+#   reactor        → satellite.energy_rate
 var multiplier: float = 1.0
 # Empty string for non-weapon parts. WCLASS_* otherwise.
 var weapon_class: String = ""
@@ -110,9 +111,9 @@ static func catalog() -> Array[UnitPart]:
 	out.append(make("railgun_default", KIND_WEAPON, "Railgun", 1.0, WCLASS_RAILGUN))
 	out.append(make("railgun_advanced", KIND_WEAPON, "Railgun (Advanced)", 2.0, WCLASS_RAILGUN))
 	out.append(make("railgun_elite", KIND_WEAPON, "Railgun (Elite)", 3.0, WCLASS_RAILGUN))
-	out.append(make("radiator_default", KIND_RADIATOR, "Radiator", 1.0))
-	out.append(make("radiator_advanced", KIND_RADIATOR, "Radiator (Advanced)", 2.0))
-	out.append(make("radiator_elite", KIND_RADIATOR, "Radiator (Elite)", 3.0))
+	out.append(make("cooling_system_default", KIND_COOLING_SYSTEM, "Cooling System", 1.0))
+	out.append(make("cooling_system_advanced", KIND_COOLING_SYSTEM, "Cooling System (Advanced)", 2.0))
+	out.append(make("cooling_system_elite", KIND_COOLING_SYSTEM, "Cooling System (Elite)", 3.0))
 	out.append(make("energy_storage_default", KIND_ENERGY_STORAGE, "Energy Storage", 1.0))
 	out.append(make("energy_storage_advanced", KIND_ENERGY_STORAGE, "Energy Storage (Advanced)", 2.0))
 	out.append(make("energy_storage_elite", KIND_ENERGY_STORAGE, "Energy Storage (Elite)", 3.0))
@@ -156,8 +157,8 @@ static func default_part_id_for_kind(kind: int) -> String:
 	match kind:
 		KIND_WEAPON:
 			return "laser_default"
-		KIND_RADIATOR:
-			return "radiator_default"
+		KIND_COOLING_SYSTEM:
+			return "cooling_system_default"
 		KIND_ENERGY_STORAGE:
 			return "energy_storage_default"
 		KIND_REACTOR:

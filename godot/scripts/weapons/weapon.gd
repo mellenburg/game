@@ -6,27 +6,34 @@ extends RefCounted
 ## so weapon math can be unit-tested headlessly.
 ##
 ## Energy lives on the attacker (Satellite) — multiple weapons share one
-## reservoir. Heat is per-weapon: each weapon owns a `ready_fraction`
-## that drops while firing and recovers while idle, so two lasers on the
-## same hull manage their thermal budgets independently.
+## reservoir. Heat is per-weapon, in joules: firing dumps a fraction
+## (heat_fraction) of the pool draw into the weapon's heat_j; the
+## attacker's cooling system removes joules per second, split evenly
+## across weapons whose heat_j > 0. A weapon whose heat hits its
+## heat_capacity_j latches `overheated` and refuses to fire until heat
+## drains all the way back to zero.
 
-# 1.0 = fully ready, 0.0 = overheated. Drops while firing at the
-# weapon's heat_rate, climbs while cooling at cool_rate. The HUD reads
-# this directly to draw the per-weapon recovery bar.
-var ready_fraction: float = 1.0
-# Latched when ready_fraction reaches 0; cleared only when it returns
-# to 1.0. Locks the weapon out of fire() for the entire cool window so
-# brief ready upticks don't let the operator dribble out shots.
+# Global default fraction of pool draw that becomes waste heat. Real
+# fiber lasers and rail launchers run ~30% wall-plug efficient → ~70%
+# of input energy is heat. Single configurable knob so the operator can
+# rebalance every weapon's heat output at once; per-weapon overrides
+# (set via `heat_fraction` in the subclass _init) take precedence.
+const HEAT_FRACTION_DEFAULT: float = 0.7
+
+# Current waste-heat load (joules) and capacity (joules). Heat climbs
+# while firing, drains while the cooling system has spare capacity.
+# Hitting heat_capacity_j latches overheated; the latch clears only
+# when heat_j drops back to 0.
+var heat_j: float = 0.0
+var heat_capacity_j: float = 0.0
+# Latched at heat_capacity_j; cleared when heat_j returns to 0. Locks
+# the weapon out of fire() for the entire dump window so brief cooling
+# bursts don't let the operator dribble out shots before the rad stack
+# has fully cleared.
 var overheated: bool = false
-# Recovery applied to ready_fraction per sim-second of cooling. The
-# value is supplied externally — the radiator parts the unit carries
-# define how fast each weapon cools, so this field is the single seam
-# between "weapon strategy" (heat / damage / range) and "thermal
-# system" (the radiator's job). Concrete weapons set a baseline in
-# their _init so a bare `LaserWeapon.new()` still cools at the
-# pre-parts rate (tests rely on this); SpawnDirector overwrites it
-# at spawn time with the per-unit radiator complement's contribution.
-var cool_rate: float = 0.0
+# Fraction of pool draw that becomes heat. Subclasses overwrite in
+# _init to match their own efficiency (typically 1 - wallplug_efficiency).
+var heat_fraction: float = HEAT_FRACTION_DEFAULT
 # Two-stage energy → damage conversion every weapon shares:
 #   pool_drained_J × wallplug_efficiency → output energy delivered
 #     toward the target (slug muzzle KE for kinetic, radiated beam
@@ -69,26 +76,32 @@ const MJ_PER_HP: float = 5.0
 const J_PER_HP: float = MJ_PER_HP * 1.0e6
 
 
-## Heat applied to ready_fraction per sim-second of fire. Concrete
-## weapons override.
-func heat_rate() -> float:
-	return 0.0
+## True iff the weapon has accumulated heat that the cooling system
+## should bleed off this tick. CombatController uses this to count
+## active demanders and split the unit's cooling power evenly across
+## them — a sole demander gets 100% of the cooling, two share 50/50.
+func demands_cooling() -> bool:
+	return heat_j > 0.0
 
 
-## 0.0 = just overheated, 1.0 = ready. Mirror of ready_fraction so
-## HUD code reads a stable progress accessor.
+## 0.0 = just overheated, 1.0 = fully cool. Mirror of heat_j vs.
+## heat_capacity_j so HUD code reads a stable progress accessor that
+## stays valid even if a subclass changes its capacity.
 func ready_progress() -> float:
-	return ready_fraction
+	if heat_capacity_j <= 0.0:
+		return 1.0
+	return clampf(1.0 - heat_j / heat_capacity_j, 0.0, 1.0)
 
 
-## Cool the weapon by cool_rate * sim_delta. Called from EarthSystem
-## once per physics tick, but ONLY when the weapon did not fire this
-## tick — firing already mutates ready_fraction itself.
-func tick(sim_delta: float) -> void:
-	if sim_delta <= 0.0:
+## Apply `cooling_power_w` watts of heat removal for `sim_delta` sim-
+## seconds. Called from CombatController once per physics tick after
+## per-tick cooling allocation across the unit's demanding weapons.
+## Clears the overheated latch when heat reaches zero.
+func cool(cooling_power_w: float, sim_delta: float) -> void:
+	if sim_delta <= 0.0 or cooling_power_w <= 0.0:
 		return
-	ready_fraction = clampf(ready_fraction + cool_rate * sim_delta, 0.0, 1.0)
-	if overheated and ready_fraction >= 1.0:
+	heat_j = maxf(heat_j - cooling_power_w * sim_delta, 0.0)
+	if overheated and heat_j <= 0.0:
 		overheated = false
 
 

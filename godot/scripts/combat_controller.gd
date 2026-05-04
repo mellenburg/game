@@ -53,11 +53,11 @@ func is_slug_render_enabled() -> bool:
 	return _slug_render_enabled
 
 
-# Charge each satellite's energy pool, then either fire each weapon
-# at the closest valid enemy or let it cool. Lasers are continuous-
-# fire: the same call applies dt-scaled damage, energy drain, and
-# heating; weapons that don't fire this tick cool toward ready instead.
-# Tower-defense: no player input needed.
+# Charge each satellite's energy pool, drain heat through the cooling
+# stack, then either fire each weapon at the closest valid enemy or
+# leave it idle. Lasers are continuous-fire: the same call applies
+# dt-scaled damage, energy drain, and heating. Tower-defense: no
+# player input needed.
 func process_combat(
 	satellites: Array[Satellite], sim_time: float, sim_delta: float
 ) -> void:
@@ -70,31 +70,46 @@ func process_combat(
 		if not sat.alive:
 			continue
 		sat.tick_combat(sim_delta)
+		# Phase 1: cooling. Split the unit's cooling power evenly across
+		# every weapon currently above zero heat; a sole demander gets
+		# 100%, two share 50/50, etc. Cool BEFORE firing so a weapon that
+		# has just cleared the overheat latch can pick up a target this
+		# same tick (rather than skipping a beat).
+		_distribute_cooling(sat, sim_delta)
 		for w_idx in range(sat.weapons.size()):
 			var w: Weapon = sat.weapons[w_idx]
-			var fired := false
-			if w.can_fire(sat):
-				# Targeting is the weapon's responsibility — laser ranks
-				# in-envelope candidates by attacker.targeting_mode, the
-				# railgun picks randomly across LOS-clear safe shots.
-				var target: Satellite = w.pick_target(sat, candidates, sim_time)
-				if target != null:
-					# Two paths: slug-render railguns split shooter and
-					# target effects so the visible damage waits for
-					# the tracer to arrive (otherwise a one-shot kill
-					# pops the body off-screen mid-flight). Lasers and
-					# beam-mode railguns stay synchronous — the legacy
-					# fire() applies everything at once.
-					if w is RailgunWeapon and _slug_render_enabled:
-						fired = _fire_railgun_with_slug(
-							sat, w as RailgunWeapon, target, sim_delta,
-						)
-					elif w.fire(sat, target, sim_delta):
-						fired = true
-						_hud.register_hit(sat, target)
-						_beam_renderer.register_fire(sat, w_idx, target)
-			if not fired:
-				w.tick(sim_delta)
+			if not w.can_fire(sat):
+				continue
+			# Targeting is the weapon's responsibility — laser ranks
+			# in-envelope candidates by attacker.targeting_mode, the
+			# railgun picks randomly across LOS-clear safe shots.
+			var target: Satellite = w.pick_target(sat, candidates, sim_time)
+			if target == null:
+				continue
+			# Two paths: slug-render railguns split shooter and target
+			# effects so the visible damage waits for the tracer to
+			# arrive (otherwise a one-shot kill pops the body off-screen
+			# mid-flight). Lasers and beam-mode railguns stay
+			# synchronous — the legacy fire() applies everything at once.
+			if w is RailgunWeapon and _slug_render_enabled:
+				_fire_railgun_with_slug(sat, w as RailgunWeapon, target, sim_delta)
+			elif w.fire(sat, target, sim_delta):
+				_hud.register_hit(sat, target)
+				_beam_renderer.register_fire(sat, w_idx, target)
+
+
+func _distribute_cooling(sat: Satellite, sim_delta: float) -> void:
+	if sat.cooling_power_w <= 0.0 or sim_delta <= 0.0:
+		return
+	var demanding: Array[Weapon] = []
+	for w: Weapon in sat.weapons:
+		if w.demands_cooling():
+			demanding.append(w)
+	if demanding.is_empty():
+		return
+	var per_weapon: float = sat.cooling_power_w / float(demanding.size())
+	for w in demanding:
+		w.cool(per_weapon, sim_delta)
 
 
 # Slug-mode railgun fire: shooter effects apply now (recoil, ammo,

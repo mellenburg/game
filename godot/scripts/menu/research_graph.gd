@@ -31,7 +31,7 @@ const TIER_LABEL_HEIGHT: float = 18.0
 const CATEGORY_COLORS: Dictionary = {
 	"Lasers": Color(1.0, 0.42, 0.45),
 	"Railguns": Color(1.0, 0.72, 0.30),
-	"Radiators": Color(0.55, 0.85, 1.0),
+	"Cooling Systems": Color(0.55, 0.85, 1.0),
 	"Energy Storage": Color(0.85, 1.0, 0.50),
 	"Reactors": Color(1.0, 0.55, 1.0),
 	"Launch Capacity": Color(0.50, 1.0, 0.78),

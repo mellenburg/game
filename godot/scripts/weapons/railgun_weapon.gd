@@ -15,6 +15,10 @@ extends "res://scripts/weapons/weapon.gd"
 ## climbs. An empty magazine refuses fire: the weapon's still cool but
 ## there's nothing to launch.
 ##
+## Heat capacity is sized to exactly one shot — firing fully fills the
+## thermal budget, latches the overheat flag, and the weapon refuses to
+## fire again until the cooling system bleeds heat back to zero.
+##
 ## Pre-fire safety check refuses any shot whose recoil would (a) drive
 ## the shooter onto an escape trajectory, (b) push apoapsis past the
 ## operator-set max_orbital_radius_km, or (c) drop periapsis below the
@@ -56,7 +60,7 @@ const MAGAZINE_SIZE: int = 1000
 # Pool→slug-KE conversion. Real EM launchers run ~30-50% wall-plug
 # efficient; the rest is heat in the rails / capacitor losses. 30% is
 # the conservative end and makes the per-shot pool draw a meaningful
-# bite (one shot ≈ 33% of a default 10 GJ pool).
+# bite (one shot ≈ 33% of a default 40 GJ pool).
 const WALLPLUG_EFFICIENCY: float = 0.3
 # Joules drawn from the shared pool per shot. Independent of damage
 # coupling — the wall plug doesn't know how absorbent the target is.
@@ -66,24 +70,27 @@ const ENERGY_PER_SHOT_J: float = SLUG_MUZZLE_KE_J / WALLPLUG_EFFICIENCY
 # the back face. Per-target overrides land here later via the base
 # class's target_coupling_for() hook.
 const TARGET_COUPLING_DEFAULT: float = 0.5
-# Sim-seconds for the cooldown bar to climb from 0 (just-fired) back
-# to 1 (ready). At the default time_factor=300 that's ~2 seconds
-# of wall-clock — comparable to the laser's full overheat-cool cycle
-# but felt as a single discrete beat between shots rather than a
-# saturation lockout. Sized far slower than the original 12 sim-sec
-# value, which compressed to a near-instant strobe at high
-# time_factor.
-const COOLDOWN_SEC: float = 600.0
-const COOL_PER_SEC: float = 1.0 / COOLDOWN_SEC
+# Fraction of pool draw that becomes waste heat in the rails — the
+# inverse of wall-plug efficiency by definition.
+const HEAT_FRACTION: float = 1.0 - WALLPLUG_EFFICIENCY
+# Heat dumped into the rails per shot, in joules. Wall-plug losses go
+# straight to the cooling stack — no kinetic energy rebate.
+const HEAT_PER_SHOT_J: float = ENERGY_PER_SHOT_J * HEAT_FRACTION
+# Heat capacity: exactly one shot's worth. Firing one round fills the
+# thermal budget completely; the overheat latch trips and the rails
+# refuse to fire again until the cooling system has dumped every
+# joule. Per the design spec: "a railgun should have enough heat
+# capacity to fire one shot."
+const HEAT_CAPACITY_J: float = HEAT_PER_SHOT_J
 # Hard floor on the shooter's post-recoil periapsis: 100 km clearance
 # above Earth's surface, per the design spec. Lives on the weapon (the
 # code that consumes it) so the safety predicate is self-contained.
 const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 100.0
 
 # Damage tier multiplier — see laser_weapon.gd for the rationale.
-# Cooldown is now sourced from the radiator complement via the base
-# class's cool_rate field; advanced railguns just hit harder. Slug
-# physics + ammo capacity stay the same across tiers.
+# Cooldown is now sourced from the satellite's cooling_power_w; advanced
+# railguns just hit harder. Slug physics + ammo capacity stay the same
+# across tiers.
 var damage_mult: float = 1.0
 # Remaining rounds in the magazine. Decremented on every successful
 # fire; can_fire refuses once it hits zero. Initial value is the
@@ -92,11 +99,9 @@ var damage_mult: float = 1.0
 var ammo_count: int = MAGAZINE_SIZE
 
 
-# Bare construction defaults cool_rate to the per-class baseline so
-# tests that build a RailgunWeapon without a unit still cool at the
-# pre-parts rate. SpawnDirector overwrites this at spawn time.
 func _init() -> void:
-	cool_rate = COOL_PER_SEC
+	heat_capacity_j = HEAT_CAPACITY_J
+	heat_fraction = HEAT_FRACTION
 	wallplug_efficiency = WALLPLUG_EFFICIENCY
 	target_coupling_default = TARGET_COUPLING_DEFAULT
 
@@ -135,9 +140,13 @@ func can_fire(attacker) -> bool:
 	# the shot never leaves the barrel.
 	if attacker.is_surface:
 		return false
-	# Single-shot: must be fully cool. Locked out for the entire window
-	# so partial cools don't drip fractional shots.
-	if ready_fraction < 1.0:
+	# Single-shot heat budget: any residual heat means the shot would
+	# overflow capacity, and the latched overheated flag locks fire-out
+	# for the entire dump cycle so partial cools don't drip fractional
+	# shots.
+	if overheated:
+		return false
+	if heat_j > 0.0:
 		return false
 	if ammo_count <= 0:
 		return false
@@ -224,12 +233,12 @@ func pick_target(attacker, candidates: Array, _sim_time: float):
 
 
 ## Apply only the shooter-side effects of a successful shot: recoil,
-## energy drain, ammo decrement, cooldown latch. Returns a Dictionary
-## describing the pending impact (target_dv, damage) the caller can
-## apply immediately (synchronous fire) or hand to the slug renderer
-## as an on_arrival callback (delayed fire). Returns null when the
-## shot is refused for any reason — the caller should treat that as
-## "this tick the weapon cools instead of firing".
+## energy drain, ammo decrement, heat fill, overheat latch. Returns a
+## Dictionary describing the pending impact (target_dv, damage) the
+## caller can apply immediately (synchronous fire) or hand to the slug
+## renderer as an on_arrival callback (delayed fire). Returns null when
+## the shot is refused for any reason — the caller should treat that
+## as "this tick the weapon cools instead of firing".
 ##
 ## Splitting this from apply_impact lets the slug-render path defer
 ## the visible consequences (target push + HP damage + flash) to the
@@ -276,10 +285,9 @@ func prepare_shot(attacker, target, sim_delta: float):
 	ammo_count -= 1
 	if attacker.has_method("recompute_mass"):
 		attacker.recompute_mass()
-	# Latch cooldown: ready falls to 0, overheated locks out can_fire
-	# until ready climbs back to 1.0 via base Weapon.tick(). Mirrors
-	# the laser's overheat semantics so the HUD bar reads consistently.
-	ready_fraction = 0.0
+	# Heat dump fills the rail's capacity exactly. The latch holds
+	# can_fire shut until the cooling system bleeds heat back to zero.
+	heat_j = heat_capacity_j
 	overheated = true
 	return {
 		"target_dv": target_dv,

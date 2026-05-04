@@ -140,6 +140,15 @@ const SAFE_PERIAPSIS_KM: float = EarthOrbit.EARTH_RADIUS_KM + 1.0
 # full refill cycle for the next salvo.
 const DEFAULT_ENERGY_MAX_J: float = 4.0e10
 const DEFAULT_REACTOR_POWER_W: float = 1.0e9
+# Default heat-removal capacity, in watts (joules / sim-sec). Per-unit
+# `cooling_power_w` starts here and is scaled at spawn time by the
+# unit's cooling-system parts (advanced parts double the rate). Sized
+# to fully drain a default-tier laser's 9.33 GJ heat capacity in ~160
+# sim-sec — preserves the legacy "overheated laser fully recovers in
+# 160 sec under one default cooling system" balance number across the
+# heat-based refactor. See LaserWeapon.HEAT_CAPACITY_J for the budget
+# this number was chosen against.
+const DEFAULT_COOLING_POWER_W: float = LaserWeapon.HEAT_CAPACITY_J / 160.0
 
 var orbit: EarthOrbit
 var selected: bool = false
@@ -225,6 +234,15 @@ var surface_lon_deg: float = 0.0
 var energy: float = 0.0
 var energy_max: float = DEFAULT_ENERGY_MAX_J
 var reactor_power_w: float = DEFAULT_REACTOR_POWER_W
+# Total heat removal the unit's cooling stack provides, in watts. Each
+# physics tick CombatController splits this evenly across the unit's
+# weapons that are currently demanding cooling (heat_j > 0). When only
+# one weapon demands cooling it gets 100% of this budget; with two
+# active demanders each gets half, and so on. Scaled at spawn time by
+# the cooling-system parts on the unit; surface installations and
+# unarmed bodies inherit the bare default — they never demand cooling
+# in practice, so the value is dormant for them.
+var cooling_power_w: float = DEFAULT_COOLING_POWER_W
 # Empty for unarmed units (e.g. enemies in the MVP). Player satellites
 # spawn with two lasers; weapons fire independently but share energy.
 var weapons: Array[Weapon] = []
@@ -758,6 +776,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	energy = other.energy
 	energy_max = other.energy_max
 	reactor_power_w = other.reactor_power_w
+	cooling_power_w = other.cooling_power_w
 	engagement_range_km = other.engagement_range_km
 	fire_control_active = other.fire_control_active
 	targeting_mode = other.targeting_mode

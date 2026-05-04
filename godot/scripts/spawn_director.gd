@@ -272,23 +272,28 @@ func _find_unit(pool: Array[UnitConfig], unit_id: String) -> UnitConfig:
 
 # Translate a UnitConfig (chassis + parts) into the satellite's
 # spawn-time fields:
-#   * weapons: one Weapon per filled weapon slot, with damage / cool
-#     multipliers driven by that weapon's tier and the satellite's
-#     aggregate radiator multiplier.
+#   * weapons: one Weapon per filled weapon slot, scaled by tier
+#     multiplier; heat / overheat state lives per-weapon.
+#   * cooling_power_w: cooling-system parts' total multiplier ×
+#     DEFAULT_COOLING_POWER_W. CombatController splits this across the
+#     unit's actively-demanding weapons each tick.
 #   * energy_max: storage parts' total multiplier × default
 #     DEFAULT_ENERGY_MAX_J (default tier with one slot ⇒ 1× default;
 #     advanced tier ⇒ 2×).
 #   * reactor_power_w: same logic against the reactor row.
-# A unit whose storage / reactor row is empty contributes zero to that
-# facet, which is intentional: a unit with no reactor cannot recharge.
+# A unit whose storage / reactor / cooling row is empty contributes
+# zero to that facet, which is intentional: a unit with no reactor
+# cannot recharge, and one with no cooling system overheats forever
+# after the first shot.
 func _apply_unit_to_satellite(sat: Satellite, unit: UnitConfig) -> void:
-	var radiator_mult := unit.total_multiplier_for_kind(UnitPart.KIND_RADIATOR)
+	var cooling_mult := unit.total_multiplier_for_kind(UnitPart.KIND_COOLING_SYSTEM)
 	var storage_mult := unit.total_multiplier_for_kind(UnitPart.KIND_ENERGY_STORAGE)
 	var reactor_mult := unit.total_multiplier_for_kind(UnitPart.KIND_REACTOR)
 	sat.unit_name = unit.name
 	sat.energy_max = Satellite.DEFAULT_ENERGY_MAX_J * storage_mult
 	sat.reactor_power_w = Satellite.DEFAULT_REACTOR_POWER_W * reactor_mult
-	sat.weapons = _build_weapons(unit, radiator_mult)
+	sat.cooling_power_w = Satellite.DEFAULT_COOLING_POWER_W * cooling_mult
+	sat.weapons = _build_weapons(unit)
 	# Propulsion: seed thrust / Isp / propellant from the unit's
 	# thruster row. Units with an empty thruster row (saved from a
 	# pre-thruster build) collapse to zero capacity, which leaves the
@@ -304,12 +309,12 @@ func _apply_unit_to_satellite(sat: Satellite, unit: UnitConfig) -> void:
 	sat.recompute_mass()
 
 
-# Translate the unit's weapon-slot row into a Weapon array, applying
-# the satellite's aggregate radiator multiplier to each weapon's
-# cool_mult so the cooldown speedup is felt by every gun the unit
-# carries. Empty / unknown weapon parts are skipped — a slot the player
+# Translate the unit's weapon-slot row into a Weapon array. Cooling is
+# satellite-wide (Satellite.cooling_power_w, set elsewhere in this
+# function), so weapons here only need their per-class damage tier.
+# Empty / unknown weapon parts are skipped — a slot the player
 # explicitly left unfilled stays unfilled.
-func _build_weapons(unit: UnitConfig, radiator_mult: float) -> Array[Weapon]:
+func _build_weapons(unit: UnitConfig) -> Array[Weapon]:
 	var out: Array[Weapon] = []
 	for part_id in unit.weapon_part_ids:
 		var part := UnitPart.get_by_id(part_id)
@@ -320,17 +325,10 @@ func _build_weapons(unit: UnitConfig, radiator_mult: float) -> Array[Weapon]:
 			UnitPart.WCLASS_LASER:
 				var laser := LaserWeapon.new()
 				laser.damage_mult = part.multiplier
-				# Radiator complement defines the weapon's cooling rate
-				# directly. Per-class baseline × aggregate radiator mult
-				# means a unit with one default radiator cools at the
-				# pre-parts speed; an advanced radiator (or two) cools
-				# proportionally faster.
-				laser.cool_rate = LaserWeapon.COOL_PER_SEC * radiator_mult
 				w = laser
 			UnitPart.WCLASS_RAILGUN:
 				var railgun := RailgunWeapon.new()
 				railgun.damage_mult = part.multiplier
-				railgun.cool_rate = RailgunWeapon.COOL_PER_SEC * radiator_mult
 				w = railgun
 		if w != null:
 			out.append(w)
