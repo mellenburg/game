@@ -66,18 +66,22 @@ then samples a uniform density inside the class band.
 HP = HP_PER_KG_PER_DENSITY × mass_kg × density_g_cm3
 ```
 
-with `HP_PER_KG_PER_DENSITY = 0.003`. Linear in both factors so doubling
-mass or doubling density doubles HP. An iron rock soaks ~2.5× the
-shots a carbonaceous rock of the same mass would.
+`HP_PER_KG_PER_DENSITY` is now a **player-tunable** knob, exposed on
+the menu's Settings tab and persisted on `PlayerLoadout`. The shipped
+default is `0.0001`; a previous balance pass used `0.003` (~30× more
+HP across the board). Linear in both factors so doubling mass or
+doubling density doubles HP — an iron rock still soaks ~2.5× the
+shots a carbonaceous rock of the same mass would, regardless of the
+coefficient.
 
-Calibration points (stony, ρ = 3.4):
+Calibration points at the default (`0.0001`, stony ρ = 3.4):
 
-| Body                       | Mass            | HP        |
-| -------------------------- | --------------- | --------- |
-| Threshold (10 Mg)          | 1 × 10⁴ kg      | ~100 HP   |
-| Small impactor (1 Gg)      | 1 × 10⁶ kg      | ~10,000   |
-| Tunguska-class (1 Tg)      | 1 × 10⁹ kg      | ~10⁷      |
-| Didymos-class (500 Tg)     | 5 × 10¹¹ kg     | ~5 × 10⁹  |
+| Body                       | Mass            | HP at default |
+| -------------------------- | --------------- | ------------- |
+| Threshold (10 Mg)          | 1 × 10⁴ kg      | ~3 HP         |
+| Small impactor (1 Gg)      | 1 × 10⁶ kg      | ~340          |
+| Tunguska-class (1 Tg)      | 1 × 10⁹ kg      | ~3.4 × 10⁵    |
+| Didymos-class (500 Tg)     | 5 × 10¹¹ kg     | ~1.7 × 10⁸    |
 
 Anything Tg-class and up is effectively unkillable in flight — by
 design. Players thin numbers and pick off the small end; the big

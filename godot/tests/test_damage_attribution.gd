@@ -10,6 +10,7 @@ extends "res://tests/framework.gd"
 ## queue_free at end-of-test to keep the headless run clean.
 
 const Satellite = preload("res://scripts/satellite.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 
 
 func _make() -> Satellite:
@@ -95,7 +96,7 @@ func test_asteroid_mass_couples_to_hp() -> void:
 	target.is_asteroid = true
 	target.density_g_cm3 = 3.4
 	target.mass = 1.0e6  # 1 Gg, well above the burn-up threshold
-	target.max_hp = 0.003 * target.mass * target.density_g_cm3
+	target.max_hp = AsteroidPhysics.hp_for(target.mass, target.density_g_cm3)
 	target.hp = target.max_hp
 	# Halve the HP, expect mass to halve too.
 	target.take_damage(target.max_hp * 0.5, attacker)

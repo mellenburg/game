@@ -21,6 +21,7 @@ const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const Launch = preload("res://scripts/launch.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const ReconSettings = preload("res://scripts/recon_settings.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 
 # Pre-game launch capacity, in propellant kg. Each scheduled launch
 # debits the budget by Tsiolkovsky-weighted propellant — heavier units
@@ -207,6 +208,17 @@ var launched: bool = false
 # next launch rather than rerolling the running schedule.
 var recon_settings: ReconSettings = ReconSettings.default_settings()
 
+# Asteroid HP-from-mass coefficient: the player-tunable knob that
+# scales how many shots an in-flight asteroid soaks. Mirrored onto
+# AsteroidPhysics.HP_PER_KG_PER_DENSITY via the setter so spawn-time
+# HP, mass-erosion under fire, and the impact-map mass readout all
+# pick the new value up immediately. Default matches
+# AsteroidPhysics.DEFAULT_HP_PER_KG_PER_DENSITY.
+var hp_per_kg_per_density: float = AsteroidPhysics.DEFAULT_HP_PER_KG_PER_DENSITY:
+	set(value):
+		hp_per_kg_per_density = maxf(value, 0.0)
+		AsteroidPhysics.HP_PER_KG_PER_DENSITY = hp_per_kg_per_density
+
 # Monotonic id counters — used to produce stable per-unit ids so a
 # launch's unit_id reference survives the operator reordering /
 # renaming the pool. The ints are private state; callers don't need to
@@ -220,6 +232,10 @@ func _ready() -> void:
 		reset_units()
 	if recon_settings == null:
 		recon_settings = ReconSettings.default_settings()
+	# Force the setter to fire so AsteroidPhysics picks up the persisted
+	# value on autoload boot (the initial assignment above doesn't
+	# re-trigger the setter).
+	hp_per_kg_per_density = hp_per_kg_per_density
 
 
 # Restore wave / wave-unit settings to the shipped defaults. Bound to

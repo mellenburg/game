@@ -45,12 +45,15 @@ const LARGE_MASS_MAX_KG: float = 1.0e11
 const EXTRA_LARGE_MASS_MIN_KG: float = 1.0e11
 const EXTRA_LARGE_MASS_MAX_KG: float = 5.0e11
 
-# HP-from-mass coefficient. HP = HP_PER_KG_PER_DENSITY * mass * density,
-# so a 10 Mg stony (~3.4 g/cm^3) body has ~1000 HP and a 1 Tg stony
-# Tunguska-class body has ~10^7 HP — comfortably beyond what a single
-# laser can chew through in flight, by design. Tuned downward from a
-# naive 0.1 HP/kg so the smallest-band bodies stay killable in-flight.
-const HP_PER_KG_PER_DENSITY: float = 0.003
+# HP-from-mass coefficient. HP = HP_PER_KG_PER_DENSITY * mass * density.
+# Exposed as a static var (rather than a const) so the player can tune
+# it from the menu's Settings tab — PlayerLoadout owns the persisted
+# value and mirrors edits onto this static. The default is calibrated
+# so a 10 Mg stony (~3.4 g/cm^3) body has ~3 HP at the new default —
+# small bodies stay trivially killable in-flight while Tg-class boss
+# rocks remain effectively unkillable, by design.
+const DEFAULT_HP_PER_KG_PER_DENSITY: float = 0.0001
+static var HP_PER_KG_PER_DENSITY: float = DEFAULT_HP_PER_KG_PER_DENSITY
 
 # Composition classes, modeled on the dominant asteroid taxonomic
 # bins. Densities are bulk values in g/cm^3, ranges drawn from the
