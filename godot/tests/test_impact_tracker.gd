@@ -138,6 +138,28 @@ func test_record_impact_stores_hp() -> void:
 	assert_close(float(entry_neg["hp"]), 0.0, 1.0e-6)
 
 
+func test_record_impact_stores_physical_fields() -> void:
+	# Mass / density / composition are routed straight through onto the
+	# entry so the impact-map overlay can size the damage circles and
+	# render the latest-impact composition tag without re-deriving.
+	var t := ImpactTracker.new()
+	var basis := (
+		ImpactTracker.AXIAL_TILT
+		* Basis(Vector3(0.0, 0.0, 1.0), 0.0)
+		* ImpactTracker.POLE_ALIGN
+	)
+	var world := basis * Vector3(7000.0, 0.0, 0.0)
+	var entry := t.record_impact(world, 0.0, false, 0.0, 1.5e6, 3.4, 1)
+	assert_close(float(entry["mass_kg"]), 1.5e6, 1.0e-3)
+	assert_close(float(entry["density_g_cm3"]), 3.4, 1.0e-6)
+	assert_eq(int(entry["composition"]), 1)
+	# Default call (no physical fields) leaves them at zero / -1 so
+	# legacy callers still produce a well-formed entry.
+	var legacy := t.record_impact(world, 0.0, false)
+	assert_close(float(legacy["mass_kg"]), 0.0, 1.0e-9)
+	assert_eq(int(legacy["composition"]), -1)
+
+
 func test_is_ocean_pixel_blue_dominant() -> void:
 	# Saturated mid-blue → ocean. Saturated red → not ocean. Snow-
 	# bright white → not ocean (so polar caps stay land). Dark almost-

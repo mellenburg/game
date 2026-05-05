@@ -9,46 +9,44 @@ extends Node3D
 ## Earth: the visual is brief enough that planet rotation is invisible.
 
 const Satellite = preload("res://scripts/satellite.gd")
+const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
 
 # Wall-clock duration. Kept short so high time_factor doesn't let the
 # explosion drift visibly off the rotating surface.
 const DURATION: float = 0.5
-# Peak sphere radius, in km, for an impact at the reference HP. Big
-# enough to read against Earth's 6371 km radius globe at typical camera
-# distance, small enough to look like a point impact rather than a
-# continent. The actual peak radius scales with the impactor's HP at
-# the moment of contact (see hp_to_peak_radius_km below) so a glancing
-# hit by a battered fragment reads visibly smaller than a fresh boss.
-const PEAK_RADIUS_KM: float = 300.0
-# HP scaling envelope. Same log-scale idiom Satellite uses for enemy-
-# path styling — HP_REF_MIN anchors the smallest meteorite mass class
-# at 1.0x and HP_LOG_DECADES sets the high end (HP_REF_MIN * 10^N maps
-# to MAX_SCALE). Floor + ceiling chosen so a 1-HP straggler still
-# reads as a recognisable splash and a 10000-HP boss feels distinct
-# without flooding the globe.
-const HP_REF_MIN: float = 10.0
-const HP_LOG_DECADES: float = 3.0
-const MIN_SCALE: float = 0.4
-const MAX_SCALE: float = 2.0
+# Peak sphere radius is now derived from the impacting body's mass via
+# MeteorPhysics.damage_radii_km — the moderate-tier blast radius
+# anchors the visual so the 3D explosion roughly matches the
+# corresponding ring on the impact map. Multiplied by VISUAL_GAIN
+# because real-world km radii (Tunguska ~60 km moderate) are tiny
+# next to Earth's 6371 km, and a faithful-scale explosion would be
+# invisible from the default camera distance.
+const VISUAL_GAIN: float = 4.0
+# Floor / ceiling on the peak radius so a sub-threshold impact
+# (which shouldn't render in the first place — EarthSystem gates
+# spawn) still produces a recognisable speck if it ever leaks
+# through, and an extinction-class impactor doesn't fill the entire
+# globe with a single white ball.
+const MIN_RADIUS_KM: float = 80.0
+const MAX_RADIUS_KM: float = 4000.0
 const COLOR_CORE := Color(1.0, 0.7, 0.15)
 
 # Per-instance peak radius, set by the spawner before _ready so callers
-# can size each explosion to the impacting body's remaining HP.
-var peak_radius_km: float = PEAK_RADIUS_KM
+# can size each explosion to the impacting body's mass.
+var peak_radius_km: float = MIN_RADIUS_KM
 
 var _elapsed: float = 0.0
 var _mesh_inst: MeshInstance3D
 var _mat: StandardMaterial3D
 
 
-## Map an impactor's HP at the moment of contact onto a peak-radius
-## value, using the same log-decade envelope as the enemy-path styling.
-static func hp_to_peak_radius_km(hp: float) -> float:
-	var ratio := maxf(hp, HP_REF_MIN) / HP_REF_MIN
-	var hp_norm := clampf(
-		log(ratio) / log(pow(10.0, HP_LOG_DECADES)), 0.0, 1.0
-	)
-	return PEAK_RADIUS_KM * lerpf(MIN_SCALE, MAX_SCALE, hp_norm)
+## Map an impactor's mass (kg) onto a peak-radius value, using the
+## moderate-tier damage radius from MeteorPhysics scaled for visual
+## readability against Earth.
+static func mass_to_peak_radius_km(mass_kg: float) -> float:
+	var radii := MeteorPhysics.damage_radii_km(mass_kg)
+	var raw := float(radii["moderate"]) * VISUAL_GAIN
+	return clampf(raw, MIN_RADIUS_KM, MAX_RADIUS_KM)
 
 
 func _ready() -> void:

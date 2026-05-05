@@ -20,6 +20,7 @@ extends Control
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const CelestialBody = preload("res://scripts/celestial_body.gd")
+const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
 
 # Inner Control that draws the impact markers and grid. Lives as a
 # child of ImpactMap, added AFTER the map TextureRect so Godot's
@@ -31,6 +32,7 @@ class _MarkerLayer extends Control:
 	# don't inherit the outer file's preload constants. Same script,
 	# same instance — the parent passes its tracker straight through.
 	const _Tracker = preload("res://scripts/impact_tracker.gd")
+	const _Physics = preload("res://scripts/meteor_physics.gd")
 	var tracker: _Tracker = null
 	# Bound to EarthSystem.real_satellites; the layer filters for
 	# is_surface each draw call so newly-placed or destroyed surface
@@ -43,19 +45,36 @@ class _MarkerLayer extends Control:
 	var map_size: Vector2 = Vector2.ZERO
 	var lat_clamp_deg: float = 85.0
 	var grid_color: Color = Color(0.6, 0.7, 0.85, 0.18)
-	var marker_outer: Color = Color(1.0, 0.25, 0.05, 0.95)
-	var marker_inner: Color = Color(1.0, 0.85, 0.4, 0.95)
-	var marker_radius: float = 4.0
-	# HP-driven marker scaling envelope. Same log-decade idiom the
-	# 3D ImpactExplosion uses, applied to the 2D dot radius so a
-	# heavy impactor draws a visibly fatter splat than a battered
-	# straggler. Floor + ceiling tuned against marker_radius so the
-	# smallest dots stay readable and the largest don't swamp
-	# adjacent impacts on the Mercator overlay.
-	var marker_hp_ref_min: float = 10.0
-	var marker_hp_log_decades: float = 3.0
-	var marker_min_scale: float = 0.6
-	var marker_max_scale: float = 2.0
+	# Three-tier damage palette. Each impact paints up to three
+	# concentric circles whose radii come from MeteorPhysics:
+	#   * yellow (light)    — overpressure, broken windows
+	#   * orange (moderate) — severe blast / structural collapse
+	#   * red    (heavy)    — near-instant lethality
+	# Just-above-threshold impacts draw only the yellow ring at the
+	# `min_visible_px` floor (a tiny dot); larger impacts paint
+	# successive rings as the cube-root-of-mass radius grows past
+	# each band's visibility threshold. Filled discs (with alpha)
+	# rather than rings so they stack as nested colour fields.
+	var damage_color_light: Color = Color(1.0, 0.85, 0.20, 0.32)
+	var damage_color_moderate: Color = Color(1.0, 0.55, 0.10, 0.45)
+	var damage_color_heavy: Color = Color(1.0, 0.20, 0.10, 0.65)
+	# Pixels-per-km on the Mercator overlay. Geometric scale at the
+	# equator is ~0.011 px/km — too small for a Tunguska-class blast
+	# to register as anything but a sub-pixel speck — so we apply a
+	# uniform 5x amplification. The user-visible result is that
+	# damage circles read at "regional" magnitude rather than true-
+	# scale invisibility, while preserving the cube-root-of-mass
+	# proportionality between impacts.
+	var damage_px_per_km: float = 0.05
+	# Floor radius for the outermost (yellow) circle so any recorded
+	# impact paints at least a visible speck. Inner rings have no
+	# floor — they only appear when the impact's natural radius
+	# pushes them past the `min_*_visible_px` thresholds, so a
+	# threshold-sized impactor reads as a single yellow dot and
+	# heavier ones progressively reveal the orange + red rings.
+	var min_light_px: float = 2.0
+	var min_moderate_visible_px: float = 1.5
+	var min_heavy_visible_px: float = 1.0
 	# Surface-installation marker palette: green to match the in-world
 	# COLOR_SURFACE tint, distinct from the red/orange impact dots so
 	# the two readouts coexist on the same map without ambiguity.
@@ -78,20 +97,37 @@ class _MarkerLayer extends Control:
 		if tracker == null:
 			return
 		for entry in tracker.impacts:
-			var lat: float = entry["lat"]
-			var lon: float = entry["lon"]
-			var hp: float = float(entry.get("hp", 0.0))
-			var p := _latlon_to_local(lat, lon)
-			var r := marker_radius * _hp_marker_scale(hp)
-			draw_circle(p, r + 1.5, marker_outer)
-			draw_circle(p, maxf(r - 1.0, 0.5), marker_inner)
+			_draw_impact(entry)
 
-	func _hp_marker_scale(hp: float) -> float:
-		var ratio := maxf(hp, marker_hp_ref_min) / marker_hp_ref_min
-		var hp_norm := clampf(
-			log(ratio) / log(pow(10.0, marker_hp_log_decades)), 0.0, 1.0
+	# Paint up to three concentric damage circles for one impact entry.
+	# Older entries stored mass as 0 (legacy "dot" format); we fall
+	# back to deriving a notional mass from `hp` so they still draw.
+	# Heavy → moderate → light order so larger rings fall behind the
+	# smaller, more saturated ones.
+	func _draw_impact(entry: Dictionary) -> void:
+		var lat: float = entry["lat"]
+		var lon: float = entry["lon"]
+		var mass: float = float(entry.get("mass_kg", 0.0))
+		if mass <= 0.0:
+			# Legacy entries without mass: estimate from HP using the
+			# stony-density default so the marker has *some* size.
+			var hp: float = float(entry.get("hp", 0.0))
+			if hp > 0.0:
+				mass = hp / (_Physics.HP_PER_KG_PER_DENSITY * 3.4)
+		if _Physics.is_burn_up(mass):
+			return
+		var radii: Dictionary = _Physics.damage_radii_km(mass)
+		var p := _latlon_to_local(lat, lon)
+		var r_light_px: float = maxf(
+			float(radii["light"]) * damage_px_per_km, min_light_px
 		)
-		return lerpf(marker_min_scale, marker_max_scale, hp_norm)
+		var r_moderate_px: float = float(radii["moderate"]) * damage_px_per_km
+		var r_heavy_px: float = float(radii["heavy"]) * damage_px_per_km
+		draw_circle(p, r_light_px, damage_color_light)
+		if r_moderate_px >= min_moderate_visible_px:
+			draw_circle(p, r_moderate_px, damage_color_moderate)
+		if r_heavy_px >= min_heavy_visible_px:
+			draw_circle(p, r_heavy_px, damage_color_heavy)
 
 	# Surface-unit markers are drawn UNDER the impact dots so a
 	# meteorite that lands on top of an emplacement still shows the
@@ -151,9 +187,6 @@ const MAP_SIZE := Vector2(420.0, 320.0)
 const PANEL_BG := Color(0.04, 0.04, 0.08, 0.85)
 const TITLE_COLOR := Color(0.85, 0.92, 1.0)
 const GRID_COLOR := Color(0.6, 0.7, 0.85, 0.18)
-const MARKER_OUTER := Color(1.0, 0.25, 0.05, 0.95)
-const MARKER_INNER := Color(1.0, 0.85, 0.4, 0.95)
-const MARKER_RADIUS: float = 4.0
 const LAT_CLAMP_DEG: float = 85.0
 
 # Padding around the map texture inside the panel. Top reserves space
@@ -236,9 +269,6 @@ func _ready() -> void:
 	_marker_layer.map_size = MAP_SIZE
 	_marker_layer.lat_clamp_deg = LAT_CLAMP_DEG
 	_marker_layer.grid_color = GRID_COLOR
-	_marker_layer.marker_outer = MARKER_OUTER
-	_marker_layer.marker_inner = MARKER_INNER
-	_marker_layer.marker_radius = MARKER_RADIUS
 	_marker_layer.tracker = tracker
 	_marker_layer.satellites = satellites
 	add_child(_marker_layer)
@@ -300,12 +330,49 @@ func _update_readout() -> void:
 		String(latest["region"]) if _body.id == CelestialBody.ID_EARTH
 		else "%s surface" % _body.display_name
 	)
+	var mass: float = float(latest.get("mass_kg", 0.0))
+	var comp: int = int(latest.get("composition", -1))
+	var density: float = float(latest.get("density_g_cm3", 0.0))
+	var detail := _format_impact_detail(mass, comp, density)
 	_readout.text = (
 		"[font_size=11][color=#9aa9b8]Latest: [color=#ffd27a]"
 		+ region
 		+ "[/color]\n"
-		+ "%s  %s  ([color=#7fcf7f]%d[/color] total)[/color][/font_size]"
-	) % [_format_lat(lat), _format_lon(lon), tracker.impacts.size()]
+		+ "%s  %s%s  ([color=#7fcf7f]%d[/color] total)[/color][/font_size]"
+	) % [_format_lat(lat), _format_lon(lon), detail, tracker.impacts.size()]
+
+
+# Build the "  ·  S-type, 1.20 Tg, 3.4 g/cm³" suffix for the latest-
+# impact readout. Falls back to an empty string for legacy entries
+# without mass/composition so older saves don't render "N/A" noise.
+static func _format_impact_detail(
+	mass_kg: float, composition: int, density_g_cm3: float
+) -> String:
+	if mass_kg <= 0.0:
+		return ""
+	var parts: Array[String] = []
+	if composition >= 0:
+		parts.append(MeteorPhysics.composition_name(composition))
+	parts.append(_format_mass(mass_kg))
+	if density_g_cm3 > 0.0:
+		parts.append("%.1f g/cm³" % density_g_cm3)
+	return "  ·  " + ", ".join(parts)
+
+
+# SI-prefix mass formatter: tons (Mg) for small impacts, escalating
+# through Gg / Tg / Pg / Eg as orders of magnitude rise. Two
+# significant figures so a 12 000 kg impactor reads "12 Mg" rather
+# than "12000 kg".
+static func _format_mass(mass_kg: float) -> String:
+	if mass_kg < 1.0e6:
+		return "%.0f Mg" % (mass_kg / 1.0e3)
+	if mass_kg < 1.0e9:
+		return "%.1f Gg" % (mass_kg / 1.0e6)
+	if mass_kg < 1.0e12:
+		return "%.1f Tg" % (mass_kg / 1.0e9)
+	if mass_kg < 1.0e15:
+		return "%.1f Pg" % (mass_kg / 1.0e12)
+	return "%.1f Eg" % (mass_kg / 1.0e15)
 
 
 static func _format_lat(lat: float) -> String:

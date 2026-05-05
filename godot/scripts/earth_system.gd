@@ -21,6 +21,7 @@ const ImpactMap = preload("res://scripts/impact_map.gd")
 const RadarMap = preload("res://scripts/radar_map.gd")
 const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
+const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
 const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
@@ -78,6 +79,15 @@ var meteorites_impacted: int = 0
 # every impact flows through one place. Surfaced on the end-of-run
 # summary alongside per-unit damage / kills.
 var total_impact_hp: float = 0.0
+# Bodies the atmosphere finished off — sub-orbital threats whose mass
+# at the moment of surface crossing was at or below the burn-up
+# threshold (either spawned that small or chipped down by player fire
+# until the mass-HP coupling drove them inert). Tracked separately
+# from `meteorites_impacted` so the end-of-run summary can show
+# "atmospheric defense did this much work for you" alongside the
+# damage Earth actually absorbed.
+var atmosphere_burnup_count: int = 0
+var atmosphere_burnup_hp: float = 0.0
 # Snapshots of player satellites that died during the run. Each entry
 # is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
 # the moment of death so the end-of-run summary can credit a unit
@@ -488,13 +498,24 @@ func _remove_dead_satellites() -> void:
 			if sat.hp <= 0.0:
 				enemies_shot_down += 1
 			elif sat.is_meteorite or sat.is_decaying:
-				meteorites_impacted += 1
-				# HP at the moment of impact is the un-reduced threat
-				# Earth absorbed. Tally it before the satellite is
-				# freed so the end-of-run summary can show "total HP
-				# of impactors", not just a count.
-				total_impact_hp += maxf(sat.hp, 0.0)
-				_record_meteorite_impact(sat)
+				# Sub-threshold bodies fully ablate in the atmosphere —
+				# they reach the surface in the simulation but cause no
+				# damage. We don't paint the impact map for them and they
+				# don't count toward `meteorites_impacted`, but the HP
+				# they were still carrying at burn-up is the work the
+				# atmosphere just did for the player; tally it as
+				# `atmosphere_burnup_hp` for the end-of-run readout.
+				if MeteorPhysics.is_burn_up(sat.mass):
+					atmosphere_burnup_count += 1
+					atmosphere_burnup_hp += maxf(sat.hp, 0.0)
+				else:
+					meteorites_impacted += 1
+					# HP at the moment of impact is the un-reduced threat
+					# Earth absorbed. Tally it before the satellite is
+					# freed so the end-of-run summary can show "total HP
+					# of impactors", not just a count.
+					total_impact_hp += maxf(sat.hp, 0.0)
+					_record_meteorite_impact(sat)
 		elif sat.team == Satellite.TEAM_PLAYER and sat.unit_name != "":
 			# Snapshot the dying player unit's tallies so the summary
 			# still credits its damage / kills even though the live
@@ -557,6 +578,8 @@ func end_game_summary() -> Dictionary:
 		"per_unit": per_unit,
 		"total_impacts": meteorites_impacted,
 		"total_impact_hp": total_impact_hp,
+		"atmosphere_burnup_count": atmosphere_burnup_count,
+		"atmosphere_burnup_hp": atmosphere_burnup_hp,
 	}
 
 
@@ -938,6 +961,12 @@ func add_satellite() -> void:
 func _record_meteorite_impact(sat: Satellite) -> void:
 	if sat == null or sat.orbit == null:
 		return
+	# Sub-threshold bodies fully ablate in the atmosphere — no surface
+	# damage, no recorded impact, no map marker. The Keplerian
+	# propagator still terminated the body on its surface-cross, so
+	# nothing else needs unwinding here.
+	if MeteorPhysics.is_burn_up(sat.mass):
+		return
 	var phase: float = earth.earth_phase if earth != null else 0.0
 	var surface_pos: Vector3 = sat.orbit.r.normalized() * EarthOrbit.EARTH_RADIUS_KM
 	var local := ImpactTracker.eci_to_mesh_local(surface_pos, phase)
@@ -950,17 +979,22 @@ func _record_meteorite_impact(sat: Satellite) -> void:
 			var px := clampi(int(uv.x * float(w)), 0, w - 1)
 			var py := clampi(int(uv.y * float(h)), 0, h - 1)
 			ocean_hint = ImpactTracker.is_ocean_pixel(_albedo_image.get_pixel(px, py))
-	# HP at impact drives both the 3D explosion radius and the minimap
-	# marker size — a fresh boss leaves a much bigger crater visual
-	# than a fragment that's been chewed down by point defence.
+	# Mass × density now drive the 3D explosion radius and the impact
+	# map's three-tier damage circles — a fresh-from-orbit boss leaves
+	# a much bigger crater than a fragment that mostly burned off
+	# under fire. HP is still recorded for the legacy summary readout
+	# but no longer scales the visuals.
 	var impact_hp: float = maxf(sat.hp, 0.0)
-	impact_tracker.record_impact(sat.orbit.r, phase, ocean_hint, impact_hp)
-	_spawn_impact_explosion(surface_pos, impact_hp)
+	impact_tracker.record_impact(
+		sat.orbit.r, phase, ocean_hint, impact_hp,
+		maxf(sat.mass, 0.0), maxf(sat.density_g_cm3, 0.0), sat.composition,
+	)
+	_spawn_impact_explosion(surface_pos, sat.mass)
 
 
-func _spawn_impact_explosion(surface_pos: Vector3, hp: float) -> void:
+func _spawn_impact_explosion(surface_pos: Vector3, mass_kg: float) -> void:
 	var explosion := ImpactExplosion.new()
-	explosion.peak_radius_km = ImpactExplosion.hp_to_peak_radius_km(hp)
+	explosion.peak_radius_km = ImpactExplosion.mass_to_peak_radius_km(mass_kg)
 	add_child(explosion)
 	explosion.set_impact_position(surface_pos)
 

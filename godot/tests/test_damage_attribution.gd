@@ -83,6 +83,71 @@ func test_take_damage_without_attacker_still_applies() -> void:
 	target.queue_free()
 
 
+func test_meteorite_mass_couples_to_hp() -> void:
+	# A meteorite under fire should physically erode: damage represents
+	# fragmentation, so HP loss drops mass proportionally. The mass-HP
+	# coupling is what feeds back into both impact damage radius
+	# (smaller mass → smaller blast) and railgun deflection (smaller
+	# mass → bigger Δv per slug).
+	var attacker := _make()
+	var target := Satellite.new()
+	target.alive = true
+	target.is_meteorite = true
+	target.density_g_cm3 = 3.4
+	target.mass = 1.0e6  # 1 Gg, well above the burn-up threshold
+	target.max_hp = 0.003 * target.mass * target.density_g_cm3
+	target.hp = target.max_hp
+	# Halve the HP, expect mass to halve too.
+	target.take_damage(target.max_hp * 0.5, attacker)
+	assert_close(target.hp, target.max_hp * 0.5, 1.0e-3)
+	assert_close(target.mass, 5.0e5, 5.0e5 * 1.0e-3)
+	# Reduce HP to a sliver — mass should track all the way down to
+	# (very nearly) zero without going negative.
+	target.take_damage(target.hp - 1.0, attacker)
+	assert_close(target.hp, 1.0, 1.0e-6)
+	assert_true(target.mass > 0.0 and target.mass < 1.0e3)
+	attacker.queue_free()
+	target.queue_free()
+
+
+func test_non_meteorite_mass_unchanged_by_damage() -> void:
+	# Player ships and unarmed orbital enemies don't track mass loss
+	# under fire — damage represents subsystem destruction, not
+	# fragmentation. The mass field stays at its spawn-time wet-mass
+	# value so railgun recoil and propellant math don't drift.
+	var attacker := _make()
+	var target := _make()
+	var spawn_mass: float = target.mass
+	target.take_damage(50.0, attacker)
+	assert_close(target.mass, spawn_mass, 1.0e-6)
+	attacker.queue_free()
+	target.queue_free()
+
+
+func test_eroded_meteorite_is_inert() -> void:
+	# A meteorite chipped down to below the atmospheric burn-up
+	# threshold reports `is_inert_meteorite` so weapons can disengage.
+	# A regular orbital enemy at the same low mass does NOT — the
+	# burn-up flag only applies to sub-orbital meteorites and
+	# decaying-orbit threats.
+	var rock := Satellite.new()
+	rock.alive = true
+	rock.is_meteorite = true
+	rock.density_g_cm3 = 3.4
+	rock.mass = 1.0e3  # well below the 1e4 burn-up threshold
+	assert_true(rock.is_inert_meteorite())
+	rock.mass = 1.0e6
+	assert_false(rock.is_inert_meteorite())
+	# Non-meteorite at sub-threshold mass: not inert (regular enemies
+	# still get engaged regardless of their default 1000 kg mass).
+	var enemy := Satellite.new()
+	enemy.alive = true
+	enemy.mass = 500.0
+	assert_false(enemy.is_inert_meteorite())
+	rock.queue_free()
+	enemy.queue_free()
+
+
 func test_dead_target_take_damage_is_a_no_op() -> void:
 	# Repeated hits on a dead body shouldn't double-count kills or
 	# pump up damage_dealt past the kill blow. Two attackers fire on

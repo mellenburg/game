@@ -76,15 +76,17 @@ func test_idle_mission_emits_nothing() -> void:
 
 
 func test_default_settings_total_emissions() -> void:
-	# Default ReconSettings ships 5 waves: 3 + 5 + 8 + 10 + 10 = 36
-	# wave-units. The brief sums match the previous hardcoded
-	# schedule, which the editor's default reproduces.
+	# Default ReconSettings ships 5 waves: 1 + 2 + 2 + 4 + 3 = 12
+	# wave-units. The schedule was thinned to ~1/3 of the legacy 36
+	# when the meteorite mass bands jumped from kg-class fodder up
+	# to Gg / Tg / Pg-class threats — same wave-count escalation,
+	# fewer wave-units per wave so the fleet's defences keep up.
 	var s := ReconSettings.default_settings()
 	var m := Mission.new()
 	m.start_from_settings(s, _seeded_rng())
 	var emissions := _drain(m, FULL_DRAIN_SEC, DRAIN_STEP_SEC)
-	assert_eq(emissions.size(), 36)
-	assert_eq(m.total_wave_units(), 36)
+	assert_eq(emissions.size(), 12)
+	assert_eq(m.total_wave_units(), 12)
 
 
 func test_default_first_wave_fires_at_half_hour() -> void:

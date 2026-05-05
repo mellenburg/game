@@ -22,6 +22,7 @@ const SurfacePosition = preload("res://scripts/surface_position.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
 const Launch = preload("res://scripts/launch.gd")
 const WaveUnitClass = preload("res://scripts/wave_unit_class.gd")
+const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -76,21 +77,18 @@ const METEORITE_LATERAL_SPREAD_KM: float = 6000.0
 const METEORITE_ALT_JITTER_KM: float = 3000.0
 const METEORITE_VELOCITY_JITTER: float = 0.8
 
-# Mass-to-HP conversion: 10 kg = 1 HP (i.e. 0.1 HP per kg). Used to
-# derive max_hp from a body's spawned mass for both wave meteorites and
-# wave-borne decaying-orbit threats so a single dial governs both
-# difficulty (HP) and physical scale (3D marker + radar blip).
-const HP_PER_KG: float = 0.1
-
 # Size-class mass bands, in kg. The bands are non-overlapping at the
 # class boundaries (small max == medium min) so a body's class is a
 # function of where its mass was sampled, never an independent label.
-const SMALL_MASS_MIN_KG: float = 100.0
-const SMALL_MASS_MAX_KG: float = 500.0
-const MEDIUM_MASS_MIN_KG: float = 500.0
-const MEDIUM_MASS_MAX_KG: float = 1000.0
-const LARGE_MASS_MIN_KG: float = 1000.0
-const LARGE_MASS_MAX_KG: float = 10000.0
+# Re-exported from MeteorPhysics so existing call-sites and tests
+# (test_wave_mix.gd) can keep the SpawnDirector qualifier; the actual
+# physics constants live alongside the rest of the meteor calibration.
+const SMALL_MASS_MIN_KG: float = MeteorPhysics.SMALL_MASS_MIN_KG
+const SMALL_MASS_MAX_KG: float = MeteorPhysics.SMALL_MASS_MAX_KG
+const MEDIUM_MASS_MIN_KG: float = MeteorPhysics.MEDIUM_MASS_MIN_KG
+const MEDIUM_MASS_MAX_KG: float = MeteorPhysics.MEDIUM_MASS_MAX_KG
+const LARGE_MASS_MIN_KG: float = MeteorPhysics.LARGE_MASS_MIN_KG
+const LARGE_MASS_MAX_KG: float = MeteorPhysics.LARGE_MASS_MAX_KG
 
 const SIZE_SMALL: int = 0
 const SIZE_MEDIUM: int = 1
@@ -148,11 +146,11 @@ const DECAYING_PERIGEE_ALT_KM: float = 500.0
 const DECAYING_INITIAL_NU_FROM_APOGEE_DEG: float = 15.0
 # Default mass (kg) for a standalone decaying-orbit spawn — i.e. the
 # legacy single-body "add decaying enemy" entry point that the player
-# triggers outside of a wave. Sits at the medium / large boundary so
-# the body reads as a meaningful threat without overshooting into the
-# heaviest large-class band the wave path can produce. Wave-borne
-# decaying threats sample their own mass from the medium / large band.
-const DECAYING_DEFAULT_MASS_KG: float = 1000.0
+# triggers outside of a wave. Sits inside the medium band so the body
+# reads as a meaningful threat without overshooting into the heaviest
+# large-class. Wave-borne decaying threats sample their own mass from
+# the medium / large band.
+const DECAYING_DEFAULT_MASS_KG: float = 1.0e8
 
 # Half-angle of the cone within which a single mission wave's wave-
 # units cluster around its base entry direction. ~20° gives a "broad,
@@ -682,13 +680,25 @@ func _sample_size_class_counts(total: int) -> Dictionary:
 
 
 func _sample_mass_for_class(size_class: int) -> float:
+	# Log-uniform within the band: each order of magnitude inside the
+	# 3-decade small/medium and 1.7-decade large band gets equal
+	# weight, so a wave shows mass variety from the band's floor to
+	# its ceiling. A naive randf_range concentrates ~90% of samples
+	# in the band's top decade, which read as "every rock looks the
+	# same size" in the live game.
 	match size_class:
 		SIZE_SMALL:
-			return _rng.randf_range(SMALL_MASS_MIN_KG, SMALL_MASS_MAX_KG)
+			return MeteorPhysics.sample_log_uniform(
+				_rng, SMALL_MASS_MIN_KG, SMALL_MASS_MAX_KG
+			)
 		SIZE_MEDIUM:
-			return _rng.randf_range(MEDIUM_MASS_MIN_KG, MEDIUM_MASS_MAX_KG)
+			return MeteorPhysics.sample_log_uniform(
+				_rng, MEDIUM_MASS_MIN_KG, MEDIUM_MASS_MAX_KG
+			)
 		_:
-			return _rng.randf_range(LARGE_MASS_MIN_KG, LARGE_MASS_MAX_KG)
+			return MeteorPhysics.sample_log_uniform(
+				_rng, LARGE_MASS_MIN_KG, LARGE_MASS_MAX_KG
+			)
 
 
 # Build a single pending spec. Lateral / altitude / velocity jitter are
@@ -696,7 +706,9 @@ func _sample_mass_for_class(size_class: int) -> float:
 # branch keeps producing the same kind of cluster spread; decaying
 # specs get the same fields just so the radar overlay has a position
 # to plot for them while the spawn-time geometry uses an independent
-# random plane per body (see _make_decaying_enemy).
+# random plane per body (see _make_decaying_enemy). Composition / density
+# are sampled here so the radar overlay (and any future preview UI)
+# can display them consistently with what the spawned body will carry.
 func _make_wave_spec(
 	mass: float,
 	is_decaying: bool,
@@ -706,6 +718,7 @@ func _make_wave_spec(
 ) -> Dictionary:
 	var ang := _rng.randf_range(0.0, TAU)
 	var dist := _rng.randf_range(0.0, lateral_spread_km)
+	var comp_sample := MeteorPhysics.sample_density(_rng)
 	return {
 		"t": _rng.randf_range(0.0, duration_sec) + preroll_sec,
 		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
@@ -719,6 +732,8 @@ func _make_wave_spec(
 		),
 		"mass": mass,
 		"is_decaying": is_decaying,
+		"composition": int(comp_sample["composition"]),
+		"density": float(comp_sample["density"]),
 	}
 
 
@@ -755,13 +770,17 @@ func tick_waves(delta: float) -> void:
 		var ready_specs: Array[Dictionary] = wave.tick(delta)
 		for spec: Dictionary in ready_specs:
 			var mass: float = spec.get("mass", Satellite.DEFAULT_MASS_KG)
+			var density: float = float(
+				spec.get("density", MeteorPhysics.COMP_TABLE[MeteorPhysics.COMP_S_TYPE][1])
+			)
+			var composition: int = int(spec.get("composition", MeteorPhysics.COMP_S_TYPE))
 			var sat: Satellite
 			if spec.get("is_decaying", false):
 				# Decaying-orbit threats live on their own random
 				# elliptical plane; the wave's shared sub-orbital nexus
 				# doesn't apply to them. Lateral / vel-jitter from the
 				# spec is only consumed by the radar preview.
-				sat = _make_decaying_enemy(mass)
+				sat = _make_decaying_enemy(mass, density, composition)
 			else:
 				sat = _make_meteorite(
 					wave.r_hat,
@@ -823,13 +842,16 @@ func _make_meteorite(
 	sat.team = Satellite.TEAM_ENEMY
 	sat.weapons.clear()
 	sat.is_meteorite = true
-	# Mass drives both HP (10 kg = 1 HP) and the visual scale (3D
-	# marker, radar blip), keeping difficulty and physical size on a
-	# single dial. Specs from the legacy storm path don't carry mass;
-	# fall back to the satellite's default to keep that branch working.
+	# Mass and bulk density together drive HP (heavier and denser
+	# bodies soak more shots) and the visual scale (3D marker, radar
+	# blip). Specs without mass / density fall back to defaults so the
+	# legacy storm path keeps working.
 	var mass: float = spec.get("mass", Satellite.DEFAULT_MASS_KG)
+	var density: float = spec.get("density", MeteorPhysics.COMP_TABLE[MeteorPhysics.COMP_S_TYPE][1])
 	sat.mass = mass
-	sat.max_hp = mass * HP_PER_KG
+	sat.density_g_cm3 = density
+	sat.composition = int(spec.get("composition", MeteorPhysics.COMP_S_TYPE))
+	sat.max_hp = MeteorPhysics.hp_for(mass, density)
 	sat.hp = sat.max_hp
 
 	# Lateral offset uses the in-plane basis (tangent + bitangent); the
@@ -868,6 +890,7 @@ func _sample_meteorite_spec(
 ) -> Dictionary:
 	var ang := _rng.randf_range(0.0, TAU)
 	var dist := _rng.randf_range(0.0, lateral_spread)
+	var comp_sample := MeteorPhysics.sample_density(_rng)
 	return {
 		"t": 0.0,
 		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
@@ -879,18 +902,29 @@ func _sample_meteorite_spec(
 		),
 		"mass": _sample_mass_for_class(SIZE_SMALL),
 		"is_decaying": false,
+		"composition": int(comp_sample["composition"]),
+		"density": float(comp_sample["density"]),
 	}
 
 
-func _make_decaying_enemy(mass: float) -> Satellite:
+func _make_decaying_enemy(mass: float, density: float = -1.0, composition: int = -1) -> Satellite:
 	var sat := Satellite.new()
 	sat.team = Satellite.TEAM_ENEMY
 	sat.weapons.clear()
 	sat.is_decaying = true
-	# Mass-driven HP keeps the spiral-in threat consistent with the rest
-	# of the wave: a heavier body soaks more shots before going down.
+	# Mass × density driven HP keeps the spiral-in threat consistent
+	# with the rest of the wave: a heavier and denser body soaks more
+	# shots before going down. Negative defaults trigger an inline
+	# composition roll for legacy callers (`add_decaying_enemy()`)
+	# that don't pre-sample density off the wave spec.
+	if density < 0.0 or composition < 0:
+		var sample := MeteorPhysics.sample_density(_rng)
+		composition = int(sample["composition"])
+		density = float(sample["density"])
 	sat.mass = mass
-	sat.max_hp = mass * HP_PER_KG
+	sat.density_g_cm3 = density
+	sat.composition = composition
+	sat.max_hp = MeteorPhysics.hp_for(mass, density)
 	sat.hp = sat.max_hp
 
 	var r_p := EarthOrbit.EARTH_RADIUS_KM + DECAYING_PERIGEE_ALT_KM

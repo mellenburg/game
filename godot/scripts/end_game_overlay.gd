@@ -106,8 +106,11 @@ func _build_ui() -> void:
 	_root_panel.anchor_bottom = 0.5
 	_root_panel.offset_left = -300
 	_root_panel.offset_right = 300
-	_root_panel.offset_top = -260
-	_root_panel.offset_bottom = 260
+	# Tallened to fit the SURFACE section's atmospheric-burnup pair
+	# (bodies fully ablated + HP lost to atmospheric entry) added
+	# alongside the impact totals.
+	_root_panel.offset_top = -285
+	_root_panel.offset_bottom = 285
 	add_child(_root_panel)
 
 	var pad := MarginContainer.new()
@@ -171,6 +174,19 @@ func _render_summary(summary: Dictionary) -> void:
 	_content_root.add_child(_kv_row("Impacts on surface", "%d" % impacts))
 	_content_root.add_child(_kv_row(
 		"HP delivered to surface", "%.0f" % impact_hp,
+	))
+
+	# Atmospheric defense: bodies the atmosphere finished off — either
+	# spawned below the burn-up threshold or chipped down by the fleet
+	# until the mass-HP coupling drove them inert. The HP shown is the
+	# residual HP at burn-up, i.e. the work the atmosphere did for free.
+	var atmo_count := int(summary.get("atmosphere_burnup_count", 0))
+	var atmo_hp := float(summary.get("atmosphere_burnup_hp", 0.0))
+	_content_root.add_child(_kv_row(
+		"Burned up in atmosphere", "%d" % atmo_count,
+	))
+	_content_root.add_child(_kv_row(
+		"HP lost to atmospheric entry", "%.0f" % atmo_hp,
 	))
 
 	_content_root.add_child(_hr())

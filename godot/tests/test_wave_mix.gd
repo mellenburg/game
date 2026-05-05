@@ -113,6 +113,28 @@ func test_decaying_count_in_band_and_only_heavy() -> void:
 		bundle[1].queue_free()
 
 
+func test_wave_specs_carry_density_and_composition() -> void:
+	# Every spec the wave generator emits should ship a sampled density
+	# and composition class. The impact-map readout / per-body HP both
+	# depend on these being populated up front.
+	const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
+	var bundle := _make_director(13)
+	var sd: SpawnDirector = bundle[0]
+	sd.start_meteorite_wave()
+	var wave: MeteoriteWave = sd.meteorite_waves[0]
+	for entry: Dictionary in wave.pending:
+		assert_true(entry.has("density"), "spec missing density")
+		assert_true(entry.has("composition"), "spec missing composition")
+		var d: float = float(entry["density"])
+		var comp: int = int(entry["composition"])
+		assert_true(d > 0.0, "density %f not positive" % d)
+		assert_true(
+			comp >= 0 and comp < MeteorPhysics.COMP_TABLE.size(),
+			"composition %d out of range" % comp,
+		)
+	bundle[1].queue_free()
+
+
 func test_wave_metadata_is_set() -> void:
 	# duration_sec / lateral_spread_km must be populated so the radar
 	# overlay can normalise blip positions without reaching back into
