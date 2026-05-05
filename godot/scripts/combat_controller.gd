@@ -12,6 +12,7 @@ extends Node
 const Satellite = preload("res://scripts/satellite.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const HUD = preload("res://scripts/hud.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const SlugRenderer = preload("res://scripts/slug_renderer.gd")
@@ -128,7 +129,12 @@ func process_combat(
 				_fire_railgun_with_slug(sat, w as RailgunWeapon, target, sim_delta)
 			elif w.fire(sat, target, sim_delta):
 				_hud.register_hit(sat, target)
-				_beam_renderer.register_fire(sat, w_idx, target)
+				var style: String = (
+					BeamRenderer.STYLE_LASER
+					if w is LaserWeapon
+					else BeamRenderer.STYLE_KINETIC
+				)
+				_beam_renderer.register_fire(sat, w_idx, target, style)
 
 
 func _distribute_cooling(sat: Satellite, sim_delta: float) -> void:
