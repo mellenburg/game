@@ -14,6 +14,7 @@
 [ext_resource type="Script" path="res://scripts/pause_menu.gd" id="12_pause_menu"]
 [ext_resource type="Script" path="res://scripts/end_game_overlay.gd" id="13_end_game"]
 [ext_resource type="Script" path="res://scripts/slug_renderer.gd" id="14_slugs"]
+[ext_resource type="Script" path="res://scripts/tessellation_grid.gd" id="15_tess"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -111,7 +112,7 @@ visible = false
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="EnemyRoster" type="VBoxContainer" parent="CanvasLayer/HUD"]
+[node name="TessellationGrid" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1
 anchors_preset = 0
 anchor_left = 0.0
@@ -123,8 +124,7 @@ offset_top = 200.0
 offset_right = 0.0
 offset_bottom = -10.0
 mouse_filter = 2
-alignment = 2
-theme_override_constants/separation = 4
+script = ExtResource("15_tess")
 
 [node name="TargetContainer" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1

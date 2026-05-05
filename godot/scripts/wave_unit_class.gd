@@ -59,6 +59,7 @@ const SECONDS_PER_MINUTE: float = 60.0
 @export var size_small: float = 0.7
 @export var size_medium: float = 0.25
 @export var size_large: float = 0.05
+@export var size_extra_large: float = 0.0
 @export var location_arc_deg: float = 30.0
 @export var time_spread_min: float = 10.0
 
@@ -92,9 +93,10 @@ func sample_object_size_counts(count: int) -> Dictionary:
 		float(count) * weights[0],
 		float(count) * weights[1],
 		float(count) * weights[2],
+		float(count) * weights[3],
 	]
-	var floors: Array[int] = [int(raw[0]), int(raw[1]), int(raw[2])]
-	var remainder: int = count - (floors[0] + floors[1] + floors[2])
+	var floors: Array[int] = [int(raw[0]), int(raw[1]), int(raw[2]), int(raw[3])]
+	var remainder: int = count - (floors[0] + floors[1] + floors[2] + floors[3])
 	# Largest-remainder: hand the leftover units to whichever weights
 	# had the biggest fractional part. Stable tie-break by lower index
 	# (we sort descending on fractional part; equal fracs preserve
@@ -103,12 +105,13 @@ func sample_object_size_counts(count: int) -> Dictionary:
 		[raw[0] - float(floors[0]), 0],
 		[raw[1] - float(floors[1]), 1],
 		[raw[2] - float(floors[2]), 2],
+		[raw[3] - float(floors[3]), 3],
 	]
 	fracs.sort_custom(func(a, b): return float(a[0]) > float(b[0]))
 	for i in range(remainder):
 		var idx: int = int(fracs[i][1])
 		floors[idx] += 1
-	return {"small": floors[0], "medium": floors[1], "large": floors[2]}
+	return {"small": floors[0], "medium": floors[1], "large": floors[2], "extra_large": floors[3]}
 
 
 # Normalised (s, m, l) tuple. Always sums to 1.0; if all three weights
@@ -118,10 +121,11 @@ func normalized_weights() -> Array[float]:
 	var s := maxf(size_small, 0.0)
 	var m := maxf(size_medium, 0.0)
 	var l := maxf(size_large, 0.0)
-	var total := s + m + l
+	var xl := maxf(size_extra_large, 0.0)
+	var total := s + m + l + xl
 	if total <= 0.0:
-		return [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
-	return [s / total, m / total, l / total]
+		return [0.25, 0.25, 0.25, 0.25]
+	return [s / total, m / total, l / total, xl / total]
 
 
 # In-place barycentric clamp. Clears negatives and rescales so the
@@ -133,6 +137,7 @@ func normalize_weights_in_place() -> void:
 	size_small = n[0]
 	size_medium = n[1]
 	size_large = n[2]
+	size_extra_large = n[3]
 
 
 # Clamp count_min <= count_max into the allowed band. Called by the
@@ -233,7 +238,8 @@ static func default_gamma() -> WaveUnitClass:
 	c.decaying_ratio_max = 0.60
 	c.size_small = 0.20
 	c.size_medium = 0.40
-	c.size_large = 0.40
+	c.size_large = 0.35
+	c.size_extra_large = 0.05
 	c.location_arc_deg = 25.0
 	c.time_spread_min = 15.0
 	return c
@@ -248,6 +254,7 @@ func duplicate_class() -> WaveUnitClass:
 	c.size_small = size_small
 	c.size_medium = size_medium
 	c.size_large = size_large
+	c.size_extra_large = size_extra_large
 	c.location_arc_deg = location_arc_deg
 	c.time_spread_min = time_spread_min
 	return c

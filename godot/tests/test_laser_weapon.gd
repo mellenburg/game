@@ -71,12 +71,12 @@ const ZERO_RANGE_DPS: float = (
 # directly so the new heat-in-joules invariants stay legible.
 const HEAT_PER_SEC_W: float = LaserWeapon.POOL_DRAIN_W * LaserWeapon.HEAT_FRACTION
 # Pool seed for tests that just need "enough energy to fire for a few
-# seconds without going dry". 40 GJ buys ~120 sec of continuous fire
-# at the 333 MW pool draw rate — far more than any of these tests
+# seconds without going dry". 40 TJ buys ~120 sec of continuous fire
+# at the 333 GW pool draw rate — far more than any of these tests
 # burn through, so heat and time become the gating constraints. Tests
 # that specifically exercise the energy-budget cap (or the empty-pool
 # refusal) seed `energy` directly to a tighter number.
-const STARTING_ENERGY_J: float = 4.0e10
+const STARTING_ENERGY_J: float = 4.0e13
 
 
 func _make_player(pos: Vector3 = Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0)) -> FakeSat:
@@ -147,13 +147,17 @@ func test_fire_applies_damage_drains_energy_and_adds_heat() -> void:
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	# Bump HP above the per-burn damage so we can verify the exact
+	# subtraction rather than asserting the take_damage clamp at zero.
+	target.hp = 1.0e9
 	# Fire for 2 sim-sec → 2 * DPS * range_factor(d) damage, 2 * cost
 	# drain, 2 * heat-per-sec joules of heat. Distance is 1000 km so the
 	# falloff factor is non-trivial (~0.95) and shows up in the assertion.
 	var dist: float = (target.orbit.r - attacker.orbit.r).length()
 	var rf: float = LaserWeapon.range_factor(dist)
+	var hp_before := target.hp
 	assert_true(w.fire(attacker, target, 2.0))
-	assert_close(target.hp, 100.0 - 2.0 * ZERO_RANGE_DPS * rf)
+	assert_close(target.hp, hp_before - 2.0 * ZERO_RANGE_DPS * rf, 1.0e-3)
 	# Energy and heat costs are flat in time — distance only modulates
 	# damage, not the per-second burn. Tolerance scaled to the pool
 	# size — assert_close's 1e-6 default is meaningless against billions
@@ -236,14 +240,18 @@ func test_fire_does_not_overshoot_remaining_energy() -> void:
 	var attacker := _make_player()
 	attacker.energy = 0.5 * LaserWeapon.POOL_DRAIN_W  # 0.5 sim-sec budget
 	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	# HP big enough that 0.5 sec of zero-range fire leaves a residual
+	# rather than clamping at the take_damage floor.
+	target.hp = 1.0e9
 	var dist: float = (target.orbit.r - attacker.orbit.r).length()
 	var rf: float = LaserWeapon.range_factor(dist)
+	var hp_before := target.hp
 	assert_true(w.fire(attacker, target, 10.0))
 	# Pool is in joules, so the residual after a balanced drain may
 	# carry a few cents of float noise — 1 J is well below the
-	# 333 MJ/s drain rate.
+	# 333 GJ/s drain rate.
 	assert_close(attacker.energy, 0.0, 1.0)
-	assert_close(target.hp, 100.0 - 0.5 * ZERO_RANGE_DPS * rf)
+	assert_close(target.hp, hp_before - 0.5 * ZERO_RANGE_DPS * rf, 1.0e-3)
 
 
 func test_does_not_engage_same_team() -> void:
@@ -369,18 +377,23 @@ func test_damage_scales_with_distance() -> void:
 	# blockage at this altitude, both well inside MAX_RANGE_KM.
 	var tgt_near := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 2000.0, 0.0))
 	var tgt_far := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 8000.0, 0.0))
+	# HP large enough that a 1-sec zero-range burn leaves a measurable
+	# residue at both ranges instead of clamping at zero.
+	tgt_near.hp = 1.0e9
+	tgt_far.hp = 1.0e9
+	var hp_before := tgt_near.hp
 	assert_true(w_near.fire(atk_near, tgt_near, 1.0))
 	assert_true(w_far.fire(atk_far, tgt_far, 1.0))
-	var dmg_near: float = 100.0 - tgt_near.hp
-	var dmg_far: float = 100.0 - tgt_far.hp
+	var dmg_near: float = hp_before - tgt_near.hp
+	var dmg_far: float = hp_before - tgt_far.hp
 	assert_true(dmg_near > dmg_far, "near hit should damage more than far hit")
 	# Ratio should match the analytic falloff curve.
 	var d_near: float = (tgt_near.orbit.r - atk_near.orbit.r).length()
 	var d_far: float = (tgt_far.orbit.r - atk_far.orbit.r).length()
 	var rf_near: float = LaserWeapon.range_factor(d_near)
 	var rf_far: float = LaserWeapon.range_factor(d_far)
-	assert_close(dmg_near, ZERO_RANGE_DPS * rf_near)
-	assert_close(dmg_far, ZERO_RANGE_DPS * rf_far)
+	assert_close(dmg_near, ZERO_RANGE_DPS * rf_near, 1.0e-3)
+	assert_close(dmg_far, ZERO_RANGE_DPS * rf_far, 1.0e-3)
 
 
 func test_does_not_engage_beyond_max_range() -> void:

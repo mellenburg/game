@@ -160,8 +160,8 @@ static func safe_periapsis_km() -> float:
 # refill from empty takes ~10 000 sim-sec — long enough that energy
 # behaves as a stockpile-and-burn resource: operators trickle the
 # pool back up over a long quiet window, then spend it in salvos.
-const DEFAULT_ENERGY_MAX_J: float = 1.0e11
-const DEFAULT_REACTOR_POWER_W: float = 1.0e7
+const DEFAULT_ENERGY_MAX_J: float = 1.0e14
+const DEFAULT_REACTOR_POWER_W: float = 1.0e10
 # Default heat-removal capacity, in watts (joules / sim-sec). Per-unit
 # `cooling_power_w` starts here and is scaled at spawn time by the
 # unit's cooling-system parts (advanced parts double the rate). Sized

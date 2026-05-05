@@ -41,8 +41,8 @@ const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 # engagement ranges *and* the damage / recoil chain reads as a
 # heavy-hitter weapon (one shot one-kills a default-HP target,
 # recoil per shot on a fully-loaded 21 t hull is ~19 m/s).
-const SLUG_MASS_KG: float = 20.0
-const MUZZLE_VELOCITY_M_S: float = 20000.0
+const SLUG_MASS_KG: float = 100.0
+const MUZZLE_VELOCITY_M_S: float = 100000.0
 # Pre-derived for callers that want either side of the conversion
 # without redoing the multiplication. Keeping these as constants makes
 # it loud if someone changes one without the other.
