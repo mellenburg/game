@@ -260,16 +260,18 @@ func test_default_settings_has_five_waves() -> void:
 
 func test_default_settings_total_unit_counts() -> void:
 	# Sum of alpha/beta/gamma unit counts across all five default
-	# waves: 20 alpha (3+5+4+5+3), 11 beta (0+0+4+3+4), 5 gamma (0+0+0+2+3).
+	# waves: 7 alpha (1+2+1+2+1), 3 beta (0+0+1+1+1), 2 gamma
+	# (0+0+0+1+1). Thinned to ~1/3 of the legacy 20/11/5 totals when
+	# the meteorite mass bands moved up to Gg / Tg / Pg-class threats.
 	var s := ReconSettings.default_settings()
 	var totals := {"alpha": 0, "beta": 0, "gamma": 0}
 	for w in s.waves:
 		totals["alpha"] += w.alpha_units
 		totals["beta"] += w.beta_units
 		totals["gamma"] += w.gamma_units
-	assert_eq(int(totals["alpha"]), 20)
-	assert_eq(int(totals["beta"]), 11)
-	assert_eq(int(totals["gamma"]), 5)
+	assert_eq(int(totals["alpha"]), 7)
+	assert_eq(int(totals["beta"]), 3)
+	assert_eq(int(totals["gamma"]), 2)
 
 
 func test_class_for_dispatches_by_size_class() -> void:

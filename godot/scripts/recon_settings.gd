@@ -66,14 +66,17 @@ static func default_settings() -> ReconSettings:
 	s.gamma_class = WaveUnitClass.default_gamma()
 	# Defaults expressed in game-time hours — at the default time_factor
 	# the first wave fires ~30 min in, with subsequent waves spaced ~3 h
-	# apart. Comparable feel to the legacy realtime values (3 / 25 / 25
-	# / 30 / 30 sec at TF=500 ⇒ ~0.4 h / 3.5 h / 3.5 h / 4.2 h / 4.2 h).
+	# apart. Wave-unit counts are tuned for the post-recalibration mass
+	# bands: each wave-unit now spawns multi-Gg-class threats, and the
+	# old 36 wave-unit schedule (built when meteorites were 100-10000 kg
+	# fodder) overwhelmed the player's defences. ~1/3 of the legacy
+	# count keeps the mission feeling busy without burying the fleet.
 	s.waves = [
-		_make_wave(3, 0, 0, 0.25, false, 0.5),
-		_make_wave(5, 0, 0, 0.50, false, 3.0),
-		_make_wave(4, 4, 0, 0.50, false, 3.0),
-		_make_wave(5, 3, 2, 0.60, false, 4.0),
-		_make_wave(3, 4, 3, 0.50, true, 4.0),
+		_make_wave(1, 0, 0, 0.25, false, 0.5),
+		_make_wave(2, 0, 0, 0.50, false, 3.0),
+		_make_wave(1, 1, 0, 0.50, false, 3.0),
+		_make_wave(2, 1, 1, 0.60, false, 4.0),
+		_make_wave(1, 1, 1, 0.50, true, 4.0),
 	]
 	return s
 
