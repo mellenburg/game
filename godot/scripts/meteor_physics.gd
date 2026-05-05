@@ -41,7 +41,9 @@ const SMALL_MASS_MAX_KG: float = 1.0e7
 const MEDIUM_MASS_MIN_KG: float = 1.0e7
 const MEDIUM_MASS_MAX_KG: float = 1.0e10
 const LARGE_MASS_MIN_KG: float = 1.0e10
-const LARGE_MASS_MAX_KG: float = 5.0e11
+const LARGE_MASS_MAX_KG: float = 1.0e11
+const EXTRA_LARGE_MASS_MIN_KG: float = 1.0e11
+const EXTRA_LARGE_MASS_MAX_KG: float = 5.0e11
 
 # HP-from-mass coefficient. HP = HP_PER_KG_PER_DENSITY * mass * density,
 # so a 10 Mg stony (~3.4 g/cm^3) body has ~1000 HP and a 1 Tg stony

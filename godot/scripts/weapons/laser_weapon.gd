@@ -31,7 +31,7 @@ const TARGETING_MAX_DANGER: int = 1
 # powered orbital platform could plausibly support. This is the
 # energy-per-sim-second deposited at zero range; per-target damage
 # falls out of (radiated × coupling / Weapon.J_PER_HP).
-const RADIATED_POWER_W: float = 1.0e8
+const RADIATED_POWER_W: float = 1.0e11
 # Pool→radiated conversion. Real fiber lasers run ~30-40% wall-plug
 # efficient; the rest is heat dumped through the cooling stack. 30%
 # is the conservative end and means the laser draws ~333 MW from the

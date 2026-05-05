@@ -37,7 +37,7 @@ const ReconSettings = preload("res://scripts/recon_settings.gd")
 # unit out to GEO without busting the cap. Loading every slot with a
 # railgun and pushing them all to high-inclination GEO will still run
 # the budget out — that's the intended tension.
-const LAUNCH_PROPELLANT_BUDGET_KG: float = 50000.0
+const LAUNCH_PROPELLANT_BUDGET_KG: float = 5000000.0
 
 # Stage catalogue. `id` is the stable key the menu writes to
 # selected_stage_id; only entries with playable=true permit Launch.

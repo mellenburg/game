@@ -174,6 +174,10 @@ func update_hud(
 	_update_info_label(planning_mode, time_factor, dt, sim_time)
 	_update_rosters(orbital_set, planning_mode)
 	_update_kill_stats(orbital_set)
+	if has_node("TessellationGrid"):
+		var grid = get_node("TessellationGrid")
+		if grid.has_method("update_enemies"):
+			grid.update_enemies(orbital_set.satellites, sim_time)
 
 
 func _update_info_label(

@@ -89,21 +89,26 @@ const MEDIUM_MASS_MIN_KG: float = MeteorPhysics.MEDIUM_MASS_MIN_KG
 const MEDIUM_MASS_MAX_KG: float = MeteorPhysics.MEDIUM_MASS_MAX_KG
 const LARGE_MASS_MIN_KG: float = MeteorPhysics.LARGE_MASS_MIN_KG
 const LARGE_MASS_MAX_KG: float = MeteorPhysics.LARGE_MASS_MAX_KG
+const EXTRA_LARGE_MASS_MIN_KG: float = MeteorPhysics.EXTRA_LARGE_MASS_MIN_KG
+const EXTRA_LARGE_MASS_MAX_KG: float = MeteorPhysics.EXTRA_LARGE_MASS_MAX_KG
 
 const SIZE_SMALL: int = 0
 const SIZE_MEDIUM: int = 1
 const SIZE_LARGE: int = 2
+const SIZE_EXTRA_LARGE: int = 3
 
 # Per-class count bands within a single 20-body wave. The constraint
 # that the three counts sum to METEORITE_WAVE_COUNT means the medium
 # count is bracketed by the residual after picking large; see
 # _sample_size_class_counts for the derivation.
 const WAVE_SMALL_COUNT_MIN: int = 8
-const WAVE_SMALL_COUNT_MAX: int = 16
+const WAVE_SMALL_COUNT_MAX: int = 12
 const WAVE_MEDIUM_COUNT_MIN: int = 2
 const WAVE_MEDIUM_COUNT_MAX: int = 5
-const WAVE_LARGE_COUNT_MIN: int = 0
+const WAVE_LARGE_COUNT_MIN: int = 1
 const WAVE_LARGE_COUNT_MAX: int = 3
+const WAVE_EXTRA_LARGE_COUNT_MIN: int = 1
+const WAVE_EXTRA_LARGE_COUNT_MAX: int = 2
 
 # Of the medium / large bodies in a wave, this many become decaying-
 # orbit threats (highly eccentric, perigee-burn spiral) rather than
@@ -624,6 +629,7 @@ func _sample_wave_specs(
 	var n_small: int = counts["small"]
 	var n_medium: int = counts["medium"]
 	var n_large: int = counts["large"]
+	var n_extra_large: int = counts.get("extra_large", 0)
 	var sizes: Array[int] = []
 	for _i in range(n_small):
 		sizes.append(SIZE_SMALL)
@@ -631,6 +637,8 @@ func _sample_wave_specs(
 		sizes.append(SIZE_MEDIUM)
 	for _i in range(n_large):
 		sizes.append(SIZE_LARGE)
+	for _i in range(n_extra_large):
+		sizes.append(SIZE_EXTRA_LARGE)
 	_shuffle_int_array(sizes)
 
 	# Flag a random subset of the medium / large indices as decaying.
@@ -669,14 +677,15 @@ func _sample_wave_specs(
 # medium range; the maxi/mini are belt-and-braces in case the bands
 # are retuned later.
 func _sample_size_class_counts(total: int) -> Dictionary:
+	var xl := _rng.randi_range(WAVE_EXTRA_LARGE_COUNT_MIN, WAVE_EXTRA_LARGE_COUNT_MAX)
 	var large := _rng.randi_range(WAVE_LARGE_COUNT_MIN, WAVE_LARGE_COUNT_MAX)
-	var med_min := maxi(WAVE_MEDIUM_COUNT_MIN, total - WAVE_SMALL_COUNT_MAX - large)
-	var med_max := mini(WAVE_MEDIUM_COUNT_MAX, total - WAVE_SMALL_COUNT_MIN - large)
+	var med_min := maxi(WAVE_MEDIUM_COUNT_MIN, total - WAVE_SMALL_COUNT_MAX - large - xl)
+	var med_max := mini(WAVE_MEDIUM_COUNT_MAX, total - WAVE_SMALL_COUNT_MIN - large - xl)
 	if med_max < med_min:
 		med_max = med_min
 	var medium := _rng.randi_range(med_min, med_max)
-	var small := total - medium - large
-	return {"small": small, "medium": medium, "large": large}
+	var small := total - medium - large - xl
+	return {"small": small, "medium": medium, "large": large, "extra_large": xl}
 
 
 func _sample_mass_for_class(size_class: int) -> float:
@@ -695,9 +704,13 @@ func _sample_mass_for_class(size_class: int) -> float:
 			return MeteorPhysics.sample_log_uniform(
 				_rng, MEDIUM_MASS_MIN_KG, MEDIUM_MASS_MAX_KG
 			)
-		_:
+		SIZE_LARGE:
 			return MeteorPhysics.sample_log_uniform(
 				_rng, LARGE_MASS_MIN_KG, LARGE_MASS_MAX_KG
+			)
+		_:
+			return MeteorPhysics.sample_log_uniform(
+				_rng, EXTRA_LARGE_MASS_MIN_KG, EXTRA_LARGE_MASS_MAX_KG
 			)
 
 
