@@ -69,31 +69,47 @@ func test_sample_decaying_ratio_in_range() -> void:
 
 
 func test_object_size_counts_sum_to_total() -> void:
-	# Largest-remainder rounding must yield three integers summing to
+	# Largest-remainder rounding must yield four integers summing to
 	# the requested count exactly; a naive `round(count * w)` would
 	# leave a 0/+1/-1 gap on some splits.
 	var c := WaveUnitClass.new()
-	c.size_small = 0.45
-	c.size_medium = 0.3
-	c.size_large = 0.25
+	c.size_small = 0.40
+	c.size_medium = 0.30
+	c.size_large = 0.20
+	c.size_extra_large = 0.10
 	for n in [1, 5, 7, 13, 20, 100, 999]:
 		var counts := c.sample_object_size_counts(n)
-		var total := int(counts["small"]) + int(counts["medium"]) + int(counts["large"])
+		var total := (
+			int(counts["small"])
+			+ int(counts["medium"])
+			+ int(counts["large"])
+			+ int(counts["extra_large"])
+		)
 		assert_eq(total, n,
 			"size-band total %d != input %d for split %s" % [
-				total, n, [counts["small"], counts["medium"], counts["large"]]
+				total, n, [
+					counts["small"], counts["medium"],
+					counts["large"], counts["extra_large"],
+				]
 			])
 
 
 func test_object_size_counts_handles_zero_weights_gracefully() -> void:
 	# All-zero weights should still produce a well-formed split via
-	# the normalize-on-degenerate fallback (1/3 each), not a crash.
+	# the normalize-on-degenerate fallback (1/4 each across the four
+	# size classes), not a crash.
 	var c := WaveUnitClass.new()
 	c.size_small = 0.0
 	c.size_medium = 0.0
 	c.size_large = 0.0
+	c.size_extra_large = 0.0
 	var counts := c.sample_object_size_counts(9)
-	var total := int(counts["small"]) + int(counts["medium"]) + int(counts["large"])
+	var total := (
+		int(counts["small"])
+		+ int(counts["medium"])
+		+ int(counts["large"])
+		+ int(counts["extra_large"])
+	)
 	assert_eq(total, 9)
 
 
@@ -101,12 +117,14 @@ func test_normalized_weights_sum_to_one() -> void:
 	var c := WaveUnitClass.new()
 	c.size_small = 2.0
 	c.size_medium = 3.0
-	c.size_large = 5.0
+	c.size_large = 4.0
+	c.size_extra_large = 1.0
 	var n := c.normalized_weights()
-	assert_close(n[0] + n[1] + n[2], 1.0, 1.0e-6)
+	assert_close(n[0] + n[1] + n[2] + n[3], 1.0, 1.0e-6)
 	assert_close(n[0], 0.2, 1.0e-6)
 	assert_close(n[1], 0.3, 1.0e-6)
-	assert_close(n[2], 0.5, 1.0e-6)
+	assert_close(n[2], 0.4, 1.0e-6)
+	assert_close(n[3], 0.1, 1.0e-6)
 
 
 func test_normalize_in_place_mutates_fields() -> void:
@@ -114,10 +132,12 @@ func test_normalize_in_place_mutates_fields() -> void:
 	c.size_small = 4.0
 	c.size_medium = 4.0
 	c.size_large = 4.0
+	c.size_extra_large = 4.0
 	c.normalize_weights_in_place()
-	assert_close(c.size_small, 1.0 / 3.0, 1.0e-6)
-	assert_close(c.size_medium, 1.0 / 3.0, 1.0e-6)
-	assert_close(c.size_large, 1.0 / 3.0, 1.0e-6)
+	assert_close(c.size_small, 0.25, 1.0e-6)
+	assert_close(c.size_medium, 0.25, 1.0e-6)
+	assert_close(c.size_large, 0.25, 1.0e-6)
+	assert_close(c.size_extra_large, 0.25, 1.0e-6)
 
 
 func test_clamp_count_range_swaps_inverted_handles() -> void:

@@ -27,7 +27,9 @@ func _classify(mass: float) -> int:
 		return SpawnDirector.SIZE_SMALL
 	if mass <= SpawnDirector.MEDIUM_MASS_MAX_KG:
 		return SpawnDirector.SIZE_MEDIUM
-	return SpawnDirector.SIZE_LARGE
+	if mass <= SpawnDirector.LARGE_MASS_MAX_KG:
+		return SpawnDirector.SIZE_LARGE
+	return SpawnDirector.SIZE_EXTRA_LARGE
 
 
 # Drive a spread of seeds so the bands — not a single roll — are what
@@ -46,7 +48,9 @@ func test_wave_total_count_is_20() -> void:
 
 
 func test_size_class_counts_within_bands_across_seeds() -> void:
-	# Per-trial: small ∈ [8,16], medium ∈ [2,5], large ∈ [0,3], sum=20.
+	# Per-trial bands mirror the SpawnDirector constants — every roll
+	# must land inside the declared 4-class bracket and the four
+	# counts must sum to METEORITE_WAVE_COUNT.
 	for s in range(TRIAL_COUNT):
 		var bundle := _make_director(s + 1)
 		var sd: SpawnDirector = bundle[0]
@@ -55,6 +59,7 @@ func test_size_class_counts_within_bands_across_seeds() -> void:
 		var n_small := 0
 		var n_medium := 0
 		var n_large := 0
+		var n_extra_large := 0
 		for entry: Dictionary in wave.pending:
 			var m: float = entry["mass"]
 			var cls := _classify(m)
@@ -62,22 +67,52 @@ func test_size_class_counts_within_bands_across_seeds() -> void:
 				n_small += 1
 			elif cls == SpawnDirector.SIZE_MEDIUM:
 				n_medium += 1
-			else:
+			elif cls == SpawnDirector.SIZE_LARGE:
 				n_large += 1
-		assert_eq(n_small + n_medium + n_large, 20,
+			else:
+				n_extra_large += 1
+		assert_eq(n_small + n_medium + n_large + n_extra_large, 20,
 			"seed %d totals don't sum to 20" % s)
-		assert_true(n_small >= 8 and n_small <= 16,
-			"seed %d small=%d outside [8,16]" % [s, n_small])
-		assert_true(n_medium >= 2 and n_medium <= 5,
-			"seed %d medium=%d outside [2,5]" % [s, n_medium])
-		assert_true(n_large >= 0 and n_large <= 3,
-			"seed %d large=%d outside [0,3]" % [s, n_large])
+		assert_true(
+			n_small >= SpawnDirector.WAVE_SMALL_COUNT_MIN
+			and n_small <= SpawnDirector.WAVE_SMALL_COUNT_MAX,
+			"seed %d small=%d outside [%d,%d]" % [
+				s, n_small,
+				SpawnDirector.WAVE_SMALL_COUNT_MIN,
+				SpawnDirector.WAVE_SMALL_COUNT_MAX,
+			])
+		assert_true(
+			n_medium >= SpawnDirector.WAVE_MEDIUM_COUNT_MIN
+			and n_medium <= SpawnDirector.WAVE_MEDIUM_COUNT_MAX,
+			"seed %d medium=%d outside [%d,%d]" % [
+				s, n_medium,
+				SpawnDirector.WAVE_MEDIUM_COUNT_MIN,
+				SpawnDirector.WAVE_MEDIUM_COUNT_MAX,
+			])
+		assert_true(
+			n_large >= SpawnDirector.WAVE_LARGE_COUNT_MIN
+			and n_large <= SpawnDirector.WAVE_LARGE_COUNT_MAX,
+			"seed %d large=%d outside [%d,%d]" % [
+				s, n_large,
+				SpawnDirector.WAVE_LARGE_COUNT_MIN,
+				SpawnDirector.WAVE_LARGE_COUNT_MAX,
+			])
+		assert_true(
+			n_extra_large >= SpawnDirector.WAVE_EXTRA_LARGE_COUNT_MIN
+			and n_extra_large <= SpawnDirector.WAVE_EXTRA_LARGE_COUNT_MAX,
+			"seed %d extra_large=%d outside [%d,%d]" % [
+				s, n_extra_large,
+				SpawnDirector.WAVE_EXTRA_LARGE_COUNT_MIN,
+				SpawnDirector.WAVE_EXTRA_LARGE_COUNT_MAX,
+			])
 		bundle[1].queue_free()
 
 
 func test_mass_within_class_band() -> void:
 	# Every body's sampled mass lands inside the declared band for its
-	# size class — no overlap, no out-of-range values.
+	# size class — no overlap, no out-of-range values. Ceiling is the
+	# extra-large band's max (the heaviest class); floor is the small
+	# band's min.
 	var bundle := _make_director(7)
 	var sd: SpawnDirector = bundle[0]
 	sd.start_meteorite_wave()
@@ -86,7 +121,7 @@ func test_mass_within_class_band() -> void:
 		var m: float = entry["mass"]
 		assert_true(m >= SpawnDirector.SMALL_MASS_MIN_KG,
 			"mass %f below smallest band floor" % m)
-		assert_true(m <= SpawnDirector.LARGE_MASS_MAX_KG,
+		assert_true(m <= SpawnDirector.EXTRA_LARGE_MASS_MAX_KG,
 			"mass %f above largest band ceiling" % m)
 	bundle[1].queue_free()
 
@@ -146,3 +181,89 @@ func test_wave_metadata_is_set() -> void:
 	assert_true(wave.duration_sec > 0.0)
 	assert_true(wave.lateral_spread_km > 0.0)
 	bundle[1].queue_free()
+
+
+# Extra-large is a guaranteed presence in every wave (count_min == 1),
+# so a single seed is enough — no need to sweep TRIAL_COUNT here.
+func test_every_wave_contains_at_least_one_extra_large() -> void:
+	for s in range(TRIAL_COUNT):
+		var bundle := _make_director(s + 200)
+		var sd: SpawnDirector = bundle[0]
+		sd.start_meteorite_wave()
+		var wave: MeteoriteWave = sd.meteorite_waves[0]
+		var n_xl := 0
+		for entry: Dictionary in wave.pending:
+			var m: float = entry["mass"]
+			if _classify(m) == SpawnDirector.SIZE_EXTRA_LARGE:
+				n_xl += 1
+		assert_true(n_xl >= 1,
+			"seed %d produced wave without an extra-large body" % s)
+		bundle[1].queue_free()
+
+
+# The XL band is disjoint from large; pin the floor and ceiling so a
+# constant tweak that overlaps the bands gets caught immediately.
+func test_extra_large_mass_band_is_disjoint_from_large() -> void:
+	const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
+	# LARGE ceiling and XL floor share the same value (they butt up
+	# against each other on the log axis); the ranges themselves don't
+	# overlap because each sampler is exclusive on the relevant side.
+	assert_close(
+		MeteorPhysics.LARGE_MASS_MAX_KG,
+		MeteorPhysics.EXTRA_LARGE_MASS_MIN_KG,
+		1.0e-3,
+		"large band ceiling and xl floor must meet exactly",
+	)
+	assert_true(
+		MeteorPhysics.EXTRA_LARGE_MASS_MAX_KG
+		> MeteorPhysics.EXTRA_LARGE_MASS_MIN_KG,
+		"xl ceiling must exceed xl floor",
+	)
+
+
+# A heavy body that falls inside the XL band must come out of the
+# `_sample_mass_for_class(SIZE_EXTRA_LARGE)` path. Sampling many times
+# with a seeded RNG covers the log-uniform spread without flaking.
+func test_sample_mass_for_extra_large_class_lands_in_band() -> void:
+	var bundle := _make_director(42)
+	var sd: SpawnDirector = bundle[0]
+	for _i in range(64):
+		var m: float = sd._sample_mass_for_class(SpawnDirector.SIZE_EXTRA_LARGE)
+		assert_true(
+			m >= SpawnDirector.EXTRA_LARGE_MASS_MIN_KG
+			and m <= SpawnDirector.EXTRA_LARGE_MASS_MAX_KG,
+			"xl mass %f outside [%f, %f]" % [
+				m,
+				SpawnDirector.EXTRA_LARGE_MASS_MIN_KG,
+				SpawnDirector.EXTRA_LARGE_MASS_MAX_KG,
+			],
+		)
+	bundle[1].queue_free()
+
+
+# Decaying-orbit slots must be drawn only from medium/large/xl bodies —
+# small impactors are always plain meteorites. Coverage piggybacks on
+# the same `_classify` upgrade that distinguishes XL: a regression that
+# routed XL into the small bin would break the existing decaying test
+# but a regression that flagged a small body as decaying needs its own
+# explicit guard.
+func test_decaying_never_lands_on_small_or_outside_heavy_set() -> void:
+	for s in range(TRIAL_COUNT):
+		var bundle := _make_director(s + 300)
+		var sd: SpawnDirector = bundle[0]
+		sd.start_meteorite_wave()
+		var wave: MeteoriteWave = sd.meteorite_waves[0]
+		for entry: Dictionary in wave.pending:
+			if not entry.get("is_decaying", false):
+				continue
+			var m: float = entry["mass"]
+			var cls := _classify(m)
+			assert_true(
+				cls == SpawnDirector.SIZE_MEDIUM
+				or cls == SpawnDirector.SIZE_LARGE
+				or cls == SpawnDirector.SIZE_EXTRA_LARGE,
+				"seed %d decaying spec on non-heavy mass %f (cls=%d)" % [
+					s, m, cls
+				],
+			)
+		bundle[1].queue_free()

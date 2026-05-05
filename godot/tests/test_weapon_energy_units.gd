@@ -3,11 +3,11 @@ extends "res://tests/framework.gd"
 ## Pins the physical constants the design discussion settled on so a
 ## drift in any of them shows up loud in CI:
 ##   * MJ_PER_HP = 5 (single global damage scale)
-##   * Slug: 20 kg @ 10 km/s ⇒ 1 GJ KE, 200 kg·km/s momentum, 1000-round
-##     magazine ⇒ 20 t of ammo at full load
-##   * Laser: 100 MW radiated, 30% wall-plug, 40% target coupling
-##   * Default sat: 100 GJ pool, 10 MW reactor (stockpile-and-burn —
-##     the bus carries ~7 railgun shots' worth of energy and the
+##   * Slug: 100 kg @ 100 km/s ⇒ 0.5 TJ KE, 10 000 kg·km/s momentum,
+##     1000-round magazine ⇒ 100 t of ammo at full load
+##   * Laser: 100 GW radiated, 30% wall-plug, 40% target coupling
+##   * Default sat: 100 TJ pool, 10 GW reactor (stockpile-and-burn —
+##     the bus carries ~60 railgun shots' worth of energy and the
 ##     reactor takes ~10 000 sim-sec to refill it from empty)
 
 const Weapon = preload("res://scripts/weapons/weapon.gd")
@@ -31,8 +31,12 @@ class FakeSat extends RefCounted:
 	var alive: bool = true
 	var orbit_alive: bool = true
 	var hp: float = 100.0
-	var energy: float = 4.0e10
-	var mass: float = 1000.0
+	var energy: float = 4.0e13
+	# Mass sized so a single railgun shot's recoil (~0.4 km/s) keeps
+	# the attacker on a safe orbit at the 5 000 km altitude these
+	# tests use. Smaller hulls trip the railgun's safety check at
+	# the current SLUG_MOMENTUM and refuse to fire.
+	var mass: float = 25000.0
 	var max_orbital_radius_km: float = 50000.0
 	var railgun_enabled: bool = true
 	var is_surface: bool = false
@@ -79,34 +83,34 @@ func test_global_mj_per_hp_is_five() -> void:
 
 
 func test_slug_kinetic_energy_matches_design() -> void:
-	# 20 kg slug at 20 km/s ⇒ ½·m·v² = 0.5 × 20 × 20000² = 4 × 10^9 J.
+	# 100 kg slug at 100 km/s ⇒ ½·m·v² = 0.5 × 100 × 100000² = 5 × 10^11 J.
 	# Pinning so a future muzzle-velocity tweak shows up as a test
 	# regression rather than silent rebalancing of every weapon's
 	# damage curve.
-	assert_close(RailgunWeapon.SLUG_MASS_KG, 20.0)
-	assert_close(RailgunWeapon.MUZZLE_VELOCITY_M_S, 20000.0)
-	assert_close(RailgunWeapon.SLUG_MUZZLE_KE_J, 4.0e9, 1.0)
+	assert_close(RailgunWeapon.SLUG_MASS_KG, 100.0)
+	assert_close(RailgunWeapon.MUZZLE_VELOCITY_M_S, 100000.0)
+	assert_close(RailgunWeapon.SLUG_MUZZLE_KE_J, 5.0e11, 1.0)
 	# Momentum is the SI product divided by 1000 to match the orbit
-	# layer's km/s convention. 400 kg·km/s ⇒ ~19 m/s of recoil per
-	# shot on a fully-loaded 21 t hull, ~50 m/s on a 1 t target.
-	assert_close(RailgunWeapon.SLUG_MOMENTUM_KG_KM_S, 400.0)
+	# layer's km/s convention. 10 000 kg·km/s ⇒ heavy-hitter recoil on
+	# the attacker hull and substantial Δv on a fragile target body.
+	assert_close(RailgunWeapon.SLUG_MOMENTUM_KG_KM_S, 10000.0)
 
 
 func test_railgun_default_damage_matches_physics() -> void:
-	# damage = KE × coupling / J_PER_HP = 4e9 × 0.5 / 5e6 = 400 HP.
-	# A default-tier shot one-shots any sub-400-HP target — heavy-
-	# hitter design intent, the slug-render path defers the visual
-	# arrival so the body doesn't pop off-screen at trigger pull.
-	assert_close(RailgunWeapon.base_damage_per_shot(), 400.0)
+	# damage = KE × coupling / J_PER_HP = 5e11 × 0.5 / 5e6 = 50000 HP.
+	# A default-tier shot oneshots anything short of a kiloton-mass
+	# rock — heavy-hitter design intent, the slug-render path defers
+	# the visual arrival so the body doesn't pop off-screen at trigger
+	# pull.
+	assert_close(RailgunWeapon.base_damage_per_shot(), 50000.0, 1.0)
 
 
-func test_railgun_default_pool_draw_is_thirteen_gj() -> void:
-	# Wall-plug: KE / 0.3 = ~13.3 GJ. One shot is ~13% of the default
-	# 100 GJ pool — a fresh unit can rip off ~7 shots before going dry,
-	# then has to wait on the (slow) reactor to trickle the stockpile
-	# back up. Tolerance is 1 J against tens of billions, comfortably
-	# tight.
-	assert_close(RailgunWeapon.ENERGY_PER_SHOT_J, 4.0e9 / 0.3, 1.0)
+func test_railgun_default_pool_draw() -> void:
+	# Wall-plug: KE / 0.3 = ~1.67 TJ. One shot is ~1.7% of the default
+	# 100 TJ pool — a fresh unit can rip off ~60 shots before going
+	# dry, then has to wait on the (slow) reactor to trickle the
+	# stockpile back up.
+	assert_close(RailgunWeapon.ENERGY_PER_SHOT_J, 5.0e11 / 0.3, 1.0)
 
 
 func test_railgun_default_magazine_is_one_thousand() -> void:
@@ -116,28 +120,28 @@ func test_railgun_default_magazine_is_one_thousand() -> void:
 
 
 func test_laser_default_dps_at_zero_range_matches_physics() -> void:
-	# 100 MW × 0.4 / 5e6 = 8 HP/sec. The "lasers are the slow attrition
-	# weapon" balance the design discussion picked.
+	# 100 GW × 0.4 / 5e6 = 8 000 HP/sec. The "lasers are the heavy
+	# continuous burn" balance the design discussion picked.
 	assert_close(
-		LaserWeapon.base_damage_per_second_at_zero_range(), 8.0, 1.0e-6,
+		LaserWeapon.base_damage_per_second_at_zero_range(), 8000.0, 1.0e-3,
 	)
 
 
-func test_laser_default_pool_drain_is_three_hundred_thirty_three_mw() -> void:
-	# 100 MW radiated / 0.3 wall-plug = ~333 MW drawn from the bus.
-	# Far above the 10 MW default reactor, by design — sustained laser
+func test_laser_default_pool_drain() -> void:
+	# 100 GW radiated / 0.3 wall-plug = ~333 GW drawn from the bus.
+	# Far above the 10 GW default reactor, by design — sustained laser
 	# fire is meant to burn the stockpile, not run live off regen.
-	assert_close(LaserWeapon.POOL_DRAIN_W, 1.0e8 / 0.3, 1.0)
+	assert_close(LaserWeapon.POOL_DRAIN_W, 1.0e11 / 0.3, 1.0)
 
 
 func test_satellite_default_pool_and_reactor_match_design() -> void:
-	# Pool is a 100 GJ stockpile — ~7 railgun shots' worth of energy
-	# parked on the bus for the operator to spend in salvos. The 10 MW
+	# Pool is a 100 TJ stockpile — ~60 railgun shots' worth of energy
+	# parked on the bus for the operator to spend in salvos. The 10 GW
 	# reactor is deliberately undersized vs. the pool: a full refill
 	# from empty takes ~10 000 sim-sec, so energy behaves as a
 	# stockpile-and-burn resource rather than a live-regen one.
-	assert_close(Satellite.DEFAULT_ENERGY_MAX_J, 1.0e11, 1.0)
-	assert_close(Satellite.DEFAULT_REACTOR_POWER_W, 1.0e7, 1.0)
+	assert_close(Satellite.DEFAULT_ENERGY_MAX_J, 1.0e14, 1.0)
+	assert_close(Satellite.DEFAULT_REACTOR_POWER_W, 1.0e10, 1.0)
 
 
 func test_railgun_refuses_fire_when_magazine_empty() -> void:

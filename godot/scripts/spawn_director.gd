@@ -98,11 +98,15 @@ const SIZE_LARGE: int = 2
 const SIZE_EXTRA_LARGE: int = 3
 
 # Per-class count bands within a single 20-body wave. The constraint
-# that the three counts sum to METEORITE_WAVE_COUNT means the medium
-# count is bracketed by the residual after picking large; see
-# _sample_size_class_counts for the derivation.
+# that the four counts sum to METEORITE_WAVE_COUNT means the medium
+# count is bracketed by the residual after picking large + extra-large;
+# see _sample_size_class_counts for the derivation. The bands have to
+# satisfy SMALL_MAX + MEDIUM_MAX + LARGE_MIN + EXTRA_LARGE_MIN >= TOTAL,
+# otherwise a worst-case roll (large=min, xl=min) forces medium past
+# its declared cap to make the sum reach 20. SMALL_MAX = 13 is the
+# tightest value that still satisfies this with the current bands.
 const WAVE_SMALL_COUNT_MIN: int = 8
-const WAVE_SMALL_COUNT_MAX: int = 12
+const WAVE_SMALL_COUNT_MAX: int = 13
 const WAVE_MEDIUM_COUNT_MIN: int = 2
 const WAVE_MEDIUM_COUNT_MAX: int = 5
 const WAVE_LARGE_COUNT_MIN: int = 1
@@ -666,16 +670,16 @@ func _sample_wave_specs(
 	return specs
 
 
-# Pick a (small, medium, large) triple summing to `total`, with each
-# count constrained to its WAVE_*_COUNT_MIN/MAX band. Derivation:
-#   small = total - medium - large
+# Pick a (small, medium, large, extra_large) tuple summing to `total`,
+# with each count constrained to its WAVE_*_COUNT_MIN/MAX band.
+# Derivation:
+#   small = total - medium - large - xl
 #   small ∈ [SMIN, SMAX]
-#     ⇒ medium + large ∈ [total - SMAX, total - SMIN]
-# Pick large first inside its own band, then medium inside the
-# residual band intersected with its own. With the design constants
-# (8..16 / 2..5 / 0..3 / total=20) this always has a non-empty
-# medium range; the maxi/mini are belt-and-braces in case the bands
-# are retuned later.
+#     ⇒ medium ∈ [total - SMAX - large - xl, total - SMIN - large - xl]
+# Pick xl + large first inside their own bands, then medium inside the
+# residual band intersected with its own. The bands are tuned so the
+# residual medium range is non-empty for every (xl, large) combination
+# — see the WAVE_SMALL_COUNT_MAX comment for the band-sum invariant.
 func _sample_size_class_counts(total: int) -> Dictionary:
 	var xl := _rng.randi_range(WAVE_EXTRA_LARGE_COUNT_MIN, WAVE_EXTRA_LARGE_COUNT_MAX)
 	var large := _rng.randi_range(WAVE_LARGE_COUNT_MIN, WAVE_LARGE_COUNT_MAX)

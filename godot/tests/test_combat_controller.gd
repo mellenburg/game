@@ -23,8 +23,8 @@ const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 # read it. The tests run on the Earth defaults; pin the literal here.
 const EARTH_RADIUS_KM: float = 6371.0
 # Energy budget large enough to cover several railgun shots (one shot
-# is ~1.3e10 J at the current wall-plug efficiency).
-const STARTING_ENERGY_J: float = 1.0e11
+# is ~1.7 TJ at the current wall-plug efficiency).
+const STARTING_ENERGY_J: float = 1.0e14
 
 
 # Build a bare controller wired to bare renderers + hud. Each
