@@ -106,10 +106,11 @@ func _build_ui() -> void:
 	_root_panel.anchor_bottom = 0.5
 	_root_panel.offset_left = -300
 	_root_panel.offset_right = 300
-	# Tallened to fit the SURFACE section's atmospheric-burnup pair and
-	# the three damaged-area rows added alongside the impact totals.
-	_root_panel.offset_top = -320
-	_root_panel.offset_bottom = 320
+	# Tallened to fit the SURFACE section's atmospheric-burnup pair
+	# (bodies fully ablated + HP lost to atmospheric entry) added
+	# alongside the impact totals.
+	_root_panel.offset_top = -285
+	_root_panel.offset_bottom = 285
 	add_child(_root_panel)
 
 	var pad := MarginContainer.new()
@@ -187,24 +188,6 @@ func _render_summary(summary: Dictionary) -> void:
 	_content_root.add_child(_kv_row(
 		"HP lost to atmospheric entry", "%.0f" % atmo_hp,
 	))
-
-	# Per-tier damaged surface area. Tiers are exclusive: a km² inside
-	# the heavy radius is reported once (heavy only), so the three
-	# numbers add up to the total scarred area across the run.
-	var areas: Dictionary = summary.get("damaged_area_km2", {})
-	if not areas.is_empty():
-		_content_root.add_child(_kv_row(
-			"Lightly damaged area",
-			_format_area_km2(float(areas.get("light", 0.0))),
-		))
-		_content_root.add_child(_kv_row(
-			"Moderately damaged area",
-			_format_area_km2(float(areas.get("moderate", 0.0))),
-		))
-		_content_root.add_child(_kv_row(
-			"Heavily damaged area",
-			_format_area_km2(float(areas.get("heavy", 0.0))),
-		))
 
 	_content_root.add_child(_hr())
 
@@ -323,19 +306,6 @@ func _flat_stylebox(color: Color) -> StyleBoxFlat:
 	sb.corner_radius_bottom_left = 2
 	sb.corner_radius_bottom_right = 2
 	return sb
-
-
-# Compact-ish area readout — meteorite damage areas span ~1 km² for
-# threshold-class impacts up to many millions of km² for Pg+ events,
-# so the formatter scales the unit suffix by magnitude. Earth's land
-# surface is ~1.5×10⁸ km² for context; a single Eg-class impact would
-# cover the planet several times over.
-static func _format_area_km2(area: float) -> String:
-	if area < 1.0e3:
-		return "%.0f km²" % area
-	if area < 1.0e6:
-		return "%.1f thousand km²" % (area / 1.0e3)
-	return "%.2f million km²" % (area / 1.0e6)
 
 
 func _hr() -> Control:

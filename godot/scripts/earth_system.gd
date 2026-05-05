@@ -88,17 +88,6 @@ var total_impact_hp: float = 0.0
 # damage Earth actually absorbed.
 var atmosphere_burnup_count: int = 0
 var atmosphere_burnup_hp: float = 0.0
-# Cumulative damaged surface area across every recorded impact, split
-# into the three (exclusive) damage tiers from MeteorPhysics. A square
-# kilometre inside the heavy radius counts as heavy only — it isn't
-# also tallied as moderate / light. Overlap between distinct impacts
-# IS double-counted (no set-union), since it would require a 2-D
-# polygon merge that's overkill for an end-of-run readout. Initialised
-# with the three keys present so the summary doesn't have to defend
-# against a missing one.
-var damaged_area_km2: Dictionary = {
-	"light": 0.0, "moderate": 0.0, "heavy": 0.0,
-}
 # Snapshots of player satellites that died during the run. Each entry
 # is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
 # the moment of death so the end-of-run summary can credit a unit
@@ -526,21 +515,6 @@ func _remove_dead_satellites() -> void:
 					# freed so the end-of-run summary can show "total HP
 					# of impactors", not just a count.
 					total_impact_hp += maxf(sat.hp, 0.0)
-					# Per-tier surface area damaged by this impact. The
-					# three values are exclusive (the heavy disc is not
-					# also counted as moderate / light), so summing across
-					# impacts gives the player a "what did the surface
-					# actually look like at the end" total per severity.
-					var areas: Dictionary = MeteorPhysics.damage_areas_km2(sat.mass)
-					damaged_area_km2["light"] = (
-						float(damaged_area_km2["light"]) + float(areas["light"])
-					)
-					damaged_area_km2["moderate"] = (
-						float(damaged_area_km2["moderate"]) + float(areas["moderate"])
-					)
-					damaged_area_km2["heavy"] = (
-						float(damaged_area_km2["heavy"]) + float(areas["heavy"])
-					)
 					_record_meteorite_impact(sat)
 		elif sat.team == Satellite.TEAM_PLAYER and sat.unit_name != "":
 			# Snapshot the dying player unit's tallies so the summary
@@ -606,7 +580,6 @@ func end_game_summary() -> Dictionary:
 		"total_impact_hp": total_impact_hp,
 		"atmosphere_burnup_count": atmosphere_burnup_count,
 		"atmosphere_burnup_hp": atmosphere_burnup_hp,
-		"damaged_area_km2": damaged_area_km2,
 	}
 
 
