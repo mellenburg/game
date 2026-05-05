@@ -103,10 +103,13 @@ func test_asteroid_mass_couples_to_hp() -> void:
 	assert_close(target.hp, target.max_hp * 0.5, 1.0e-3)
 	assert_close(target.mass, 5.0e5, 5.0e5 * 1.0e-3)
 	# Reduce HP to a sliver — mass should track all the way down to
-	# (very nearly) zero without going negative.
+	# (very nearly) zero without going negative. Bound is set as a
+	# fraction of the spawn mass so the test isn't fragile to the
+	# player-tunable HP coefficient (a smaller coefficient → fewer
+	# HP at spawn → larger residual mass per remaining HP point).
 	target.take_damage(target.hp - 1.0, attacker)
 	assert_close(target.hp, 1.0, 1.0e-6)
-	assert_true(target.mass > 0.0 and target.mass < 1.0e3)
+	assert_true(target.mass > 0.0 and target.mass < 1.0e6 * 0.01)
 	attacker.queue_free()
 	target.queue_free()
 
