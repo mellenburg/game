@@ -138,7 +138,7 @@ func _gui_input(event: InputEvent) -> void:
 		for sat in _enemies:
 			if not is_instance_valid(sat):
 				continue
-			var sid := sat.get_instance_id()
+			var sid: int = sat.get_instance_id()
 			if not _assigned_geometry.has(sid):
 				continue
 			var polys = _assigned_geometry[sid]
