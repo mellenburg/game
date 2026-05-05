@@ -42,6 +42,11 @@ const DEFAULT_R := Vector3(-6045.0, -3490.0, 2500.0)
 const DEFAULT_V := Vector3(-3.56, 6.618, 2.533)
 const DELTA_V_MAGNITUDE: float = 0.050
 const COLOR_SELECTED := Color(0.15, 0.7, 0.5)
+# Bright white, used when the operator clicks a tile in the bottom-left
+# tessellation grid. Distinct from COLOR_SELECTED (player-ship cycle) so
+# the two selection surfaces don't conflict — a player ship can be
+# Tab-selected while an asteroid is grid-highlighted at the same time.
+const COLOR_HIGHLIGHTED := Color.WHITE
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_ASTEROID := Color(1.0, 0.85, 0.4)
@@ -174,6 +179,11 @@ const DEFAULT_COOLING_POWER_W: float = LaserWeapon.HEAT_CAPACITY_J / 160.0
 
 var orbit: EarthOrbit
 var selected: bool = false
+# Operator-chosen highlight from the bottom-left tessellation grid.
+# Independent of `selected` (which is the player-ship Tab cycle); when
+# both flags are true `highlighted` wins for the orbit-line tint so the
+# white grid pick is unambiguous on screen.
+var highlighted: bool = false
 var raw_maneuver := Vector3.ZERO
 var did_maneuver: bool = false
 var orbit_alive: bool = true
@@ -436,6 +446,16 @@ func select() -> void:
 func unselect() -> void:
 	selected = false
 	_apply_color()
+	_apply_path_color()
+
+
+func highlight() -> void:
+	highlighted = true
+	_apply_path_color()
+
+
+func unhighlight() -> void:
+	highlighted = false
 	_apply_path_color()
 
 
@@ -974,7 +994,13 @@ func _apply_color() -> void:
 func _apply_path_color() -> void:
 	if path_visual == null:
 		return
-	var rgb: Color = COLOR_SELECTED if selected else _path_color_base
+	var rgb: Color
+	if highlighted:
+		rgb = COLOR_HIGHLIGHTED
+	elif selected:
+		rgb = COLOR_SELECTED
+	else:
+		rgb = _path_color_base
 	rgb.a = _path_alpha
 	path_visual.color = rgb
 

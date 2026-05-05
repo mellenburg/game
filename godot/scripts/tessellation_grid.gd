@@ -54,6 +54,14 @@ var _medium_groups: Array = []
 var _assigned_geometry: Dictionary = {}
 var _known_enemies: Dictionary = {}
 var _highlighted_sat_id: int = 0
+# Reference to the currently highlighted satellite (or null). Kept
+# alongside _highlighted_sat_id so the click handler can flip the
+# satellite's `highlighted` flag without a second lookup, and so the
+# HUD can render its status panel without re-resolving the id every
+# tick. Cleared automatically when the body dies / despawns.
+var highlighted_sat: Satellite = null
+
+const Satellite = preload("res://scripts/satellite.gd")
 
 func update_enemies(satellites: Array, sim_time: float) -> void:
 	var enemies = []
@@ -75,6 +83,12 @@ func update_enemies(satellites: Array, sim_time: float) -> void:
 	for sat_id in keys_to_remove:
 		_known_enemies.erase(sat_id)
 		_assigned_geometry.erase(sat_id)
+		# Drop the highlight when its target dies / despawns so the HUD
+		# stops claiming a destroyed body is still selected and the orbit
+		# tint releases back to the team / ETA gradient.
+		if sat_id == _highlighted_sat_id:
+			_highlighted_sat_id = 0
+			highlighted_sat = null
 			
 	enemies.sort_custom(func(a, b):
 		var get_mass_class = func(mass: float) -> int:
@@ -119,17 +133,31 @@ func _on_resized() -> void:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var mpos = event.position
-		var clicked_sat_id = 0
-		for sat_id in _assigned_geometry:
-			var polys = _assigned_geometry[sat_id]
+		var clicked_sat: Satellite = null
+		var clicked_sat_id: int = 0
+		for sat in _enemies:
+			if not is_instance_valid(sat):
+				continue
+			var sid := sat.get_instance_id()
+			if not _assigned_geometry.has(sid):
+				continue
+			var polys = _assigned_geometry[sid]
 			for p in polys:
 				if Geometry2D.is_point_in_polygon(mpos, p.pts):
-					clicked_sat_id = sat_id
+					clicked_sat = sat
+					clicked_sat_id = sid
 					break
-			if clicked_sat_id != 0: break
-			
+			if clicked_sat != null:
+				break
+
 		if clicked_sat_id != _highlighted_sat_id:
+			# Clear the previous highlight (if the body is still around).
+			if highlighted_sat != null and is_instance_valid(highlighted_sat):
+				highlighted_sat.unhighlight()
+			highlighted_sat = clicked_sat
 			_highlighted_sat_id = clicked_sat_id
+			if highlighted_sat != null:
+				highlighted_sat.highlight()
 			queue_redraw()
 
 func _rebuild_mesh() -> void:

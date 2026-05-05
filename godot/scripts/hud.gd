@@ -16,6 +16,8 @@ const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SimClock = preload("res://scripts/sim_clock.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
+const EarthOrbit = preload("res://scripts/earth_orbit.gd")
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
@@ -98,6 +100,11 @@ const HIT_DURATION: float = 0.25
 )
 @onready var target_container: Control = $TargetContainer as Control
 @onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
+# Top-right RichTextLabel — used to host the static controls cheatsheet,
+# now repurposed as a live status panel for the asteroid the operator
+# clicks in the bottom-left tessellation grid. Renders a "no selection"
+# placeholder when nothing is highlighted.
+@onready var asteroid_status: RichTextLabel = $HelpLabel as RichTextLabel
 
 var _camera: Camera3D
 var _system: Node = null
@@ -174,10 +181,108 @@ func update_hud(
 	_update_info_label(planning_mode, time_factor, dt, sim_time)
 	_update_rosters(orbital_set, planning_mode)
 	_update_kill_stats(orbital_set)
+	var grid_node: Node = null
 	if has_node("TessellationGrid"):
-		var grid = get_node("TessellationGrid")
-		if grid.has_method("update_enemies"):
-			grid.update_enemies(orbital_set.satellites, sim_time)
+		grid_node = get_node("TessellationGrid")
+		if grid_node.has_method("update_enemies"):
+			grid_node.update_enemies(orbital_set.satellites, sim_time)
+	_update_asteroid_status(grid_node, sim_time)
+
+
+# Render the currently grid-highlighted asteroid into the top-right
+# panel. The grid (TessellationGrid in the bottom-left) tracks the
+# operator's pick and keeps a Satellite ref alive in `highlighted_sat`;
+# we read that here and format mass / density / composition / HP / ETA.
+# Falls back to a "click an asteroid" prompt when nothing is selected.
+func _update_asteroid_status(grid_node: Node, sim_time: float) -> void:
+	if asteroid_status == null:
+		return
+	var sat: Satellite = null
+	if grid_node != null and "highlighted_sat" in grid_node:
+		sat = grid_node.highlighted_sat
+	if sat == null or not is_instance_valid(sat) or not sat.alive:
+		asteroid_status.text = (
+			"[font_size=12][color=gray]No asteroid selected\n"
+			+ "Click a tile in the lower-left grid to inspect.[/color]"
+			+ "[/font_size]"
+		)
+		return
+	asteroid_status.text = _format_asteroid_status(sat, sim_time)
+
+
+func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
+	var lines := PackedStringArray()
+	lines.append("[font_size=13][color=#f0e0a0]ASTEROID[/color][/font_size]")
+	lines.append("[font_size=11][color=#9aa9b8]")
+	if sat.is_decaying:
+		lines.append("Type: decaying-orbit threat")
+	elif sat.is_asteroid:
+		lines.append("Type: sub-orbital asteroid")
+	else:
+		lines.append("Type: enemy body")
+	lines.append("Mass: %s kg" % _format_scientific(sat.mass))
+	lines.append("Density: %.2f g/cm³" % sat.density_g_cm3)
+	if sat.composition >= 0:
+		lines.append(
+			"Composition: %s" % AsteroidPhysics.composition_name(sat.composition)
+		)
+	lines.append(
+		"HP: %s / %s" % [
+			_format_scientific(maxf(sat.hp, 0.0)),
+			_format_scientific(maxf(sat.max_hp, 0.0)),
+		]
+	)
+	if AsteroidPhysics.is_burn_up(sat.mass):
+		lines.append("[color=#7fcf7f]Will burn up on entry[/color]")
+	else:
+		var radii: Dictionary = AsteroidPhysics.damage_radii_km(sat.mass)
+		lines.append(
+			"Damage radii (km): heavy %.1f · mod %.1f · light %.1f" % [
+				float(radii["heavy"]),
+				float(radii["moderate"]),
+				float(radii["light"]),
+			]
+		)
+	var eta := sat.predict_impact_sim_time(sim_time) - sim_time
+	if is_finite(eta) and eta > 0.0:
+		lines.append("ETA to impact: %s" % _format_eta(eta))
+	else:
+		lines.append("ETA to impact: stable / no impact")
+	var alt_km: float = sat.orbit.r.length() - EarthOrbit.EARTH_RADIUS_KM
+	lines.append("Altitude: %s km" % _format_scientific(alt_km))
+	lines.append("[/color][/font_size]")
+	return "\n".join(lines)
+
+
+# Compact mantissa-and-exponent formatter for HUD readouts. Asteroid
+# masses span ~8 decades; a fixed-decimals %.0f either wraps lines or
+# loses precision on the small end.
+func _format_scientific(value: float) -> String:
+	if not is_finite(value):
+		return "—"
+	if absf(value) < 1.0e3:
+		return "%.1f" % value
+	var sign_str := "" if value >= 0.0 else "-"
+	var v := absf(value)
+	var exponent: int = int(floor(log(v) / log(10.0)))
+	var mantissa: float = v / pow(10.0, exponent)
+	return "%s%.2fe%d" % [sign_str, mantissa, exponent]
+
+
+func _format_eta(seconds: float) -> String:
+	# Seconds → h:mm:ss for short windows, days+hours for longer ones,
+	# so a 30-second imminent impact and a 12-hour stable approach are
+	# both readable at a glance.
+	var s: int = int(round(seconds))
+	if s < 3600:
+		return "%d:%02d" % [s / 60, s % 60]
+	if s < 86400:
+		var h: int = s / 3600
+		var m: int = (s % 3600) / 60
+		return "%dh %02dm" % [h, m]
+	var d: int = s / 86400
+	var hh: int = (s % 86400) / 3600
+	return "%dd %02dh" % [d, hh]
 
 
 func _update_info_label(
