@@ -104,7 +104,9 @@ const HIT_DURATION: float = 0.25
 # now repurposed as a live status panel for the asteroid the operator
 # clicks in the bottom-left tessellation grid. Renders a "no selection"
 # placeholder when nothing is highlighted.
-@onready var asteroid_status: RichTextLabel = $HelpLabel as RichTextLabel
+@onready var asteroid_status: RichTextLabel = (
+	$AsteroidPanel/HelpLabel as RichTextLabel
+)
 
 var _camera: Camera3D
 var _system: Node = null
@@ -202,54 +204,62 @@ func _update_asteroid_status(grid_node: Node, sim_time: float) -> void:
 		sat = grid_node.highlighted_sat
 	if sat == null or not is_instance_valid(sat) or not sat.alive:
 		asteroid_status.text = (
-			"[font_size=12][color=gray]No asteroid selected\n"
-			+ "Click a tile in the lower-left grid to inspect.[/color]"
-			+ "[/font_size]"
+			"[font_size=10][color=#5a6470]"
+			+ "Asteroid inspector\n"
+			+ "Click a tile in the lower-left grid."
+			+ "[/color][/font_size]"
 		)
 		return
 	asteroid_status.text = _format_asteroid_status(sat, sim_time)
 
 
+# BBCode card for the upper-right asteroid inspector panel. Kept small
+# and dim — the panel sits above the orbital sim-info readout, so the
+# typography here uses a quieter palette and a smaller body font so the
+# operator's eye still lands on the live orbital details first.
 func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 	var lines := PackedStringArray()
-	lines.append("[font_size=13][color=#f0e0a0]ASTEROID[/color][/font_size]")
-	lines.append("[font_size=11][color=#9aa9b8]")
+	lines.append(
+		"[font_size=11][color=#c8b478]◆ ASTEROID[/color][/font_size]"
+	)
+	lines.append("[font_size=10][color=#7c8896]")
+	var kind := "enemy body"
 	if sat.is_decaying:
-		lines.append("Type: decaying-orbit threat")
+		kind = "decaying-orbit threat"
 	elif sat.is_asteroid:
-		lines.append("Type: sub-orbital asteroid")
-	else:
-		lines.append("Type: enemy body")
-	lines.append("Mass: %s kg" % _format_scientific(sat.mass))
-	lines.append("Density: %.2f g/cm³" % sat.density_g_cm3)
+		kind = "sub-orbital asteroid"
+	lines.append("[color=#5a6470]type[/color]    %s" % kind)
+	lines.append("[color=#5a6470]mass[/color]    %s kg" % _format_scientific(sat.mass))
+	lines.append("[color=#5a6470]density[/color] %.2f g/cm³" % sat.density_g_cm3)
 	if sat.composition >= 0:
 		lines.append(
-			"Composition: %s" % AsteroidPhysics.composition_name(sat.composition)
+			"[color=#5a6470]comp[/color]    %s"
+			% AsteroidPhysics.composition_name(sat.composition)
 		)
 	lines.append(
-		"HP: %s / %s" % [
+		"[color=#5a6470]hp[/color]      %s / %s" % [
 			_format_scientific(maxf(sat.hp, 0.0)),
 			_format_scientific(maxf(sat.max_hp, 0.0)),
 		]
 	)
 	if AsteroidPhysics.is_burn_up(sat.mass):
-		lines.append("[color=#7fcf7f]Will burn up on entry[/color]")
+		lines.append("[color=#6fa07f]burn-up on entry[/color]")
 	else:
 		var radii: Dictionary = AsteroidPhysics.damage_radii_km(sat.mass)
 		lines.append(
-			"Damage radii (km): heavy %.1f · mod %.1f · light %.1f" % [
+			"[color=#5a6470]radii[/color]   H %.0f · M %.0f · L %.0f km" % [
 				float(radii["heavy"]),
 				float(radii["moderate"]),
 				float(radii["light"]),
 			]
 		)
 	var eta := sat.predict_impact_sim_time(sim_time) - sim_time
+	var eta_str := "stable"
 	if is_finite(eta) and eta > 0.0:
-		lines.append("ETA to impact: %s" % _format_eta(eta))
-	else:
-		lines.append("ETA to impact: stable / no impact")
+		eta_str = _format_eta(eta)
+	lines.append("[color=#5a6470]eta[/color]     %s" % eta_str)
 	var alt_km: float = sat.orbit.r.length() - EarthOrbit.EARTH_RADIUS_KM
-	lines.append("Altitude: %s km" % _format_scientific(alt_km))
+	lines.append("[color=#5a6470]alt[/color]     %s km" % _format_scientific(alt_km))
 	lines.append("[/color][/font_size]")
 	return "\n".join(lines)
 
