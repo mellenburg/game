@@ -452,7 +452,7 @@ func start_asteroid_wave(
 	_emit_asteroid_wave(_random_unit_vector(), count, duration_sec, warning)
 
 
-# Begin a asteroid wave whose entry direction is jittered around a
+# Begin an asteroid wave whose entry direction is jittered around a
 # caller-supplied base. The base is the per-mission-wave anchor; the
 # perturbation is sampled inside MISSION_NEXUS_CONE_HALF_ANGLE so every
 # wave-unit in a single mission wave lands inside one solid-angle
@@ -480,7 +480,7 @@ func sample_unit_vector() -> Vector3:
 	return _random_unit_vector()
 
 
-# Begin a asteroid wave driven by a WaveUnitClass: object count, the
+# Begin an asteroid wave driven by a WaveUnitClass: object count, the
 # decaying-orbit ratio, the per-object size mix, the time spread, and
 # the location-arc spread all come from the class's range / barycentric
 # fields. `count_override` lets Mission pre-sample and cap object
@@ -819,14 +819,14 @@ func has_active_waves() -> bool:
 
 
 # Sample a fresh nexus (entry direction, in-plane tangent, altitude,
-# base velocity) for a asteroid cluster. Shared between the
+# base velocity) for an asteroid cluster. Shared between the
 # instantaneous storm (m) and the time-distributed wave (i) so both
 # spawn paths use the same physics setup.
 func _build_asteroid_wave_at_random_nexus() -> AsteroidWave:
 	return _build_asteroid_wave_at_nexus(_random_unit_vector())
 
 
-# Build a asteroid wave whose entry direction is the supplied unit
+# Build an asteroid wave whose entry direction is the supplied unit
 # vector. Tangent / altitude / velocity remain randomised — the caller
 # only locks the radial axis of the cluster, not its in-plane shape.
 func _build_asteroid_wave_at_nexus(r_hat: Vector3) -> AsteroidWave:

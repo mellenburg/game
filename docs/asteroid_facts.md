@@ -14,7 +14,7 @@ staying readable and tunable on a single dial.
 
 ## Atmospheric entry threshold
 
-A asteroidoid's chance of reaching the ground intact depends on its
+A meteoroid's chance of reaching the ground intact depends on its
 mass, composition, and entry speed. Useful thresholds:
 
 | What                                      | Approx. mass        |
@@ -40,7 +40,7 @@ is mass-only.)
 
 Asteroids fall into a few rough taxonomic bins. The bulk densities
 below come from bulk-density measurements of asteroid analogs
-reported in the __KEEP_ASTEROIDITICS__ literature:
+reported in the meteoritics literature:
 
 | Class       | Density (g/cm³) | Notes                                 |
 | ----------- | --------------- | ------------------------------------- |
@@ -114,7 +114,7 @@ range we routinely spawn.
 
 ## Mass-HP coupling under fire
 
-A asteroid's HP and physical mass are linked: damage represents
+An asteroid's HP and physical mass are linked: damage represents
 fragmentation and spalling, so as HP drops the surviving mass drops
 in lockstep. Implemented in `Satellite.take_damage` via
 `AsteroidPhysics.mass_for_hp`:
@@ -292,8 +292,8 @@ bodies in a wave are killable threats and the rare large body is the
 
 ## Sources
 
-- [Asteroidoid — Wikipedia](https://en.wikipedia.org/wiki/Asteroidoid)
-- [HowStuffWorks: How big does a asteroid have to be to make it to the ground?](https://science.howstuffworks.com/question486.htm)
+- [Meteoroid — Wikipedia](https://en.wikipedia.org/wiki/Meteoroid)
+- [HowStuffWorks: How big does an asteroid have to be to make it to the ground?](https://science.howstuffworks.com/question486.htm)
 - [Planetary Science Institute size threshold (via space.com asteroid apocalypse article)](https://www.space.com/asteroid-apocalypse-how-big-can-humanity-survive)
 - [Tunguska event — Wikipedia](https://en.wikipedia.org/wiki/Tunguska_event)
 - [NASA — Probabilistic Assessment of Tunguska-scale Asteroid Impacts](https://ntrs.nasa.gov/api/citations/20190002844/downloads/20190002844.pdf)

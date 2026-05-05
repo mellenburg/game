@@ -252,7 +252,7 @@ func test_does_not_engage_when_los_blocked() -> void:
 
 
 func test_does_not_engage_inert_asteroid() -> void:
-	# A asteroid chipped down past the burn-up threshold reports
+	# An asteroid chipped down past the burn-up threshold reports
 	# `is_inert_asteroid()`; the railgun should disengage rather than
 	# spend a slug on a target the atmosphere is already handling.
 	var w := RailgunWeapon.new()

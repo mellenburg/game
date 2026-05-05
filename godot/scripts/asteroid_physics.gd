@@ -54,7 +54,7 @@ const HP_PER_KG_PER_DENSITY: float = 0.003
 
 # Composition classes, modeled on the dominant asteroid taxonomic
 # bins. Densities are bulk values in g/cm^3, ranges drawn from the
-# __KEEP_ASTEROIDITICS__ literature (carbonaceous chondrites, ordinary
+# meteoritics literature (carbonaceous chondrites, ordinary
 # chondrites, stony-iron, iron). Weights approximate the near-Earth
 # population: stony dominates; iron is rare but heavy.
 const COMP_C_TYPE: int = 0     # carbonaceous chondrite (~15%)

@@ -234,7 +234,7 @@ var max_propellant_kg: float = DEFAULT_PROPELLANT_KG
 var isp_s: float = DEFAULT_ISP_S
 var thrust_n: float = DEFAULT_THRUST_N
 var alive: bool = true
-# Sub-orbital trajectory (a asteroid) — its periapsis is below Earth's
+# Sub-orbital trajectory (an asteroid) — its periapsis is below Earth's
 # surface by construction, so it impacts ground in finite time. Used to
 # suppress the orbit-path visual (a meaningless ellipse clipping through
 # Earth) and to terminate the entity on ground contact.
@@ -589,7 +589,7 @@ func recompute_mass() -> void:
 	mass = dry_mass_kg + propellant_kg + total_ammo_mass_kg()
 
 
-## True when this body is a asteroid (or decaying-orbit threat)
+## True when this body is an asteroid (or decaying-orbit threat)
 ## whose physical mass has eroded down to or below the atmospheric
 ## burn-up threshold. Such bodies still propagate to the ground but
 ## fully ablate on entry — they cause no damage and paint no impact

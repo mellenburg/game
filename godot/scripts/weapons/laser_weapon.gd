@@ -167,7 +167,7 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 		return false
 	if not attacker.orbit_alive or not target.orbit_alive:
 		return false
-	# Don't waste shots on a asteroid / decaying body that's already
+	# Don't waste shots on an asteroid / decaying body that's already
 	# eroded below the atmospheric burn-up threshold — the atmosphere
 	# will finish it without our help.
 	if target.has_method("is_inert_asteroid") and target.is_inert_asteroid():

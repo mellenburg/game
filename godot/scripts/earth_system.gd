@@ -952,7 +952,7 @@ func add_satellite() -> void:
 	sat.select()
 
 
-# Capture the impact coordinates of a asteroid that just terminated
+# Capture the impact coordinates of an asteroid that just terminated
 # on ground contact. Pulls the body's last ECI position, samples the
 # day-side albedo at the resulting UV to flag ocean vs land, and hands
 # the record to the tracker. Robust to a missing albedo image — we

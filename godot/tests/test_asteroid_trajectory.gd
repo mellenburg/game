@@ -1,5 +1,5 @@
 extends "res://tests/framework.gd"
-## Asteroid trajectory tests. Pure-math: a asteroid is just an
+## Asteroid trajectory tests. Pure-math: an asteroid is just an
 ## EarthOrbit whose periapsis is below Earth's surface. The Satellite
 ## entity keys ground-impact off the same propagator, so verifying the
 ## trajectory crosses the surface here covers the gameplay rule.
@@ -22,7 +22,7 @@ func test_initial_state_valid() -> void:
 
 
 func test_periapsis_below_surface() -> void:
-	# The defining property of a asteroid trajectory: closer approach
+	# The defining property of an asteroid trajectory: closer approach
 	# than Earth's radius, so propagation must eventually impact.
 	var o := _make_inbound()
 	assert_true(o.r_p < EarthOrbit.EARTH_RADIUS_KM)
@@ -107,7 +107,7 @@ func test_clamp_velocity_for_periapsis_pulls_flyby_into_impact() -> void:
 
 
 func test_clamp_velocity_is_a_noop_when_already_below_target() -> void:
-	# Already a asteroid (r_p well below surface) — clamp must not
+	# Already an asteroid (r_p well below surface) — clamp must not
 	# perturb the orbit.
 	var pos := Vector3(EarthOrbit.EARTH_RADIUS_KM + 50000.0, 0.0, 0.0)
 	var vel := Vector3(-6.0, 0.4, 0.0)

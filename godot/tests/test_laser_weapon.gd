@@ -276,7 +276,7 @@ func test_does_not_engage_when_los_blocked() -> void:
 
 
 func test_does_not_engage_inert_asteroid() -> void:
-	# A asteroid that's been chipped down past the atmospheric burn-up
+	# An asteroid that's been chipped down past the atmospheric burn-up
 	# threshold reports `is_inert_asteroid() == true`. Lasers should
 	# disengage so they re-allocate fire to remaining live threats
 	# rather than burning energy on a body the atmosphere will finish.

@@ -84,7 +84,7 @@ func test_take_damage_without_attacker_still_applies() -> void:
 
 
 func test_asteroid_mass_couples_to_hp() -> void:
-	# A asteroid under fire should physically erode: damage represents
+	# An asteroid under fire should physically erode: damage represents
 	# fragmentation, so HP loss drops mass proportionally. The mass-HP
 	# coupling is what feeds back into both impact damage radius
 	# (smaller mass → smaller blast) and railgun deflection (smaller
@@ -125,7 +125,7 @@ func test_non_asteroid_mass_unchanged_by_damage() -> void:
 
 
 func test_eroded_asteroid_is_inert() -> void:
-	# A asteroid chipped down to below the atmospheric burn-up
+	# An asteroid chipped down to below the atmospheric burn-up
 	# threshold reports `is_inert_asteroid` so weapons can disengage.
 	# A regular orbital enemy at the same low mass does NOT — the
 	# burn-up flag only applies to sub-orbital asteroids and

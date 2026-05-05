@@ -138,7 +138,7 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	# motion.
 	var cos_nu_surf := (p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / e
 	if cos_nu_surf > 1.0 or cos_nu_surf < -1.0:
-		# Periapsis is above the surface — not a asteroid trajectory.
+		# Periapsis is above the surface — not an asteroid trajectory.
 		# Fall through to the regular orbit renderer.
 		_clear_surfaces()
 		return
