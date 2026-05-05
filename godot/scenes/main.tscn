@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=20 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
@@ -14,6 +14,8 @@
 [ext_resource type="Script" path="res://scripts/pause_menu.gd" id="12_pause_menu"]
 [ext_resource type="Script" path="res://scripts/end_game_overlay.gd" id="13_end_game"]
 [ext_resource type="Script" path="res://scripts/slug_renderer.gd" id="14_slugs"]
+[ext_resource type="Script" path="res://scripts/enemy_tessellation.gd" id="15_enemy_tess"]
+[ext_resource type="Script" path="res://scripts/enemy_status_panel.gd" id="16_enemy_panel"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -111,7 +113,7 @@ visible = false
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="EnemyRoster" type="VBoxContainer" parent="CanvasLayer/HUD"]
+[node name="EnemyTessellation" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1
 anchors_preset = 0
 anchor_left = 0.0
@@ -122,9 +124,8 @@ offset_left = 10.0
 offset_top = 200.0
 offset_right = 0.0
 offset_bottom = -10.0
-mouse_filter = 2
-alignment = 2
-theme_override_constants/separation = 4
+mouse_filter = 0
+script = ExtResource("15_enemy_tess")
 
 [node name="TargetContainer" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1
@@ -135,7 +136,7 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="HelpLabel" type="RichTextLabel" parent="CanvasLayer/HUD"]
+[node name="EnemyStatusPanel" type="RichTextLabel" parent="CanvasLayer/HUD"]
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
@@ -147,26 +148,8 @@ offset_bottom = 320.0
 mouse_filter = 2
 bbcode_enabled = true
 scroll_active = false
-text = "[font_size=12][color=gray]Controls:
-WASD - Move camera
-Mouse - Look around
-Arrows - Thrust (pro/retro/lateral)
-PgUp/PgDn - Thrust (normal)
-Q/E - Speed up/down time
-Tab - Select next satellite
-N - Add satellite
-R - Remove satellite
-B - Spawn 3 enemy satellites
-M - Spawn meteorite cluster
-V - Toggle LOS lines
-K - Cycle map / wave radar / off
-P - Toggle planning mode
-T/G - Advance/retard plan time
-C - Toggle fire control
-U - Toggle railgun slug visual
-Shift - Show range circle
-Shift+Up/Dn - Adjust engage range
-Esc - Release mouse[/color][/font_size]"
+visible = false
+script = ExtResource("16_enemy_panel")
 
 [node name="KillStats" type="RichTextLabel" parent="CanvasLayer/HUD"]
 layout_mode = 1

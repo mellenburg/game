@@ -2,16 +2,20 @@ class_name HUD
 extends Control
 ## Roster + targeting overlay. Player units render as green-tinted
 ## panels along the top-left and surface HP / energy / cooldown rows.
-## Enemies render along the bottom-left as squares whose edge length
-## scales with max_hp^(1/3), capped at 10k HP. Sub-linear so a heavy
-## boss doesn't dwarf a meteorite wave; the cube root keeps every box
-## comfortably under half a row's max height, which lets small bodies
-## stack vertically into compact columns. Boxes flow into a column
-## bottom-up until adding another would exceed the row height, then
-## start a new column to the right; rows wrap upward once the half-
-## viewport width cap is hit. The solid fill shrinks bottom-up as HP
-## drops, revealing a translucent red layer that marks the original
-## footprint.
+## Enemies render along the bottom-left as a triangle / hexagon
+## tessellation: tile shape is picked from the body's mass class
+## (small triangle / medium hexagon / large composite / boss
+## composite), the live polygon scales inward toward each subshape's
+## centroid as HP drops, and a translucent red backplate marks the
+## original footprint. Tile order tracks impact ETA — most urgent in
+## the bottom-left corner. The actual tile drawing and click handling
+## live in EnemyTessellation; the HUD just hands it the live enemy
+## list each tick.
+##
+## Clicking a tile selects that body for the upper-right
+## EnemyStatusPanel. Selection is local to the inspector (does not
+## change the player-roster's selected_ship) and clears when the
+## inspected unit dies.
 ##
 ## BBCode / panel rebuilds throttle to ~10 Hz; per-frame allocations
 ## are avoided by reusing children across ticks (we only add/remove
@@ -23,6 +27,8 @@ const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SimClock = preload("res://scripts/sim_clock.gd")
+const EnemyTessellation = preload("res://scripts/enemy_tessellation.gd")
+const EnemyStatusPanel = preload("res://scripts/enemy_status_panel.gd")
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
@@ -103,7 +109,12 @@ const HIT_DURATION: float = 0.25
 @onready var surface_player_roster: HBoxContainer = (
 	$PlayerRosters/SurfacePlayerRoster as HBoxContainer
 )
-@onready var enemy_roster: VBoxContainer = $EnemyRoster as VBoxContainer
+@onready var enemy_tessellation: EnemyTessellation = (
+	$EnemyTessellation as EnemyTessellation
+)
+@onready var enemy_status_panel: EnemyStatusPanel = (
+	$EnemyStatusPanel as EnemyStatusPanel
+)
 @onready var target_container: Control = $TargetContainer as Control
 @onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
 
@@ -125,6 +136,8 @@ var los_visible: bool = false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if enemy_tessellation != null:
+		enemy_tessellation.enemy_clicked.connect(_on_enemy_tile_clicked)
 
 
 ## Called by the combat loop when a weapon successfully fires. The HUD
@@ -232,7 +245,7 @@ func _update_kill_stats(orbital_set: Node) -> void:
 
 
 func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
-	if player_roster == null or enemy_roster == null:
+	if player_roster == null or enemy_tessellation == null:
 		return
 	var satellites: Array = orbital_set.satellites
 	var selected_idx: int = (
@@ -250,15 +263,12 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 	var enemies: Array[Satellite] = []
 	var orbital_selected_in_roster: int = -1
 	var surface_selected_in_roster: int = -1
-	var selected_enemy: Satellite = null
 
 	for i in range(satellites.size()):
 		var sat: Satellite = satellites[i]
 		if not sat.alive:
 			continue
 		if sat.team == Satellite.TEAM_ENEMY:
-			if i == selected_idx:
-				selected_enemy = sat
 			enemies.append(sat)
 		elif sat.is_surface:
 			if i == selected_idx:
@@ -271,11 +281,6 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 
 	var current_sim_time: float = orbital_set.sim_time
 	enemies = _sort_enemies_by_impact_urgency(enemies, current_sim_time)
-	# Recompute the selected-enemy index after the sort so the green
-	# selection tint follows the satellite, not its old slot.
-	var enemy_selected_in_roster: int = -1
-	if selected_enemy != null:
-		enemy_selected_in_roster = enemies.find(selected_enemy)
 
 	_render_player_roster_into(
 		player_roster, orbital_players, orbital_selected_in_roster
@@ -287,7 +292,7 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 		# Hide the surface row entirely when nothing's placed so the HUD
 		# doesn't reserve dead space for an empty container.
 		surface_player_roster.visible = not surface_players.is_empty()
-	_render_enemy_roster(enemies, enemy_selected_in_roster, current_sim_time)
+	_update_enemy_tessellation(enemies, current_sim_time)
 
 
 # Sort enemies so the body with the smallest predicted impact time on
@@ -345,211 +350,44 @@ func _render_player_roster_into(
 		_update_box(box, sats[i], i == selected)
 
 
-# Edge length = ENEMY_BOX_SIDE_AT_MAX * (clamp(max_hp, 1, CLAMP) /
-# CLAMP)^(1/3). Cube root → area ∝ hp^(2/3), so big bodies grow
-# noticeably without blowing out the strip. The clamp matters because
-# late-game bosses can exceed 10k HP; we don't let raw HP drive size
-# past that point. AT_MAX is set below half the row height so even a
-# capped boss leaves room for a second box stacked above it.
-const ENEMY_HP_CLAMP: float = 10000.0
-const ENEMY_BOX_SIDE_AT_MAX: float = 36.0
-const ENEMY_BOX_SIDE_MIN: float = 6.0
-const ENEMY_ROW_MAX_HEIGHT: float = 80.0
-const ENEMY_BOX_SEPARATION: int = 3
-# Drawn behind the solid fill at full box dimensions, so any area the
-# fill no longer covers reads as "lost HP". Translucent so it doesn't
-# fight the overlapping LOS lines or the radar / impact map below.
-const ENEMY_LOST_HP_COLOR := Color(1.0, 0.3, 0.3, 0.30)
-# Fill alpha for the live-HP layer. The hue is taken from each
-# satellite's ETA gradient (Satellite.enemy_path_gradient_color) so the
-# 3D orbit ribbon and the HUD box read off the same scale; this
-# constant just enforces a uniform translucency across all enemy boxes
-# so the gradient hue is what the operator's eye picks up, not
-# variations in opacity.
-const ENEMY_FILL_ALPHA: float = 0.95
-const ENEMY_FILL_SELECTED := Color(0.20, 1.00, 0.20, 1.0)
-
-
-# Two-level pack: boxes stack vertically into columns up to the row
-# height cap, then columns flow left→right until the half-viewport
-# width cap forces a new row above. Lets a wave of cheap meteorites
-# fit on a single visible row without crowding the orbital view.
-func _render_enemy_roster(
-	sats: Array[Satellite], selected: int, current_sim_time: float
+# Hand the live enemy list to the EnemyTessellation control, then
+# drive the upper-right inspector panel from whichever tile the
+# operator last clicked. The tessellation is responsible for tile
+# layout, geometry, hit-flash, and click handling — the HUD just
+# shuttles state.
+func _update_enemy_tessellation(
+	sats: Array[Satellite], current_sim_time: float
 ) -> void:
-	if enemy_roster == null:
+	if enemy_tessellation == null:
 		return
-	var max_row_w: float = get_viewport_rect().size.x * 0.5
-	var sep: float = float(ENEMY_BOX_SEPARATION)
-
-	# Pack into columns first, in arrival order. A column never starts
-	# empty so an oversize single box still gets its own column rather
-	# than being dropped.
-	var cols: Array = []
-	var col_indices: Array = []
-	var col_height: float = 0.0
-	var col_width: float = 0.0
-	for i in range(sats.size()):
-		var side := _enemy_box_side(sats[i])
-		var add := side + (sep if not col_indices.is_empty() else 0.0)
-		if not col_indices.is_empty() and col_height + add > ENEMY_ROW_MAX_HEIGHT:
-			cols.append([col_indices, col_width])
-			col_indices = [i]
-			col_height = side
-			col_width = side
-		else:
-			col_indices.append(i)
-			col_height += add
-			col_width = maxf(col_width, side)
-	if not col_indices.is_empty():
-		cols.append([col_indices, col_width])
-
-	# Group columns into rows under the half-viewport cap.
-	var rows: Array = []
-	var row_cols: Array = []
-	var row_w: float = 0.0
-	for col in cols:
-		var cw: float = col[1]
-		var add_w := cw + (sep if not row_cols.is_empty() else 0.0)
-		if not row_cols.is_empty() and row_w + add_w > max_row_w:
-			rows.append(row_cols)
-			row_cols = [col]
-			row_w = cw
-		else:
-			row_cols.append(col)
-			row_w += add_w
-	if not row_cols.is_empty():
-		rows.append(row_cols)
-
-	# Reuse row containers across ticks; only resize the pool when the
-	# row count changes (matches the player-roster idiom).
-	while enemy_roster.get_child_count() < rows.size():
-		enemy_roster.add_child(_make_enemy_row())
-	while enemy_roster.get_child_count() > rows.size():
-		var stale := enemy_roster.get_child(enemy_roster.get_child_count() - 1)
-		enemy_roster.remove_child(stale)
-		stale.queue_free()
-
-	for r in range(rows.size()):
-		var row := enemy_roster.get_child(r) as HBoxContainer
-		var rcols: Array = rows[r]
-		while row.get_child_count() < rcols.size():
-			row.add_child(_make_enemy_column())
-		while row.get_child_count() > rcols.size():
-			var stale_col := row.get_child(row.get_child_count() - 1)
-			row.remove_child(stale_col)
-			stale_col.queue_free()
-		for ci in range(rcols.size()):
-			var col := row.get_child(ci) as VBoxContainer
-			var indices: Array = rcols[ci][0]
-			while col.get_child_count() < indices.size():
-				col.add_child(_make_enemy_box())
-			while col.get_child_count() > indices.size():
-				var stale_box := col.get_child(col.get_child_count() - 1)
-				col.remove_child(stale_box)
-				stale_box.queue_free()
-			for bi in range(indices.size()):
-				var sat_i: int = indices[bi]
-				_update_enemy_box(
-					col.get_child(bi) as Control,
-					sats[sat_i],
-					sat_i == selected,
-					current_sim_time,
-				)
+	# Build a flat hit-target list the tessellation can scan in O(n)
+	# without re-inspecting expiry timestamps.
+	var live_hits: Array = []
+	for h in _hits:
+		var t: Variant = h["target"]
+		if not is_instance_valid(t):
+			continue
+		live_hits.append(t)
+	enemy_tessellation.update_tiles(sats, current_sim_time, live_hits)
+	if enemy_status_panel != null:
+		enemy_status_panel.show_enemy(
+			enemy_tessellation.selected_enemy(), current_sim_time
+		)
 
 
-func _enemy_box_side(sat: Satellite) -> float:
-	var hp_capped := clampf(sat.max_hp, 1.0, ENEMY_HP_CLAMP)
-	var t: float = pow(hp_capped / ENEMY_HP_CLAMP, 1.0 / 3.0)
-	return maxf(ENEMY_BOX_SIDE_MIN, ENEMY_BOX_SIDE_AT_MAX * t)
-
-
-func _make_enemy_row() -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override("separation", ENEMY_BOX_SEPARATION)
-	# SHRINK_END so a row with mixed-size columns plants every column on
-	# a common bottom line — the smaller meteorite squares hug the same
-	# baseline as the bigger decaying bodies.
-	row.size_flags_vertical = Control.SIZE_SHRINK_END
-	return row
-
-
-func _make_enemy_column() -> VBoxContainer:
-	var col := VBoxContainer.new()
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_theme_constant_override("separation", ENEMY_BOX_SEPARATION)
-	col.size_flags_vertical = Control.SIZE_SHRINK_END
-	return col
-
-
-func _make_enemy_box() -> Control:
-	var box := Control.new()
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.size_flags_vertical = Control.SIZE_SHRINK_END
-	box.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-
-	# Layer 0: full-size translucent red — the "original size" footprint.
-	var lost := ColorRect.new()
-	lost.set_anchors_preset(Control.PRESET_FULL_RECT)
-	lost.color = ENEMY_LOST_HP_COLOR
-	lost.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_child(lost)
-
-	# Layer 1: solid fill, anchor-driven so we never measure pixels —
-	# anchor_top = 1 - hp/max yields a bottom-aligned column whose area
-	# tracks current HP linearly.
-	var fill := ColorRect.new()
-	fill.anchor_left = 0.0
-	fill.anchor_right = 1.0
-	fill.anchor_top = 0.0
-	fill.anchor_bottom = 1.0
-	# Placeholder tint — _update_enemy_box overwrites this on the first
-	# tick with the ETA-gradient color. Initial value is just opaque
-	# white so a pre-update box reads as "live" rather than as part of
-	# the lost-HP backplate.
-	fill.color = Color(1.0, 1.0, 1.0, ENEMY_FILL_ALPHA)
-	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_child(fill)
-
-	return box
-
-
-func _update_enemy_box(
-	box: Control,
-	sat: Satellite,
-	is_selected: bool,
-	current_sim_time: float,
-) -> void:
-	var side := _enemy_box_side(sat)
-	box.custom_minimum_size = Vector2(side, side)
-
-	var fill := box.get_child(1) as ColorRect
-	if fill == null:
+func _on_enemy_tile_clicked(_sat: Satellite) -> void:
+	# Click selection state is owned by the tessellation; the HUD just
+	# refreshes the inspector immediately so the panel snaps in on the
+	# same tick rather than waiting for the next 10 Hz roster pass.
+	if enemy_tessellation == null or enemy_status_panel == null:
 		return
-	if _is_hit_target(sat):
-		fill.color = BOX_HIT_FLASH
-	elif is_selected:
-		fill.color = ENEMY_FILL_SELECTED
-	else:
-		fill.color = _enemy_fill_color(sat, current_sim_time)
-
-	var max_hp := maxf(sat.max_hp, 1.0)
-	var frac := clampf(sat.hp / max_hp, 0.0, 1.0)
-	fill.anchor_top = 1.0 - frac
-
-
-# Roster-box hue tracks the same yellow → red impact-ETA gradient as
-# the 3D orbit ribbon, so a quick scan of the bottom strip ranks
-# threats by urgency without the operator having to look at the orbital
-# view. Subtype distinction (sat / meteorite / decaying) is dropped on
-# purpose — it duplicated information that's already conveyed by the
-# 3D marker shape and the radar overlay, and competed with the ETA cue
-# this gradient is meant to carry.
-func _enemy_fill_color(sat: Satellite, current_sim_time: float) -> Color:
-	var c := sat.enemy_path_gradient_color(current_sim_time)
-	c.a = ENEMY_FILL_ALPHA
-	return c
+	# Pull sim_time off the cached orbital_set ref the LOS-line draw
+	# already keeps current — we don't have the orbital_set in the
+	# signal payload but it's already plumbed onto the HUD.
+	var t: float = 0.0
+	if _system != null:
+		t = _system.sim_time
+	enemy_status_panel.show_enemy(enemy_tessellation.selected_enemy(), t)
 
 
 func _make_box() -> PanelContainer:

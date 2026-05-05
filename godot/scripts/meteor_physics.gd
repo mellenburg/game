@@ -246,3 +246,46 @@ static func composition_name(comp: int) -> String:
 	if comp < 0 or comp >= COMP_NAMES.size():
 		return "unknown"
 	return COMP_NAMES[comp]
+
+
+# Coarse mass class for HUD tile sizing. Four bins so the enemy roster
+# can pick a fixed tile geometry per body without measuring pixels per
+# frame: SMALL (sub-Tg, "city block"), MEDIUM (Tunguska-ish), LARGE
+# (Didymos-class regional threat), BOSS (anything heavier than the
+# spawn director's large-band cap). The boundaries follow the spawn
+# director's mass bands so a freshly-sampled small-band body always
+# falls in MASS_CLASS_SMALL, etc.; BOSS is reserved for late-game
+# scripted units that exceed the wave system's natural ceiling.
+const MASS_CLASS_SMALL: int = 0
+const MASS_CLASS_MEDIUM: int = 1
+const MASS_CLASS_LARGE: int = 2
+const MASS_CLASS_BOSS: int = 3
+const MASS_CLASS_NAMES: Array[String] = ["SMALL", "MEDIUM", "LARGE", "BOSS"]
+# Boss threshold sits just above the natural large-band cap so any
+# wave-spawned body bins into one of the three meteorite classes. Bodies
+# heavier than this (scripted boss enemies, custom decaying threats)
+# get the irregular composite tile.
+const BOSS_MASS_MIN_KG: float = LARGE_MASS_MAX_KG
+
+
+## Coarse mass class index for a body of the given mass. Boundaries
+## match the spawn director's small/medium/large bands; anything above
+## the large cap is BOSS. Below SMALL_MASS_MIN_KG (the burn-up floor)
+## still bins as SMALL — the HUD doesn't need a fifth class for bodies
+## that won't survive entry, and the roster only renders live enemies
+## anyway.
+static func mass_class_for(mass_kg: float) -> int:
+	if mass_kg >= BOSS_MASS_MIN_KG:
+		return MASS_CLASS_BOSS
+	if mass_kg >= LARGE_MASS_MIN_KG:
+		return MASS_CLASS_LARGE
+	if mass_kg >= MEDIUM_MASS_MIN_KG:
+		return MASS_CLASS_MEDIUM
+	return MASS_CLASS_SMALL
+
+
+## Human-readable mass-class label. Used by the enemy status panel.
+static func mass_class_name(cls: int) -> String:
+	if cls < 0 or cls >= MASS_CLASS_NAMES.size():
+		return "unknown"
+	return MASS_CLASS_NAMES[cls]

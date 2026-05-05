@@ -160,6 +160,51 @@ func test_mass_log_norm_endpoints() -> void:
 	assert_close(MeteorPhysics.mass_log_norm(mid), 0.5, 1.0e-6)
 
 
+func test_mass_class_for_bins_at_band_boundaries() -> void:
+	# Boundary partition: SMALL up to MEDIUM_MASS_MIN_KG, MEDIUM up to
+	# LARGE_MASS_MIN_KG, LARGE up to BOSS_MASS_MIN_KG, BOSS above. The
+	# HUD's tile-shape lookup keys on these so any drift in the partition
+	# would silently swap a body's tile.
+	assert_eq(MeteorPhysics.mass_class_for(0.0), MeteorPhysics.MASS_CLASS_SMALL)
+	assert_eq(MeteorPhysics.mass_class_for(1.0), MeteorPhysics.MASS_CLASS_SMALL)
+	assert_eq(
+		MeteorPhysics.mass_class_for(MeteorPhysics.MEDIUM_MASS_MIN_KG - 1.0),
+		MeteorPhysics.MASS_CLASS_SMALL,
+	)
+	assert_eq(
+		MeteorPhysics.mass_class_for(MeteorPhysics.MEDIUM_MASS_MIN_KG),
+		MeteorPhysics.MASS_CLASS_MEDIUM,
+	)
+	assert_eq(
+		MeteorPhysics.mass_class_for(MeteorPhysics.LARGE_MASS_MIN_KG - 1.0),
+		MeteorPhysics.MASS_CLASS_MEDIUM,
+	)
+	assert_eq(
+		MeteorPhysics.mass_class_for(MeteorPhysics.LARGE_MASS_MIN_KG),
+		MeteorPhysics.MASS_CLASS_LARGE,
+	)
+	assert_eq(
+		MeteorPhysics.mass_class_for(MeteorPhysics.BOSS_MASS_MIN_KG - 1.0),
+		MeteorPhysics.MASS_CLASS_LARGE,
+	)
+	assert_eq(
+		MeteorPhysics.mass_class_for(MeteorPhysics.BOSS_MASS_MIN_KG),
+		MeteorPhysics.MASS_CLASS_BOSS,
+	)
+	assert_eq(
+		MeteorPhysics.mass_class_for(1.0e15),
+		MeteorPhysics.MASS_CLASS_BOSS,
+	)
+	# Names map back to the human-readable labels the status panel uses.
+	assert_eq(
+		MeteorPhysics.mass_class_name(MeteorPhysics.MASS_CLASS_SMALL), "SMALL"
+	)
+	assert_eq(
+		MeteorPhysics.mass_class_name(MeteorPhysics.MASS_CLASS_BOSS), "BOSS"
+	)
+	assert_eq(MeteorPhysics.mass_class_name(-1), "unknown")
+
+
 func test_mass_for_hp_inverts_hp_for() -> void:
 	# Round-trip: mass_for_hp(hp_for(m, ρ), ρ) == m. Lets the live-damage
 	# path on Satellite recompute mass cleanly from current HP without
