@@ -1,14 +1,14 @@
 extends "res://tests/framework.gd"
-## MeteoriteWave timer-queue tests. Pure-state RefCounted, so the
+## AsteroidWave timer-queue tests. Pure-state RefCounted, so the
 ## spawn-distribution logic is covered without booting a SceneTree.
 
-const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
+const AsteroidWave = preload("res://scripts/asteroid_wave.gd")
 
 
 func test_populate_count_and_bounds() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
-	var wave := MeteoriteWave.new()
+	var wave := AsteroidWave.new()
 	wave.populate(rng, 50, 10.0, 6000.0, 3000.0, 0.8)
 	assert_eq(wave.pending.size(), 50)
 	assert_eq(wave.duration_sec, 10.0)
@@ -37,7 +37,7 @@ func test_populate_count_and_bounds() -> void:
 
 
 func test_tick_spawns_only_expired_timers() -> void:
-	var wave := MeteoriteWave.new()
+	var wave := AsteroidWave.new()
 	wave.pending = [_spec(0.5), _spec(1.5), _spec(2.5)]
 	var spawned := wave.tick(1.0)
 	assert_eq(spawned.size(), 1)
@@ -46,7 +46,7 @@ func test_tick_spawns_only_expired_timers() -> void:
 
 
 func test_tick_drains_queue_after_full_window() -> void:
-	var wave := MeteoriteWave.new()
+	var wave := AsteroidWave.new()
 	wave.pending = [_spec(0.5), _spec(1.5), _spec(9.5)]
 	var spawned := wave.tick(10.0)
 	assert_eq(spawned.size(), 3)
@@ -58,7 +58,7 @@ func test_total_spawn_count_matches_population() -> void:
 	# bodies must equal the populated count and the queue must drain.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
-	var wave := MeteoriteWave.new()
+	var wave := AsteroidWave.new()
 	wave.populate(rng, 50, 10.0, 6000.0, 3000.0, 0.8)
 	var total := 0
 	for _i in range(200):  # 200 * 0.1s = 20s — well past the window
@@ -68,7 +68,7 @@ func test_total_spawn_count_matches_population() -> void:
 
 
 func test_no_spawn_before_any_timer_expires() -> void:
-	var wave := MeteoriteWave.new()
+	var wave := AsteroidWave.new()
 	wave.pending = [_spec(0.5), _spec(1.5), _spec(2.5)]
 	assert_eq(wave.tick(0.1).size(), 0)
 	assert_eq(wave.pending.size(), 3)

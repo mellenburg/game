@@ -118,12 +118,12 @@ func maneuver(dv: Vector3, t: float, min_periapsis_km: float = 0.0) -> bool:
 ## the minimum amount needed. Caller passes a value strictly less than
 ## the surface radius for some impact margin.
 ##
-## Used by the meteorite spawner: lateral position spread plus per-axis
+## Used by the asteroid spawner: lateral position spread plus per-axis
 ## velocity jitter pump enough angular momentum into the orbit that
 ## periapsis can lift above Earth's surface, turning the trajectory
 ## into a hyperbolic flyby that never impacts and that the trajectory
 ## renderer correctly refuses to draw — so without this clamp, "some
-## meteorites have no arc" and "some meteorites never hit the ground".
+## asteroids have no arc" and "some asteroids never hit the ground".
 static func clamp_velocity_for_periapsis(
 	pos: Vector3, vel: Vector3, max_r_p: float
 ) -> Vector3:

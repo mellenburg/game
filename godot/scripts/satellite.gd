@@ -12,7 +12,7 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
 const Propulsion = preload("res://scripts/propulsion.gd")
-const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 
 const TEAM_PLAYER: int = 0
 const TEAM_ENEMY: int = 1
@@ -26,14 +26,14 @@ const SCENE_SCALE: float = 1.0 / 1000.0
 const MARKER_BASE_SIZE: float = 0.15
 const MARKER_REFERENCE_MASS_KG: float = 1000.0
 # Mass-to-marker-size envelope. Two regimes:
-#   * Bodies below the meteorite burn-up threshold (player ships,
+#   * Bodies below the asteroid burn-up threshold (player ships,
 #     unarmed enemies) keep the legacy cube-root-of-mass scaling,
 #     anchored to the 1000 kg reference and clamped so a fully-
 #     fueled default unit looks the same as it always did.
-#   * Meteorites and decaying-orbit threats span ~8 orders of
+#   * Asteroids and decaying-orbit threats span ~8 orders of
 #     magnitude in mass, so cube-root scaling explodes to ~800x.
 #     For those, _marker_box_size lerps across the same MIN..MAX
-#     band but uses MeteorPhysics.mass_log_norm — log-decade
+#     band but uses AsteroidPhysics.mass_log_norm — log-decade
 #     scaling — so the player can actually tell a 10-Gg rock from
 #     a 100-Tg one at a glance.
 const MARKER_SCALE_MIN: float = 0.5
@@ -44,7 +44,7 @@ const DELTA_V_MAGNITUDE: float = 0.050
 const COLOR_SELECTED := Color(0.15, 0.7, 0.5)
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
-const COLOR_METEORITE := Color(1.0, 0.85, 0.4)
+const COLOR_ASTEROID := Color(1.0, 0.85, 0.4)
 const COLOR_DECAYING := Color(0.95, 0.45, 0.95)
 const COLOR_HIT := Color(1.0, 0.25, 0.05)
 # Enemy orbit-line gradient endpoints. Yellow when the body is far from
@@ -57,7 +57,7 @@ const COLOR_ENEMY_PATH_NEAR := Color(1.0, 0.2, 0.15)
 # ETA bounds for the enemy-path gradient. <= NEAR seconds reads as full
 # red; >= FAR seconds (or non-impacting orbits, where eta == INF) reads
 # as full yellow. The window between is power-curved to bias the color
-# toward red — meteorites spawn 40-70k km out with naive ttf running
+# toward red — asteroids spawn 40-70k km out with naive ttf running
 # 60-130 minutes, so even a quartic-style curve is needed to lift
 # mid-flight bodies into solid red-orange. Stable orbits (eta == INF)
 # still read full yellow; decaying threats whose multi-cycle spirals
@@ -66,15 +66,15 @@ const COLOR_ENEMY_PATH_NEAR := Color(1.0, 0.2, 0.15)
 const ENEMY_PATH_ETA_RED_S: float = 60.0
 const ENEMY_PATH_ETA_YELLOW_S: float = 14400.0
 # Lower exponent → more aggressive red bias along the ramp. 0.25 keeps
-# a 60-min meteorite at ~93% red and a 2-hour one at ~84% red — about
+# a 60-min asteroid at ~93% red and a 2-hour one at ~84% red — about
 # what feels right for "this thing is on a collision course".
 const ENEMY_PATH_GRADIENT_EXPONENT: float = 0.25
 # HP-driven path-style envelope. The line's *initial* thickness and
 # opacity are baked from max_hp at spawn (or clone) time and never
 # updated as the body takes damage — by design, per the original spec.
-# Range chosen so a 10-HP meteorite (smallest mass class) reads as a
+# Range chosen so a 10-HP asteroid (smallest mass class) reads as a
 # barely-there thread and a 10000-HP late-game boss draws as a fat
-# opaque ribbon. Reference floor is the smallest meteorite mass-class
+# opaque ribbon. Reference floor is the smallest asteroid mass-class
 # HP so the log-scale lands at zero (full floor) for the typical
 # storm body.
 const ENEMY_PATH_HP_REF_MIN: float = 10.0
@@ -112,7 +112,7 @@ const MAX_HP: float = 100.0
 # (recoil) and target (push) is fixed in (kg·km/s) and divided by the
 # unit's mass to yield the resulting Δv. Player satellites and unarmed
 # enemy sats default to a wet mass of DEFAULT_DRY_MASS_KG +
-# DEFAULT_PROPELLANT_KG, which sums to this value; meteorite / decaying
+# DEFAULT_PROPELLANT_KG, which sums to this value; asteroid / decaying
 # spawners set their own mass via spawn_director.
 const DEFAULT_MASS_KG: float = 1000.0
 # Dry-mass / propellant split for the default unit. Sums to
@@ -182,11 +182,11 @@ var team: int = TEAM_PLAYER
 # Operator-facing display name. Set by SpawnDirector at spawn time
 # (mirroring the Hangar's UnitConfig.name); the HUD roster renders this
 # in the unit box and the end-of-run summary keys per-unit stats by
-# it. Empty string for unnamed bodies (enemies, meteorites, decaying
+# it. Empty string for unnamed bodies (enemies, asteroids, decaying
 # threats) so the HUD knows to skip the name row.
 var unit_name: String = ""
 # Per-instance HP cap. Defaults to MAX_HP for player / standard enemy
-# satellites; threat-spawning paths (meteorite, decaying-orbit body)
+# satellites; threat-spawning paths (asteroid, decaying-orbit body)
 # override it with their own cap and seed `hp` to the same value.
 var max_hp: float = MAX_HP
 var hp: float = MAX_HP
@@ -205,17 +205,17 @@ var kills: int = 0
 # propellant_kg. Used by the railgun's momentum-transfer math (a lighter
 # stage recoils more, which is physically correct) and by Tsiolkovsky
 # when computing per-burn propellant cost. Spawners override for
-# heavier (decaying-orbit) or fragile (meteorite) bodies, which never
+# heavier (decaying-orbit) or fragile (asteroid) bodies, which never
 # enter the propellant-aware maneuver branch and so don't track
 # dry/propellant separately.
 var mass: float = DEFAULT_MASS_KG
-# Bulk density in g/cm^3. Spawners override per-body for meteorites
+# Bulk density in g/cm^3. Spawners override per-body for asteroids
 # and decaying-orbit threats (sampled from the asteroid composition
-# table in MeteorPhysics); player ships and unarmed enemies leave
+# table in AsteroidPhysics); player ships and unarmed enemies leave
 # this at the stony-chondrite default since it only feeds the
-# meteorite HP formula and the impact-map readout.
+# asteroid HP formula and the impact-map readout.
 var density_g_cm3: float = 3.4
-# Composition class index (MeteorPhysics.COMP_*) for cosmetic
+# Composition class index (AsteroidPhysics.COMP_*) for cosmetic
 # readouts — the impact map's latest-impact panel renders this as
 # "S-type", "M-type", etc. -1 leaves the body uncategorised.
 var composition: int = -1
@@ -234,11 +234,11 @@ var max_propellant_kg: float = DEFAULT_PROPELLANT_KG
 var isp_s: float = DEFAULT_ISP_S
 var thrust_n: float = DEFAULT_THRUST_N
 var alive: bool = true
-# Sub-orbital trajectory (a meteorite) — its periapsis is below Earth's
+# Sub-orbital trajectory (a asteroid) — its periapsis is below Earth's
 # surface by construction, so it impacts ground in finite time. Used to
 # suppress the orbit-path visual (a meaningless ellipse clipping through
 # Earth) and to terminate the entity on ground contact.
-var is_meteorite: bool = false
+var is_asteroid: bool = false
 # Decaying-orbit enemy: spawned just past apogee on a highly eccentric
 # ellipse, descending. Each perigee crossing fires a retrograde burn
 # that halves r_a, so the orbit spirals inward; once the burn drops
@@ -326,7 +326,7 @@ var railgun_enabled: bool = true
 # impact instant doesn't. Maneuvers / perigee burns invalidate it
 # because they actually change the orbit.
 #
-# Horizon at cache fill is generous (one day) so meteorites spawned at
+# Horizon at cache fill is generous (one day) so asteroids spawned at
 # the high end of the storm shell — where naive ttf can run > 7000 sec
 # — still resolve to a real number rather than INF. The propagation is
 # paid once per spawn (or per maneuver); in normal play each body
@@ -445,7 +445,7 @@ func set_maneuver(input: Vector3) -> void:
 
 
 ## Flip the fire-control mode. Only meaningful on armed units; unarmed
-## satellites (enemies, meteorites) keep the flag at false but caller
+## satellites (enemies, asteroids) keep the flag at false but caller
 ## still gets the no-op behavior right because their weapons array is
 ## empty.
 func toggle_fire_control() -> void:
@@ -589,15 +589,15 @@ func recompute_mass() -> void:
 	mass = dry_mass_kg + propellant_kg + total_ammo_mass_kg()
 
 
-## True when this body is a meteorite (or decaying-orbit threat)
+## True when this body is a asteroid (or decaying-orbit threat)
 ## whose physical mass has eroded down to or below the atmospheric
 ## burn-up threshold. Such bodies still propagate to the ground but
 ## fully ablate on entry — they cause no damage and paint no impact
 ## marker — so weapons should disengage and leave them to burn.
-func is_inert_meteorite() -> bool:
-	if not (is_meteorite or is_decaying):
+func is_inert_asteroid() -> bool:
+	if not (is_asteroid or is_decaying):
 		return false
-	return MeteorPhysics.is_burn_up(mass)
+	return AsteroidPhysics.is_burn_up(mass)
 
 
 ## Apply damage. Returns true if this hit took the satellite to 0 HP.
@@ -618,15 +618,15 @@ func take_damage(amount: float, attacker: Satellite = null) -> bool:
 	hp = maxf(hp - amount, 0.0)
 	if attacker != null:
 		attacker.damage_dealt += applied
-	# Meteorites and decaying-orbit bodies physically erode under fire:
+	# Asteroids and decaying-orbit bodies physically erode under fire:
 	# damage represents fragmentation / spalling, so the surviving mass
 	# shrinks in lockstep with HP. That drops the impact's damage radius
 	# (mass × density model on the ImpactMap) and lifts the railgun's
 	# per-slug deflection (recoil and target-push are momentum / mass).
 	# Player ships and unarmed enemies stay at their spawn-time mass —
 	# damage there represents subsystem damage, not mass loss.
-	if (is_meteorite or is_decaying) and density_g_cm3 > 0.0:
-		mass = MeteorPhysics.mass_for_hp(hp, density_g_cm3)
+	if (is_asteroid or is_decaying) and density_g_cm3 > 0.0:
+		mass = AsteroidPhysics.mass_for_hp(hp, density_g_cm3)
 		_apply_marker_size()
 	if hp <= 0.0:
 		alive = false
@@ -651,7 +651,7 @@ func advance_time(delta_time: float) -> void:
 	var ok: bool
 	if did_maneuver:
 		# Player thrust is the only caller of relative_maneuver; clamp
-		# it so it can't drive periapsis below the surface. Meteorites
+		# it so it can't drive periapsis below the surface. Asteroids
 		# never enter this branch (no operator). Invalidate the impact
 		# cache before stepping — the new velocity makes the prior
 		# prediction stale.
@@ -754,7 +754,7 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 		if live != _path_color_base:
 			_path_color_base = live
 			_apply_path_color()
-	# Meteorites get the truncated-trajectory renderer: the same line
+	# Asteroids get the truncated-trajectory renderer: the same line
 	# style as a regular orbit, but cut off at the surface so the part
 	# that would tunnel through Earth isn't drawn.
 	if is_decaying:
@@ -764,7 +764,7 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 		# truncated final inbound leg to the surface. The spiral
 		# tells the player how many cycles are left before impact.
 		path_visual.update_decaying_spiral(orbit)
-	elif is_meteorite:
+	elif is_asteroid:
 		path_visual.update_trajectory(orbit)
 	else:
 		path_visual.update_orbit(orbit)
@@ -829,7 +829,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	damage_dealt = other.damage_dealt
 	kills = other.kills
 	alive = other.alive
-	is_meteorite = other.is_meteorite
+	is_asteroid = other.is_asteroid
 	is_decaying = other.is_decaying
 	is_surface = other.is_surface
 	surface_lat_deg = other.surface_lat_deg
@@ -882,11 +882,11 @@ func _sync_marker_position() -> void:
 # to a point.
 func _marker_box_size() -> Vector3:
 	var scale: float
-	if is_meteorite or is_decaying:
+	if is_asteroid or is_decaying:
 		# Log-decade mapping: a body at the burn-up threshold renders at
 		# MIN, one 8 decades above at MAX. Spreads the ~8 orders of
-		# magnitude of meteorite masses across a readable 0.5..6x band.
-		var t := MeteorPhysics.mass_log_norm(mass)
+		# magnitude of asteroid masses across a readable 0.5..6x band.
+		var t := AsteroidPhysics.mass_log_norm(mass)
 		scale = lerpf(MARKER_SCALE_MIN, MARKER_SCALE_MAX, t)
 	else:
 		# Player ships and orbital enemies keep the legacy cube-root
@@ -914,8 +914,8 @@ func _apply_marker_size() -> void:
 
 
 func _base_color() -> Color:
-	if is_meteorite:
-		return COLOR_METEORITE
+	if is_asteroid:
+		return COLOR_ASTEROID
 	if is_decaying:
 		return COLOR_DECAYING
 	if is_surface:
@@ -1007,7 +1007,7 @@ func enemy_path_gradient_color(current_sim_time: float) -> Color:
 # pickup) — never per-tick driven by HP. Player paths get a constant
 # readable style and a fixed COLOR_PLAYER tint set here. Enemy paths
 # log-scale max_hp into the (width, alpha) envelope so a 10-HP storm
-# meteorite renders as a near-transparent thread and a 10000-HP boss
+# asteroid renders as a near-transparent thread and a 10000-HP boss
 # draws as a fat opaque ribbon; the *color* (yellow → red gradient) is
 # refreshed every render tick by render_orbit from the live ETA.
 func _apply_path_style() -> void:
@@ -1017,9 +1017,9 @@ func _apply_path_style() -> void:
 	var alpha: float
 	if team == TEAM_ENEMY:
 		# log(hp / HP_REF_MIN) / log(10^DECADES) maps the smallest
-		# meteorite (HP == HP_REF_MIN) to 0.0 (full floor) and the
+		# asteroid (HP == HP_REF_MIN) to 0.0 (full floor) and the
 		# largest threats (HP_REF_MIN * 10^DECADES) to 1.0. Storm
-		# meteorites cluster near the floor so they read as faint
+		# asteroids cluster near the floor so they read as faint
 		# threads on the orbital view.
 		var ratio := maxf(max_hp, ENEMY_PATH_HP_REF_MIN) / ENEMY_PATH_HP_REF_MIN
 		var hp_norm := clampf(

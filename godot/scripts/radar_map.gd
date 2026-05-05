@@ -1,6 +1,6 @@
 class_name RadarMap
 extends Control
-## 2-D radar overlay of the meteorite wave currently spawning. The X axis
+## 2-D radar overlay of the asteroid wave currently spawning. The X axis
 ## is a 1-D projection of each pending body's lateral offset (along the
 ## entry-frame tangent), normalised to [-1, 1] of the wave's lateral
 ## spread. The Y axis is the time remaining until that body enters play,
@@ -18,14 +18,14 @@ extends Control
 ## panel background, mirroring the back-to-front layering ImpactMap uses
 ## for its impact markers.
 
-const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
+const AsteroidWave = preload("res://scripts/asteroid_wave.gd")
 
 
 # Inner Control that paints the grid + blips. Reads `waves` straight off
 # its parent each frame; lives as a child added AFTER the panel so the
 # blips draw on top of the background fill.
 class _BlipLayer extends Control:
-	# Plain Array (not Array[MeteoriteWave]) because the inner class can't
+	# Plain Array (not Array[AsteroidWave]) because the inner class can't
 	# import the outer file's typed-array element binding cleanly; we
 	# treat each entry as a duck-typed wave and reach into its fields.
 	var waves: Array = []
@@ -36,7 +36,7 @@ class _BlipLayer extends Control:
 	var blip_outer: Color = Color(1.0, 0.35, 0.35, 0.95)
 	var blip_inner: Color = Color(1.0, 0.85, 0.4, 0.95)
 	# Decaying-orbit threats get a magenta tint so the operator can
-	# distinguish them at a glance from sub-orbital meteorites — they
+	# distinguish them at a glance from sub-orbital asteroids — they
 	# behave very differently (long spiral-in vs straight ground impact)
 	# and mixing the two color codes them on the wave radar.
 	var blip_decaying_outer: Color = Color(0.95, 0.45, 0.95, 0.95)
@@ -48,7 +48,7 @@ class _BlipLayer extends Control:
 	# bodies in the spawner's range (~5e11 kg, 7-8 decades above
 	# the burn-up threshold) cap at `blip_max_radius_px`. This
 	# replaces a legacy mass^(2/3) scaling that exploded into
-	# screen-filling discs once meteorite masses began spanning ten
+	# screen-filling discs once asteroid masses began spanning ten
 	# orders of magnitude (the bands changed; the ratio blew up).
 	var blip_reference_mass_kg: float = 1.0e4
 	var blip_log_step_px: float = 1.5
@@ -118,7 +118,7 @@ class _BlipLayer extends Control:
 				origin.x + (x_norm * 0.5 + 0.5) * view_size.x,
 				origin.y + y_norm * view_size.y,
 			)
-			# Log-scale blip radius: smallest meteorites (the burn-up
+			# Log-scale blip radius: smallest asteroids (the burn-up
 			# threshold) draw at `blip_radius` and each order of
 			# magnitude in mass above adds `blip_log_step_px`, capped
 			# at `blip_max_radius_px`. Specs without a mass key
@@ -155,7 +155,7 @@ const PAD_BOTTOM: float = 36.0
 # Bound to the EarthSystem's active wave list at _ready. Read-only from
 # the radar's perspective; the system owns add/remove of waves, the
 # radar just reflects whatever's pending.
-var waves: Array[MeteoriteWave] = []:
+var waves: Array[AsteroidWave] = []:
 	set(value):
 		waves = value
 		if _blip_layer != null:
@@ -234,7 +234,7 @@ func _update_readout() -> void:
 		return
 	var pending_total := 0
 	var max_window := 0.0
-	for w: MeteoriteWave in waves:
+	for w: AsteroidWave in waves:
 		if w == null:
 			continue
 		pending_total += w.pending.size()

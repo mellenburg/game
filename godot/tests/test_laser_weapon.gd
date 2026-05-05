@@ -40,12 +40,12 @@ class FakeSat extends RefCounted:
 	# operator has fire control on — tests that exercise the cap must
 	# flip this to true.
 	var fire_control_active: bool = false
-	# Inert-meteorite flag: when true, the weapon's envelope check
+	# Inert-asteroid flag: when true, the weapon's envelope check
 	# treats this target as "atmosphere will finish it" and refuses to
 	# engage. Tests that exercise the burn-up skip flip this to true.
 	var inert: bool = false
 
-	func is_inert_meteorite() -> bool:
+	func is_inert_asteroid() -> bool:
 		return inert
 
 	func _init() -> void:
@@ -275,9 +275,9 @@ func test_does_not_engage_when_los_blocked() -> void:
 	assert_close(enemy.hp, 100.0)
 
 
-func test_does_not_engage_inert_meteorite() -> void:
-	# A meteorite that's been chipped down past the atmospheric burn-up
-	# threshold reports `is_inert_meteorite() == true`. Lasers should
+func test_does_not_engage_inert_asteroid() -> void:
+	# A asteroid that's been chipped down past the atmospheric burn-up
+	# threshold reports `is_inert_asteroid() == true`. Lasers should
 	# disengage so they re-allocate fire to remaining live threats
 	# rather than burning energy on a body the atmosphere will finish.
 	var w := LaserWeapon.new()

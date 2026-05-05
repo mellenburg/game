@@ -206,7 +206,7 @@ func _update_kill_stats(orbital_set: Node) -> void:
 	# Read tallies straight off the controller — no signal plumbing
 	# needed; the HUD already polls orbital_set every tick anyway.
 	var shot: int = orbital_set.enemies_shot_down
-	var hit: int = orbital_set.meteorites_impacted
+	var hit: int = orbital_set.asteroids_impacted
 	# Wave tracker prepended above the eliminated stats. Hidden when
 	# the controller has no live mission scheduler (direct main.tscn
 	# boot, debug sandbox) — the readout would always read "0/0" in

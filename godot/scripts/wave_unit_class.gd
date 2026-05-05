@@ -179,7 +179,7 @@ func time_spread_sec() -> float:
 
 
 # Approximate lateral spread in km equivalent to the configured arc,
-# given the wave-unit's spawn altitude. SpawnDirector hands MeteoriteWave
+# given the wave-unit's spawn altitude. SpawnDirector hands AsteroidWave
 # this value so the existing tangent / bitangent body placement keeps
 # working unchanged. altitude * sin(arc/2) gives the chord half-length
 # the arc subtends; for arc=180° this maxes at the full altitude (so

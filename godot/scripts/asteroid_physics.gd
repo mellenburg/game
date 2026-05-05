@@ -1,6 +1,6 @@
-class_name MeteorPhysics
+class_name AsteroidPhysics
 extends RefCounted
-## Game-side meteor physics: atmospheric burn-up threshold, density
+## Game-side asteroid physics: atmospheric burn-up threshold, density
 ## sampling, HP-from-mass formula, and the three damage-radius bands
 ## (light / moderate / heavy) that drive both the 3D impact explosion
 ## and the impact-map overlay.
@@ -17,7 +17,7 @@ extends RefCounted
 ##
 ## Below the burn-up threshold (10 metric tons / 10 Mg / 1e4 kg) bodies
 ## are treated as fully ablating in the atmosphere and never produce
-## a recorded surface impact. EarthSystem._record_meteorite_impact
+## a recorded surface impact. EarthSystem._record_asteroid_impact
 ## reads `is_burn_up()` to gate that branch.
 
 # Below this mass (kg) a body is assumed to fully burn up in the
@@ -54,7 +54,7 @@ const HP_PER_KG_PER_DENSITY: float = 0.003
 
 # Composition classes, modeled on the dominant asteroid taxonomic
 # bins. Densities are bulk values in g/cm^3, ranges drawn from the
-# meteoritics literature (carbonaceous chondrites, ordinary
+# __KEEP_ASTEROIDITICS__ literature (carbonaceous chondrites, ordinary
 # chondrites, stony-iron, iron). Weights approximate the near-Earth
 # population: stony dominates; iron is rare but heavy.
 const COMP_C_TYPE: int = 0     # carbonaceous chondrite (~15%)
@@ -110,7 +110,7 @@ static func hp_for(mass_kg: float, density_g_cm3: float) -> float:
 
 ## Inverse of `hp_for`: the mass corresponding to a given HP and
 ## density. Used by the live-damage path on Satellite to keep
-## meteorite mass coupled to HP — chip away an asteroid's hit points
+## asteroid mass coupled to HP — chip away an asteroid's hit points
 ## and its physical mass shrinks proportionally, which feeds back
 ## into impact damage radius (smaller) and railgun deflection
 ## efficiency (larger Δv per slug as the rock gets lighter).
@@ -184,7 +184,7 @@ static func sample_log_uniform(
 ## threshold, 1.0 for a body at `MARKER_LOG_DECADES` decades above,
 ## clamped at the endpoints so any mass produces a finite, monotonic
 ## scale. Lets the 3D marker and the impact-map / radar overlays
-## share a single size envelope across the meteorite mass range.
+## share a single size envelope across the asteroid mass range.
 const MARKER_LOG_REF_KG: float = BURN_UP_THRESHOLD_KG
 const MARKER_LOG_DECADES: float = 8.0
 static func mass_log_norm(mass_kg: float) -> float:

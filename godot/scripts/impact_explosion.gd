@@ -1,7 +1,7 @@
 class_name ImpactExplosion
 extends Node3D
 ## Short-lived yellow-orange sphere that grows then shrinks to mark a
-## meteorite ground impact. Self-frees when the animation completes.
+## asteroid ground impact. Self-frees when the animation completes.
 ##
 ## Spawned per impact (rare event — at most a handful per storm), so
 ## the per-instance mesh + material allocation is fine here. Position
@@ -9,13 +9,13 @@ extends Node3D
 ## Earth: the visual is brief enough that planet rotation is invisible.
 
 const Satellite = preload("res://scripts/satellite.gd")
-const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 
 # Wall-clock duration. Kept short so high time_factor doesn't let the
 # explosion drift visibly off the rotating surface.
 const DURATION: float = 0.5
 # Peak sphere radius is now derived from the impacting body's mass via
-# MeteorPhysics.damage_radii_km — the moderate-tier blast radius
+# AsteroidPhysics.damage_radii_km — the moderate-tier blast radius
 # anchors the visual so the 3D explosion roughly matches the
 # corresponding ring on the impact map. Multiplied by VISUAL_GAIN
 # because real-world km radii (Tunguska ~60 km moderate) are tiny
@@ -41,10 +41,10 @@ var _mat: StandardMaterial3D
 
 
 ## Map an impactor's mass (kg) onto a peak-radius value, using the
-## moderate-tier damage radius from MeteorPhysics scaled for visual
+## moderate-tier damage radius from AsteroidPhysics scaled for visual
 ## readability against Earth.
 static func mass_to_peak_radius_km(mass_kg: float) -> float:
-	var radii := MeteorPhysics.damage_radii_km(mass_kg)
+	var radii := AsteroidPhysics.damage_radii_km(mass_kg)
 	var raw := float(radii["moderate"]) * VISUAL_GAIN
 	return clampf(raw, MIN_RADIUS_KM, MAX_RADIUS_KM)
 
