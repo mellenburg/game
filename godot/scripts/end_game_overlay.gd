@@ -109,8 +109,8 @@ func _build_ui() -> void:
 	# Tallened to fit the SURFACE section's atmospheric-burnup pair
 	# (bodies fully ablated + HP lost to atmospheric entry) added
 	# alongside the impact totals.
-	_root_panel.offset_top = -285
-	_root_panel.offset_bottom = 285
+	_root_panel.offset_top = -313
+	_root_panel.offset_bottom = 313
 	add_child(_root_panel)
 
 	var pad := MarginContainer.new()
@@ -196,6 +196,15 @@ func _render_summary(summary: Dictionary) -> void:
 	))
 	_content_root.add_child(_kv_row(
 		"HP deflected", "%.0f" % deflected_hp,
+	))
+
+	var captured_count := int(summary.get("asteroids_captured", 0))
+	var captured_hp := float(summary.get("captured_hp", 0.0))
+	_content_root.add_child(_kv_row(
+		"Captured (stable orbit)", "%d" % captured_count,
+	))
+	_content_root.add_child(_kv_row(
+		"Total captured HP", "%.0f" % captured_hp,
 	))
 
 	_content_root.add_child(_hr())

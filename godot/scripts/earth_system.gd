@@ -91,6 +91,10 @@ var atmosphere_burnup_hp: float = 0.0
 # Breakup fragments that escaped the system on a hyperbolic trajectory.
 var asteroids_deflected: int = 0
 var deflected_hp: float = 0.0
+# Breakup fragments that settled into a stable bound orbit (purple) —
+# neither impacting nor escaping.
+var asteroids_captured: int = 0
+var captured_hp: float = 0.0
 # Snapshots of player satellites that died during the run. Each entry
 # is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
 # the moment of death so the end-of-run summary can credit a unit
@@ -414,7 +418,7 @@ func _check_mission_complete() -> void:
 
 func _any_live_enemies() -> bool:
 	for sat in real_satellites:
-		if sat.team == Satellite.TEAM_ENEMY and sat.alive:
+		if sat.team == Satellite.TEAM_ENEMY and sat.alive and not sat.is_stable_orbit:
 			return true
 	return false
 
@@ -633,6 +637,9 @@ func _spawn_breakup_children() -> void:
 			sat.orbit = child_orbit
 			satellite_container.add_child(sat)
 			real_satellites.append(sat)
+			if stable:
+				asteroids_captured += 1
+				captured_hp += sat.hp
 
 
 # Build the end-of-run report. Combines live player-satellite tallies
@@ -670,6 +677,8 @@ func end_game_summary() -> Dictionary:
 		"atmosphere_burnup_hp": atmosphere_burnup_hp,
 		"asteroids_deflected": asteroids_deflected,
 		"deflected_hp": deflected_hp,
+		"asteroids_captured": asteroids_captured,
+		"captured_hp": captured_hp,
 	}
 
 
