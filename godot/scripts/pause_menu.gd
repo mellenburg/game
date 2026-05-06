@@ -26,10 +26,12 @@ const COLOR_ACCENT := Color(1.0, 0.706, 0.329)
 var _root_panel: PanelContainer
 var _settings_panel: PanelContainer
 
-# Mouse mode at the moment of pausing — restored on resume so a
-# captured-look player drops back into FPS-look without an extra
-# click. If the player was browsing (visible cursor) at pause time
-# they stay browsing on resume.
+# With held-F free-look, the cursor's default state is always visible
+# — the player only captures while F is down. So pause / resume just
+# normalises to MOUSE_MODE_VISIBLE; if the operator was free-looking
+# (held F) at pause time they'd have released the key by now anyway.
+# This field is retained as a placeholder for any future logic that
+# wants to remember a richer pre-pause input state.
 var _saved_mouse_mode: Input.MouseMode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -61,7 +63,6 @@ func toggle() -> void:
 
 
 func _pause() -> void:
-	_saved_mouse_mode = Input.mouse_mode
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().paused = true
 	visible = true
@@ -72,7 +73,7 @@ func _pause() -> void:
 func _resume() -> void:
 	get_tree().paused = false
 	visible = false
-	Input.mouse_mode = _saved_mouse_mode
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 # ---------------------------------------------------------------- UI

@@ -10,8 +10,10 @@ extends Camera3D
 ##                    temporarily increase / decrease the orbit's
 ##                    inclination, pivoting the camera out of plane about
 ##                    its current location (the line of nodes).
-##   Mouse            FPS-style free-look (when captured). ESC toggles
-##                    mouse capture.
+##   F (held)         FPS-style free-look while held. Mouse is a
+##                    cursor at all other times so the operator can
+##                    click on HUD tiles / panels without first having
+##                    to release a captured cursor.
 ##
 ## Each modality has its own idle timer; after RETURN_DELAY seconds with
 ## no input on that modality, the offset eases back to the default
@@ -44,7 +46,10 @@ const RETURN_DELAY: float = 2.0
 const RETURN_BLEND_RATE: float = 3.0  # exponential approach (1/s)
 
 var world_up := Vector3(0.0, 0.0, 1.0)
-var mouse_captured: bool = true
+# Free-look gate. False by default — the cursor stays visible so the
+# operator can click HUD tiles. Held-F flips this on for the duration
+# of the press; mouse motion only feeds yaw/pitch while it's true.
+var mouse_captured: bool = false
 
 var yaw: float = 0.0
 var pitch: float = 0.0
@@ -65,11 +70,24 @@ func _ready() -> void:
 	var yp := _yaw_pitch_facing_origin(position)
 	yaw = yp.x
 	pitch = yp.y
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_apply_look()
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Free-look toggle: capture the cursor while F is held, release it
+	# the moment F is let go. Press / release are picked up via the
+	# `freelook` action so the binding can be remapped without touching
+	# this code.
+	if event.is_action_pressed("freelook"):
+		mouse_captured = true
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		return
+	if event.is_action_released("freelook"):
+		mouse_captured = false
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		return
+
 	if event is InputEventMouseMotion and mouse_captured:
 		var motion := event as InputEventMouseMotion
 		if motion.relative != Vector2.ZERO:
@@ -78,15 +96,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			pitch = clampf(pitch, -89.0, 89.0)
 			_look_idle = 0.0
 		return
-
-	if event is InputEventKey:
-		var key := event as InputEventKey
-		if key.pressed and key.keycode == KEY_ESCAPE:
-			mouse_captured = not mouse_captured
-			Input.mouse_mode = (
-				Input.MOUSE_MODE_CAPTURED if mouse_captured
-				else Input.MOUSE_MODE_VISIBLE
-			)
 
 
 func process_movement(delta: float) -> void:
