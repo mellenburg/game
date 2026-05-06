@@ -10,6 +10,7 @@ extends Control
 
 const Launch = preload("res://scripts/launch.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const UnitConfig = preload("res://scripts/unit_config.gd")
 
 const COLOR_BG := Color(0.04, 0.05, 0.07)
 const COLOR_GRID := Color(0.18, 0.20, 0.24, 0.5)
@@ -26,6 +27,8 @@ const ORBIT_COLORS: Array[Color] = [
 	Color(0.95, 0.55, 0.85),      # pink
 	Color(0.95, 0.95, 0.55),      # yellow
 ]
+
+var coverage_analysis_enabled: bool = false
 
 
 func _ready() -> void:
@@ -78,6 +81,16 @@ func _draw() -> void:
 	draw_circle(center, planet_r, COLOR_PLANET)
 	draw_arc(center, planet_r, 0.0, TAU, 64, COLOR_PLANET_RING, 1.0)
 
+	# Determine max DPS for coverage analysis scaling
+	var max_dps: float = 0.0
+	if coverage_analysis_enabled:
+		for launch: Launch in PlayerLoadout.launches:
+			if launch.has_unit():
+				var unit: UnitConfig = PlayerLoadout.unit_for_id(launch.unit_id)
+				if unit != null:
+					var stats := unit.summary_stats()
+					max_dps = maxf(max_dps, float(stats.get("laser_dps_total", 0.0)))
+
 	# Per-launch orbits
 	for i in range(PlayerLoadout.launches.size()):
 		var launch: Launch = PlayerLoadout.launches[i]
@@ -89,6 +102,8 @@ func _draw() -> void:
 			color = Color(color.r, color.g, color.b, 0.35)
 		_draw_orbit(launch, center, px_per_km, color)
 		_draw_label(launch, center, px_per_km, color)
+		if launch.has_unit():
+			_draw_laser_ranges(launch, center, px_per_km, color, max_dps)
 
 
 # Project the launch's orbit (circular or elliptical) onto the screen
@@ -188,3 +203,71 @@ func _draw_label(
 		font, marker_pos + Vector2(8, 4),
 		text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color,
 	)
+
+
+func _draw_laser_ranges(
+	launch: Launch,
+	center: Vector2,
+	px_per_km: float,
+	color: Color,
+	max_dps: float
+) -> void:
+	var unit: UnitConfig = PlayerLoadout.unit_for_id(launch.unit_id)
+	if unit == null:
+		return
+	var stats := unit.summary_stats()
+	var laser_count := int(stats.get("laser_count", 0))
+	if laser_count == 0:
+		return
+
+	var rayleigh_km := float(stats.get("laser_rayleigh_range_km", 0.0))
+	var max_range_km := float(stats.get("laser_max_range", 0.0))
+	var dps := float(stats.get("laser_dps_total", 0.0))
+
+	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
+	var p_km: float = r_p_km * (1.0 + e)
+	var i_rad: float = deg_to_rad(launch.inclination_deg)
+	var raan_rad: float = deg_to_rad(launch.raan_deg)
+	var argp_rad: float = deg_to_rad(launch.argp_deg)
+	var cos_raan: float = cos(raan_rad)
+	var sin_raan: float = sin(raan_rad)
+	var cos_i: float = cos(i_rad)
+	var cos_w: float = cos(argp_rad)
+	var sin_w: float = sin(argp_rad)
+
+	if coverage_analysis_enabled and max_dps > 0.0:
+		var alpha := clampf(dps / max_dps, 0.0, 1.0) * 0.05
+		var blob_color := Color(color.r, color.g, color.b, alpha)
+		const SEGMENTS: int = 96
+		for k in range(SEGMENTS):
+			var theta: float = (TAU * float(k)) / float(SEGMENTS)
+			var r_at: float = p_km / (1.0 + e * cos(theta))
+			var px: float = r_at * cos(theta)
+			var py: float = r_at * sin(theta)
+			var qx: float = px * cos_w - py * sin_w
+			var qy: float = px * sin_w + py * cos_w
+			var marker_x: float = qx * cos_raan - qy * cos_i * sin_raan
+			var marker_y: float = qx * sin_raan + qy * cos_i * cos_raan
+			var pos: Vector2 = center + Vector2(marker_x, -marker_y) * px_per_km
+
+			draw_circle(pos, max_range_km * px_per_km, blob_color)
+			draw_circle(pos, rayleigh_km * px_per_km, blob_color)
+	else:
+		var nu_rad: float = deg_to_rad(launch.true_anomaly_deg)
+		var r_nu: float = p_km / (1.0 + e * cos(nu_rad))
+		var px_nu: float = r_nu * cos(nu_rad)
+		var py_nu: float = r_nu * sin(nu_rad)
+		var qx: float = px_nu * cos_w - py_nu * sin_w
+		var qy: float = px_nu * sin_w + py_nu * cos_w
+		var marker_x: float = qx * cos_raan - qy * cos_i * sin_raan
+		var marker_y: float = qx * sin_raan + qy * cos_i * cos_raan
+		var pos: Vector2 = center + Vector2(marker_x, -marker_y) * px_per_km
+
+		var near_color := Color(color.r, color.g, color.b, 0.8)
+		var far_color := Color(color.r, color.g, color.b, 0.3)
+
+		# We draw ranges using draw_arc so they look like empty circles
+		# draw_arc(center: Vector2, radius: float, start_angle: float, end_angle: float, point_count: int, color: Color, width: float=-1.0, antialiased: bool=false)
+		draw_arc(pos, rayleigh_km * px_per_km, 0.0, TAU, 64, near_color, 1.0, true)
+		draw_arc(pos, max_range_km * px_per_km, 0.0, TAU, 64, far_color, 1.0, true)
