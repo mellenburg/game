@@ -437,6 +437,7 @@ func _physics_process(delta: float) -> void:
 	# position each frame — non-physical but the tracer stays pointed
 	# at something the operator can recognise.
 	slug_renderer.tick(sim_delta)
+	_spawn_breakup_children()
 	_remove_dead_satellites()
 
 	if planning_mode:
@@ -491,11 +492,15 @@ func _remove_dead_satellites() -> void:
 		if sat.alive and sat.orbit_alive:
 			i += 1
 			continue
+		# Broken-up bodies were neither shot down nor impacted — they
+		# fragmented into children which are tracked separately.
+		if sat.pending_breakup:
+			pass
 		# Tally enemy terminations by cause: HP gone -> shot down by a
 		# weapon; sub-orbital body (asteroid or post-burn decaying
 		# enemy) still has HP -> ground impact (advance_time kills it
 		# on surface crossing without touching hp).
-		if sat.team == Satellite.TEAM_ENEMY:
+		elif sat.team == Satellite.TEAM_ENEMY:
 			if sat.hp <= 0.0:
 				enemies_shot_down += 1
 			elif sat.is_asteroid or sat.is_decaying:
@@ -546,6 +551,55 @@ func _remove_dead_satellites() -> void:
 	# Picking a fresh selection above can leave the new ship un-highlighted.
 	if not real_satellites[selected_ship].selected:
 		real_satellites[selected_ship].select()
+
+
+# Drain breakup events from the combat controller and materialise each
+# fragment as a new asteroid satellite. Called between slug_renderer.tick()
+# (which fires on_arrival callbacks that may queue breakups) and
+# _remove_dead_satellites() so the children are in real_satellites before
+# the broken-up parent is swept out, keeping the array contiguous.
+#
+# Children inherit the parent's position (orbit.r at breakup time), density,
+# and composition. Each gets its own EarthOrbit from the momentum-conserving
+# velocity vector computed by AsteroidBreakup.compute_children. Their HP is
+# derived from mass × density via AsteroidPhysics.hp_for so the damage
+# model stays consistent with how the parent was scaled.
+func _spawn_breakup_children() -> void:
+	var pending: Array[Dictionary] = combat_controller.drain_pending_breakups()
+	if pending.is_empty():
+		return
+	for breakup: Dictionary in pending:
+		var pos: Vector3 = breakup["position"]
+		var density: float = float(breakup["density"])
+		var composition: int = int(breakup["composition"])
+		var children: Array[Dictionary] = breakup["children"]
+		for child: Dictionary in children:
+			var mass: float = float(child["mass"])
+			var velocity: Vector3 = child["velocity"]
+			# Skip degenerate fragments. Mass < 1 kg guards against floating-
+			# point residuals. An invalid orbit (near-zero velocity → h = r×v
+			# = 0 → NaN elements in _recompute_elements) means the fragment
+			# is effectively stationary and would fall through Earth in the
+			# same physics tick — safe to drop rather than creating a
+			# short-lived satellite that scores a spurious impact at the
+			# breakup position instead of at the surface.
+			if mass < 1.0:
+				continue
+			var child_orbit := EarthOrbit.new(pos, velocity)
+			if not child_orbit.is_state_valid():
+				continue
+			var sat := Satellite.new()
+			sat.team = Satellite.TEAM_ENEMY
+			sat.weapons.clear()
+			sat.is_asteroid = true
+			sat.mass = mass
+			sat.density_g_cm3 = density
+			sat.composition = composition
+			sat.max_hp = AsteroidPhysics.hp_for(mass, density)
+			sat.hp = sat.max_hp
+			sat.orbit = child_orbit
+			satellite_container.add_child(sat)
+			real_satellites.append(sat)
 
 
 # Build the end-of-run report. Combines live player-satellite tallies

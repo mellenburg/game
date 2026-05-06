@@ -330,6 +330,25 @@ var max_orbital_radius_km: float = DEFAULT_MAX_ORBITAL_RADIUS_KM
 # across player units.
 var railgun_enabled: bool = true
 
+# Asteroid-breakup parameters. Only meaningful on is_asteroid / is_decaying
+# bodies; player ships and unarmed enemies never enter the breakup path.
+# breakup_threshold  HP fraction at which a railgun hit can trigger breakup.
+#   Hit must take HP from ≥ threshold down to < threshold.
+# breakup_chance     Probability (0–1) of breakup actually occurring once the
+#   threshold crossing is confirmed.
+# breakup_children_min/max  Range for the number of fragment satellites.
+# breakup_deflection_deg    Half-angle cone within which each fragment's
+#   velocity direction can deviate from the parent's.
+var breakup_threshold: float = 0.65
+var breakup_chance: float = 0.5
+var breakup_children_min: int = 1
+var breakup_children_max: int = 3
+var breakup_deflection_deg: float = 20.0
+# Set by CombatController when a breakup is triggered on this body.
+# EarthSystem's _remove_dead_satellites checks this to skip the normal
+# impact-accounting path (the body didn't reach Earth — it broke apart).
+var pending_breakup: bool = false
+
 # Cached absolute simulated time at which this body's current
 # trajectory crosses Earth's surface. NAN means "unknown — compute on
 # next access"; INF means "no impact within the propagator's horizon"
@@ -974,6 +993,11 @@ func clone_orbit_from(other: Satellite) -> void:
 	thrust_n = other.thrust_n
 	max_orbital_radius_km = other.max_orbital_radius_km
 	railgun_enabled = other.railgun_enabled
+	breakup_threshold = other.breakup_threshold
+	breakup_chance = other.breakup_chance
+	breakup_children_min = other.breakup_children_min
+	breakup_children_max = other.breakup_children_max
+	breakup_deflection_deg = other.breakup_deflection_deg
 	# Mirror the cache so the planning preview's HUD ranking matches
 	# the real fleet's. The stored value is an absolute sim-time, so
 	# the planning sat — which lives on the same sim clock as reality
@@ -1165,6 +1189,16 @@ func _apply_path_style() -> void:
 	path_visual.line_width_px = width
 	_path_alpha = alpha
 	_apply_path_color()
+
+
+## Mark this body as broken into fragments. Sets alive = false so the
+## removal loop catches it, sets pending_breakup = true so the removal
+## loop skips impact accounting (the body never reached the surface),
+## and hides the 3D marker + path immediately.
+func mark_broken_up() -> void:
+	alive = false
+	pending_breakup = true
+	_hide_visuals()
 
 
 func _hide_visuals() -> void:
