@@ -180,6 +180,10 @@ const MISSION_NEXUS_CONE_HALF_ANGLE_DEG: float = 20.0
 # array directly, so any new wave appended here is visible without an
 # extra wiring step.
 var asteroid_waves: Array[AsteroidWave] = []
+# Mirrors ReconSettings.perigee_burn_enabled; set from EarthSystem after
+# the mission settings snapshot so every subsequent decaying-orbit spawn
+# respects the player's toggle. False by default (atmospheric drag only).
+var perigee_burn_enabled: bool = false
 
 var _rng := RandomNumberGenerator.new()
 var _satellite_container: Node3D = null
@@ -946,6 +950,7 @@ func _make_decaying_enemy(mass: float, density: float = -1.0, composition: int =
 	sat.composition = composition
 	sat.max_hp = AsteroidPhysics.hp_for(mass, density)
 	sat.hp = sat.max_hp
+	sat.perigee_burn_enabled = perigee_burn_enabled
 
 	# Sample perigee uniformly across the atmospheric zone: ablation floor
 	# (safe_alt − 90 km) to safe orbit altitude. For Earth: 60–150 km.

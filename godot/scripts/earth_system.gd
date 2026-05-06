@@ -225,6 +225,7 @@ func _ready() -> void:
 	# sandbox where waves are only triggered by the debug keybinds.
 	if _player_loadout_is_launched():
 		_mission_settings = _player_loadout_recon_settings()
+		spawn_director.perigee_burn_enabled = _mission_settings.perigee_burn_enabled
 		mission = Mission.new()
 		mission.start_from_settings(_mission_settings)
 

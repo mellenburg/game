@@ -250,13 +250,17 @@ var alive: bool = true
 # Earth) and to terminate the entity on ground contact.
 var is_asteroid: bool = false
 # Decaying-orbit enemy: spawned just past apogee on a highly eccentric
-# ellipse, descending. Each perigee crossing fires a retrograde burn
-# that halves r_a, so the orbit spirals inward; once the burn drops
-# the trailing apsis below the surface the body impacts on its next
-# descending leg. Drives both the burn step in advance_time and the
-# render dispatch (full ellipse while r_p ≥ R, truncated trajectory
-# once r_p dips below the surface).
+# ellipse, descending. Atmospheric drag lowers its apoapsis every tick
+# while its current radius is inside the atmosphere. Drives the render
+# dispatch (full ellipse while r_p ≥ impact_r, truncated spiral once
+# r_p dips below) and the atmospheric decay in advance_time.
 var is_decaying: bool = false
+# Whether this decaying-orbit body also fires a retrograde burn at each
+# perigee crossing that halves r_a on top of the continuous atmospheric
+# drag. Controlled by ReconSettings.perigee_burn_enabled; off by default
+# so atmospheric drag alone drives decay — the burn is an opt-in harder
+# mode set at spawn time by SpawnDirector.
+var perigee_burn_enabled: bool = false
 # Surface installation: anchored to a point on Earth's surface, rotating
 # with the planet's daily phase rather than following Keplerian motion.
 # EarthSystem detects the flag in _physics_process and skips advance_time
@@ -725,6 +729,7 @@ func advance_time(delta_time: float) -> void:
 	# this function terminates the body on its descent.
 	if (
 		is_decaying
+		and perigee_burn_enabled
 		and r_dot_v_before < 0.0
 		and orbit.r.dot(orbit.v) > 0.0
 	):
@@ -945,6 +950,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	alive = other.alive
 	is_asteroid = other.is_asteroid
 	is_decaying = other.is_decaying
+	perigee_burn_enabled = other.perigee_burn_enabled
 	is_surface = other.is_surface
 	surface_lat_deg = other.surface_lat_deg
 	surface_lon_deg = other.surface_lon_deg

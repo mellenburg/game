@@ -31,6 +31,11 @@ const SIZE_GAMMA: int = 2
 @export var beta_class: WaveUnitClass
 @export var gamma_class: WaveUnitClass
 @export var waves: Array[WaveComposition] = []
+# When true, each decaying-orbit threat fires a retrograde burn at every
+# perigee crossing that halves its apoapsis — spiralling the orbit inward
+# on top of the continuous atmospheric drag. Off by default so atmospheric
+# decay alone drives the behaviour; enable for a harder / more chaotic mode.
+@export var perigee_burn_enabled: bool = false
 
 
 func _init() -> void:
@@ -139,4 +144,5 @@ func duplicate_settings() -> ReconSettings:
 	for w in waves:
 		copy.append(w.duplicate_composition())
 	s.waves = copy
+	s.perigee_burn_enabled = perigee_burn_enabled
 	return s

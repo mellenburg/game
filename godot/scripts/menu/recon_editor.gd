@@ -109,6 +109,7 @@ func _rebuild_ui() -> void:
 
 func _build_ui() -> void:
 	add_child(_build_classes_section())
+	add_child(_build_gameplay_section())
 	add_child(_build_waves_section())
 
 
@@ -297,6 +298,52 @@ func _single_value_slider(
 			on_change.call(v)
 	)
 	return col
+
+
+# ============================================================
+# Section 1b — gameplay options
+# ============================================================
+
+func _build_gameplay_section() -> Control:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _flat_stylebox(COLOR_PANEL))
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 16)
+	pad.add_theme_constant_override("margin_right", 16)
+	pad.add_theme_constant_override("margin_top", 12)
+	pad.add_theme_constant_override("margin_bottom", 12)
+	panel.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	pad.add_child(col)
+
+	var header := Label.new()
+	header.text = "GAMEPLAY OPTIONS"
+	header.add_theme_color_override("font_color", COLOR_ACCENT)
+	header.add_theme_font_size_override("font_size", 13)
+	col.add_child(header)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	col.add_child(row)
+
+	var cb := CheckBox.new()
+	cb.button_pressed = _settings.perigee_burn_enabled
+	cb.toggled.connect(
+		func(v: bool) -> void: _settings.perigee_burn_enabled = v
+	)
+	row.add_child(cb)
+
+	var lbl := Label.new()
+	lbl.text = "Decaying-orbit perigee burns (harder)"
+	lbl.add_theme_color_override("font_color", COLOR_FG)
+	lbl.add_theme_font_size_override("font_size", 12)
+	row.add_child(lbl)
+
+	return panel
 
 
 # ============================================================
