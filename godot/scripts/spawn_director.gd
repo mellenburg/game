@@ -1,7 +1,7 @@
 class_name SpawnDirector
 extends Node
 ## Owns the PvE spawn behaviours — starting fleet, random enemy drops,
-## meteorite storms, time-distributed meteorite waves, and the
+## asteroid storms, time-distributed asteroid waves, and the
 ## decaying-orbit enemy. EarthSystem wires this with the satellite
 ## container and the shared real_satellites array at _ready, then routes
 ## input-bound spawn requests through it. Pure spawn logic; no combat,
@@ -11,7 +11,7 @@ extends Node
 
 const Satellite = preload("res://scripts/satellite.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
-const MeteoriteWave = preload("res://scripts/meteorite_wave.gd")
+const AsteroidWave = preload("res://scripts/asteroid_wave.gd")
 const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
@@ -22,7 +22,7 @@ const SurfacePosition = preload("res://scripts/surface_position.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
 const Launch = preload("res://scripts/launch.gd")
 const WaveUnitClass = preload("res://scripts/wave_unit_class.gd")
-const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 
 const ENEMIES_PER_SPAWN: int = 3
 const ENEMY_ALT_MIN_KM: float = 600.0
@@ -39,14 +39,14 @@ const STARTING_SAT_INC_MAX_DEG: float = 60.0
 const STARTING_SAT_NU_GAP_MIN_DEG: float = 80.0
 const STARTING_SAT_NU_GAP_MAX_DEG: float = 160.0
 
-# Meteorite storms: a small cluster of fragile, sub-orbital bodies all
+# Asteroid storms: a small cluster of fragile, sub-orbital bodies all
 # incoming from one random direction. Spawned high enough to give the
 # player a window to engage, with the per-body velocity post-clamped
-# (see _make_meteorite) to guarantee a sub-surface periapsis — so every
+# (see _make_asteroid) to guarantee a sub-surface periapsis — so every
 # storm body genuinely impacts within a few minutes of sim time.
-const METEORITES_PER_STORM: int = 3
-const METEORITE_ALT_MIN_KM: float = 40000.0
-const METEORITE_ALT_MAX_KM: float = 70000.0
+const ASTEROIDS_PER_STORM: int = 3
+const ASTEROID_ALT_MIN_KM: float = 40000.0
+const ASTEROID_ALT_MAX_KM: float = 70000.0
 # Inward radial dominates; the tangential share is small but non-zero so
 # the trajectories fan out over time. After spawn, each body's velocity
 # is clamped (EarthOrbit.clamp_velocity_for_periapsis) to guarantee
@@ -54,43 +54,43 @@ const METEORITE_ALT_MAX_KM: float = 70000.0
 # per-axis jitter can pump enough angular momentum into the orbit to
 # lift periapsis above ground, which both removes the trajectory arc
 # from the renderer and breaks the impact-on-ground gameplay rule.
-const METEORITE_RADIAL_SPEED_MIN: float = 4.0
-const METEORITE_RADIAL_SPEED_MAX: float = 7.0
-const METEORITE_TANGENTIAL_SPEED_MIN: float = 0.4
-const METEORITE_TANGENTIAL_SPEED_MAX: float = 1.6
-# Target periapsis (km) for clamped meteorite trajectories: 90% of the
+const ASTEROID_RADIAL_SPEED_MIN: float = 4.0
+const ASTEROID_RADIAL_SPEED_MAX: float = 7.0
+const ASTEROID_TANGENTIAL_SPEED_MIN: float = 0.4
+const ASTEROID_TANGENTIAL_SPEED_MAX: float = 1.6
+# Target periapsis (km) for clamped asteroid trajectories: 90% of the
 # active body's surface radius. Strictly less than the surface so the
 # surface-cross termination is unambiguous under propagator step-size
 # (it samples r at step boundaries and via the perihelion-cross detector).
 # Surfaces as a function because EarthOrbit.EARTH_RADIUS_KM is now a
 # runtime-mutable static var (per-mission body) — a `const` would
 # refuse to compile against a non-constant initialiser.
-const METEORITE_PERIAPSIS_TARGET_FRACTION: float = 0.9
+const ASTEROID_PERIAPSIS_TARGET_FRACTION: float = 0.9
 
-static func meteorite_periapsis_target_km() -> float:
-	return EarthOrbit.EARTH_RADIUS_KM * METEORITE_PERIAPSIS_TARGET_FRACTION
+static func asteroid_periapsis_target_km() -> float:
+	return EarthOrbit.EARTH_RADIUS_KM * ASTEROID_PERIAPSIS_TARGET_FRACTION
 # Cluster scatter relative to the storm's nominal entry point. Thousands
 # of km of lateral offset + altitude jitter so the three trajectory
 # lines fan out clearly on screen rather than overlapping; per-axis
 # velocity jitter peels each path further apart over time.
-const METEORITE_LATERAL_SPREAD_KM: float = 6000.0
-const METEORITE_ALT_JITTER_KM: float = 3000.0
-const METEORITE_VELOCITY_JITTER: float = 0.8
+const ASTEROID_LATERAL_SPREAD_KM: float = 6000.0
+const ASTEROID_ALT_JITTER_KM: float = 3000.0
+const ASTEROID_VELOCITY_JITTER: float = 0.8
 
 # Size-class mass bands, in kg. The bands are non-overlapping at the
 # class boundaries (small max == medium min) so a body's class is a
 # function of where its mass was sampled, never an independent label.
-# Re-exported from MeteorPhysics so existing call-sites and tests
+# Re-exported from AsteroidPhysics so existing call-sites and tests
 # (test_wave_mix.gd) can keep the SpawnDirector qualifier; the actual
-# physics constants live alongside the rest of the meteor calibration.
-const SMALL_MASS_MIN_KG: float = MeteorPhysics.SMALL_MASS_MIN_KG
-const SMALL_MASS_MAX_KG: float = MeteorPhysics.SMALL_MASS_MAX_KG
-const MEDIUM_MASS_MIN_KG: float = MeteorPhysics.MEDIUM_MASS_MIN_KG
-const MEDIUM_MASS_MAX_KG: float = MeteorPhysics.MEDIUM_MASS_MAX_KG
-const LARGE_MASS_MIN_KG: float = MeteorPhysics.LARGE_MASS_MIN_KG
-const LARGE_MASS_MAX_KG: float = MeteorPhysics.LARGE_MASS_MAX_KG
-const EXTRA_LARGE_MASS_MIN_KG: float = MeteorPhysics.EXTRA_LARGE_MASS_MIN_KG
-const EXTRA_LARGE_MASS_MAX_KG: float = MeteorPhysics.EXTRA_LARGE_MASS_MAX_KG
+# physics constants live alongside the rest of the asteroid calibration.
+const SMALL_MASS_MIN_KG: float = AsteroidPhysics.SMALL_MASS_MIN_KG
+const SMALL_MASS_MAX_KG: float = AsteroidPhysics.SMALL_MASS_MAX_KG
+const MEDIUM_MASS_MIN_KG: float = AsteroidPhysics.MEDIUM_MASS_MIN_KG
+const MEDIUM_MASS_MAX_KG: float = AsteroidPhysics.MEDIUM_MASS_MAX_KG
+const LARGE_MASS_MIN_KG: float = AsteroidPhysics.LARGE_MASS_MIN_KG
+const LARGE_MASS_MAX_KG: float = AsteroidPhysics.LARGE_MASS_MAX_KG
+const EXTRA_LARGE_MASS_MIN_KG: float = AsteroidPhysics.EXTRA_LARGE_MASS_MIN_KG
+const EXTRA_LARGE_MASS_MAX_KG: float = AsteroidPhysics.EXTRA_LARGE_MASS_MAX_KG
 
 const SIZE_SMALL: int = 0
 const SIZE_MEDIUM: int = 1
@@ -98,7 +98,7 @@ const SIZE_LARGE: int = 2
 const SIZE_EXTRA_LARGE: int = 3
 
 # Per-class count bands within a single 20-body wave. The constraint
-# that the four counts sum to METEORITE_WAVE_COUNT means the medium
+# that the four counts sum to ASTEROID_WAVE_COUNT means the medium
 # count is bracketed by the residual after picking large + extra-large;
 # see _sample_size_class_counts for the derivation. The bands have to
 # satisfy SMALL_MAX + MEDIUM_MAX + LARGE_MIN + EXTRA_LARGE_MIN >= TOTAL,
@@ -116,11 +116,11 @@ const WAVE_EXTRA_LARGE_COUNT_MAX: int = 2
 
 # Of the medium / large bodies in a wave, this many become decaying-
 # orbit threats (highly eccentric, perigee-burn spiral) rather than
-# sub-orbital meteorites. Small bodies are always plain meteorites.
+# sub-orbital asteroids. Small bodies are always plain asteroids.
 const WAVE_DECAYING_COUNT_MIN: int = 4
 const WAVE_DECAYING_COUNT_MAX: int = 8
 
-# Wave mode: 20 meteorites from a single shared nexus, arrival times
+# Wave mode: 20 asteroids from a single shared nexus, arrival times
 # distributed uniformly across a sim-time window so the player has
 # continuous incoming traffic rather than a single burst. A radar
 # warning window precedes the spawn window so the operator gets time
@@ -128,12 +128,12 @@ const WAVE_DECAYING_COUNT_MAX: int = 8
 # warning period, then begin entering play once their per-body timer
 # elapses. Both values are in *sim-seconds*: the wave's tick advances
 # in sim-time so they automatically rescale with time_factor changes.
-const METEORITE_WAVE_COUNT: int = 20
+const ASTEROID_WAVE_COUNT: int = 20
 # 10 minutes of sim-time spread for the manual debug wave (I key);
 # loosely matches the legacy 10-real-second window at the previous
 # time_factor=500 default (5000 sim-sec) but rounded down so the
 # debug wave finishes spawning quickly during a playtest.
-const METEORITE_WAVE_DURATION_SEC: float = 600.0
+const ASTEROID_WAVE_DURATION_SEC: float = 600.0
 # Default radar warning window when Research is unavailable (e.g. a
 # direct main.tscn boot with no autoload). Mission gameplay reads
 # the warning window off Research.wave_warning_seconds(), which
@@ -164,19 +164,19 @@ const DECAYING_DEFAULT_MASS_KG: float = 1.0e8
 # Half-angle of the cone within which a single mission wave's wave-
 # units cluster around its base entry direction. ~20° gives a "broad,
 # lumpy" group while still reading as one arrival from one quadrant of
-# the sky. Each wave-unit is itself a 20-body meteorite wave with its
+# the sky. Each wave-unit is itself a 20-body asteroid wave with its
 # own ~7° internal lateral spread, so the visible footprint of a wave
 # on radar covers roughly 50° of arc — wide, but unmistakeably one
 # coordinated assault rather than scattered noise.
 const MISSION_NEXUS_CONE_HALF_ANGLE_DEG: float = 20.0
 
-# Active meteorite waves. Each carries its own nexus + queue of pending
+# Active asteroid waves. Each carries its own nexus + queue of pending
 # spawn delays; ticked from the controller's _process so the spawn
 # window is real-time and independent of time_factor (so pausing the
 # sim doesn't pause an in-flight wave). The radar overlay binds to this
 # array directly, so any new wave appended here is visible without an
 # extra wiring step.
-var meteorite_waves: Array[MeteoriteWave] = []
+var asteroid_waves: Array[AsteroidWave] = []
 
 var _rng := RandomNumberGenerator.new()
 var _satellite_container: Node3D = null
@@ -414,60 +414,60 @@ func add_enemies(count: int = ENEMIES_PER_SPAWN) -> void:
 		_satellites.append(sat)
 
 
-# Spawn a cluster of meteorites all incoming from one random direction
+# Spawn a cluster of asteroids all incoming from one random direction
 # — sub-orbital, unarmed, fragile. The cluster shares an entry point
 # and base velocity, jittered per body so they arrive separated by a
 # few hundred km. Lasers can pick them off in transit; any survivors
 # self-terminate on ground impact.
-func add_meteorite_storm(count: int = METEORITES_PER_STORM) -> void:
-	var wave := _build_meteorite_wave_at_random_nexus()
+func add_asteroid_storm(count: int = ASTEROIDS_PER_STORM) -> void:
+	var wave := _build_asteroid_wave_at_random_nexus()
 	for _i in range(count):
-		var spec := _sample_meteorite_spec(
-			METEORITE_LATERAL_SPREAD_KM,
-			METEORITE_ALT_JITTER_KM,
-			METEORITE_VELOCITY_JITTER,
+		var spec := _sample_asteroid_spec(
+			ASTEROID_LATERAL_SPREAD_KM,
+			ASTEROID_ALT_JITTER_KM,
+			ASTEROID_VELOCITY_JITTER,
 		)
-		var sat := _make_meteorite(
+		var sat := _make_asteroid(
 			wave.r_hat, wave.tangent, wave.base_altitude, wave.base_velocity, spec
 		)
 		_satellite_container.add_child(sat)
 		_satellites.append(sat)
 
 
-# Begin a 10-second wave: 20 meteorites all sharing one random sub-
+# Begin a 10-second wave: 20 asteroids all sharing one random sub-
 # orbital nexus, individual spawn delays drawn uniformly across the
 # window so arrivals are spread out rather than bursty. Each body's
 # size class (small / medium / large) and mass are sampled up front
 # per _sample_wave_specs; 4-8 of the medium / large slots are flipped
 # to decaying-orbit threats, which spawn on their own random elliptical
 # planes when their timer expires (the wave nexus only governs the
-# sub-orbital meteorite path). Multiple waves can overlap; each gets
-# its own MeteoriteWave entry.
-func start_meteorite_wave(
-	count: int = METEORITE_WAVE_COUNT,
-	duration_sec: float = METEORITE_WAVE_DURATION_SEC,
+# sub-orbital asteroid path). Multiple waves can overlap; each gets
+# its own AsteroidWave entry.
+func start_asteroid_wave(
+	count: int = ASTEROID_WAVE_COUNT,
+	duration_sec: float = ASTEROID_WAVE_DURATION_SEC,
 	preroll_sec: float = -1.0,
 ) -> void:
 	var warning := preroll_sec if preroll_sec >= 0.0 else _resolve_warning_sec()
-	_emit_meteorite_wave(_random_unit_vector(), count, duration_sec, warning)
+	_emit_asteroid_wave(_random_unit_vector(), count, duration_sec, warning)
 
 
-# Begin a meteorite wave whose entry direction is jittered around a
+# Begin an asteroid wave whose entry direction is jittered around a
 # caller-supplied base. The base is the per-mission-wave anchor; the
 # perturbation is sampled inside MISSION_NEXUS_CONE_HALF_ANGLE so every
 # wave-unit in a single mission wave lands inside one solid-angle
 # patch — the "broad lumpy group from one quadrant of the sky" the
 # brief calls for. Composition / preroll / spawn-window match the
-# default `start_meteorite_wave` so each wave-unit is a full 20-body
+# default `start_asteroid_wave` so each wave-unit is a full 20-body
 # burst, indistinguishable from one the I keybind would produce.
-func start_meteorite_wave_clustered(base_r_hat: Vector3) -> void:
+func start_asteroid_wave_clustered(base_r_hat: Vector3) -> void:
 	var perturbed := _perturb_unit_vector(
 		base_r_hat, deg_to_rad(MISSION_NEXUS_CONE_HALF_ANGLE_DEG)
 	)
-	_emit_meteorite_wave(
+	_emit_asteroid_wave(
 		perturbed,
-		METEORITE_WAVE_COUNT,
-		METEORITE_WAVE_DURATION_SEC,
+		ASTEROID_WAVE_COUNT,
+		ASTEROID_WAVE_DURATION_SEC,
 		_resolve_warning_sec(),
 	)
 
@@ -480,7 +480,7 @@ func sample_unit_vector() -> Vector3:
 	return _random_unit_vector()
 
 
-# Begin a meteorite wave driven by a WaveUnitClass: object count, the
+# Begin an asteroid wave driven by a WaveUnitClass: object count, the
 # decaying-orbit ratio, the per-object size mix, the time spread, and
 # the location-arc spread all come from the class's range / barycentric
 # fields. `count_override` lets Mission pre-sample and cap object
@@ -495,7 +495,7 @@ func start_wave_unit_clustered(
 	count_override: int = -1,
 ) -> void:
 	if unit_class == null:
-		start_meteorite_wave_clustered(base_r_hat)
+		start_asteroid_wave_clustered(base_r_hat)
 		return
 	var perturbed := _perturb_unit_vector(
 		base_r_hat, deg_to_rad(MISSION_NEXUS_CONE_HALF_ANGLE_DEG)
@@ -506,7 +506,7 @@ func start_wave_unit_clustered(
 	else:
 		count = unit_class.sample_count(_rng)
 	var decaying_ratio := unit_class.sample_decaying_ratio(_rng)
-	var wave := _build_meteorite_wave_at_nexus(perturbed)
+	var wave := _build_asteroid_wave_at_nexus(perturbed)
 	var spread_km := unit_class.lateral_spread_for_altitude(wave.base_altitude)
 	var duration_sec := unit_class.time_spread_sec()
 	var warning_sec := _resolve_warning_sec()
@@ -520,7 +520,7 @@ func start_wave_unit_clustered(
 	)
 	wave.warning_window_sec = warning_sec
 	wave.set_specs(specs, duration_sec, spread_km)
-	meteorite_waves.append(wave)
+	asteroid_waves.append(wave)
 	if _threat_alert != null:
 		_threat_alert.trigger()
 
@@ -591,19 +591,19 @@ func _sample_class_wave_specs(
 	return specs
 
 
-# Internal: shared body of `start_meteorite_wave` (random nexus) and
-# `start_meteorite_wave_clustered` (caller-supplied + jittered nexus).
+# Internal: shared body of `start_asteroid_wave` (random nexus) and
+# `start_asteroid_wave_clustered` (caller-supplied + jittered nexus).
 # The two paths only differ in how `r_hat` is chosen; the rest of the
 # wave construction (mass mix, decaying-orbit subset, threat alert) is
 # identical so both produce the same wave shape downstream.
-func _emit_meteorite_wave(
+func _emit_asteroid_wave(
 	r_hat: Vector3, count: int, duration_sec: float, warning_sec: float
 ) -> void:
-	var wave := _build_meteorite_wave_at_nexus(r_hat)
+	var wave := _build_asteroid_wave_at_nexus(r_hat)
 	var specs := _sample_wave_specs(count, duration_sec, warning_sec)
 	wave.warning_window_sec = warning_sec
-	wave.set_specs(specs, duration_sec, METEORITE_LATERAL_SPREAD_KM)
-	meteorite_waves.append(wave)
+	wave.set_specs(specs, duration_sec, ASTEROID_LATERAL_SPREAD_KM)
+	asteroid_waves.append(wave)
 	if _threat_alert != null:
 		_threat_alert.trigger()
 
@@ -625,7 +625,7 @@ func _perturb_unit_vector(base: Vector3, max_angle_rad: float) -> Vector3:
 # count distribution, allocate decaying-orbit slots from the medium /
 # large indices, then sample per-body fields (timer, lateral, mass).
 # Returns a typed array of pending dicts ready to drop into
-# MeteoriteWave.set_specs.
+# AsteroidWave.set_specs.
 func _sample_wave_specs(
 	count: int, duration_sec: float, preroll_sec: float
 ) -> Array[Dictionary]:
@@ -646,7 +646,7 @@ func _sample_wave_specs(
 	_shuffle_int_array(sizes)
 
 	# Flag a random subset of the medium / large indices as decaying.
-	# Small bodies are always plain meteorites (per the design), so the
+	# Small bodies are always plain asteroids (per the design), so the
 	# decaying picks are restricted to the heavier slots.
 	var heavy_indices: Array[int] = []
 	for i in range(sizes.size()):
@@ -701,25 +701,25 @@ func _sample_mass_for_class(size_class: int) -> float:
 	# same size" in the live game.
 	match size_class:
 		SIZE_SMALL:
-			return MeteorPhysics.sample_log_uniform(
+			return AsteroidPhysics.sample_log_uniform(
 				_rng, SMALL_MASS_MIN_KG, SMALL_MASS_MAX_KG
 			)
 		SIZE_MEDIUM:
-			return MeteorPhysics.sample_log_uniform(
+			return AsteroidPhysics.sample_log_uniform(
 				_rng, MEDIUM_MASS_MIN_KG, MEDIUM_MASS_MAX_KG
 			)
 		SIZE_LARGE:
-			return MeteorPhysics.sample_log_uniform(
+			return AsteroidPhysics.sample_log_uniform(
 				_rng, LARGE_MASS_MIN_KG, LARGE_MASS_MAX_KG
 			)
 		_:
-			return MeteorPhysics.sample_log_uniform(
+			return AsteroidPhysics.sample_log_uniform(
 				_rng, EXTRA_LARGE_MASS_MIN_KG, EXTRA_LARGE_MASS_MAX_KG
 			)
 
 
 # Build a single pending spec. Lateral / altitude / velocity jitter are
-# sampled the same way as the legacy populate() path so the meteorite
+# sampled the same way as the legacy populate() path so the asteroid
 # branch keeps producing the same kind of cluster spread; decaying
 # specs get the same fields just so the radar overlay has a position
 # to plot for them while the spawn-time geometry uses an independent
@@ -731,21 +731,21 @@ func _make_wave_spec(
 	is_decaying: bool,
 	duration_sec: float,
 	preroll_sec: float,
-	lateral_spread_km: float = METEORITE_LATERAL_SPREAD_KM,
+	lateral_spread_km: float = ASTEROID_LATERAL_SPREAD_KM,
 ) -> Dictionary:
 	var ang := _rng.randf_range(0.0, TAU)
 	var dist := _rng.randf_range(0.0, lateral_spread_km)
-	var comp_sample := MeteorPhysics.sample_density(_rng)
+	var comp_sample := AsteroidPhysics.sample_density(_rng)
 	return {
 		"t": _rng.randf_range(0.0, duration_sec) + preroll_sec,
 		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
 		"alt_offset": _rng.randf_range(
-			-METEORITE_ALT_JITTER_KM, METEORITE_ALT_JITTER_KM
+			-ASTEROID_ALT_JITTER_KM, ASTEROID_ALT_JITTER_KM
 		),
 		"vel_jitter": Vector3(
-			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
-			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
-			_rng.randf_range(-METEORITE_VELOCITY_JITTER, METEORITE_VELOCITY_JITTER),
+			_rng.randf_range(-ASTEROID_VELOCITY_JITTER, ASTEROID_VELOCITY_JITTER),
+			_rng.randf_range(-ASTEROID_VELOCITY_JITTER, ASTEROID_VELOCITY_JITTER),
+			_rng.randf_range(-ASTEROID_VELOCITY_JITTER, ASTEROID_VELOCITY_JITTER),
 		),
 		"mass": mass,
 		"is_decaying": is_decaying,
@@ -779,18 +779,18 @@ func add_decaying_enemy() -> void:
 # Advance every active wave's spawn timers by real-time delta. Spawns
 # any bodies whose timer expired this frame and drops completed waves.
 func tick_waves(delta: float) -> void:
-	if meteorite_waves.is_empty():
+	if asteroid_waves.is_empty():
 		return
 	var i := 0
-	while i < meteorite_waves.size():
-		var wave := meteorite_waves[i]
+	while i < asteroid_waves.size():
+		var wave := asteroid_waves[i]
 		var ready_specs: Array[Dictionary] = wave.tick(delta)
 		for spec: Dictionary in ready_specs:
 			var mass: float = spec.get("mass", Satellite.DEFAULT_MASS_KG)
 			var density: float = float(
-				spec.get("density", MeteorPhysics.COMP_TABLE[MeteorPhysics.COMP_S_TYPE][1])
+				spec.get("density", AsteroidPhysics.COMP_TABLE[AsteroidPhysics.COMP_S_TYPE][1])
 			)
-			var composition: int = int(spec.get("composition", MeteorPhysics.COMP_S_TYPE))
+			var composition: int = int(spec.get("composition", AsteroidPhysics.COMP_S_TYPE))
 			var sat: Satellite
 			if spec.get("is_decaying", false):
 				# Decaying-orbit threats live on their own random
@@ -799,7 +799,7 @@ func tick_waves(delta: float) -> void:
 				# spec is only consumed by the radar preview.
 				sat = _make_decaying_enemy(mass, density, composition)
 			else:
-				sat = _make_meteorite(
+				sat = _make_asteroid(
 					wave.r_hat,
 					wave.tangent,
 					wave.base_altitude,
@@ -809,38 +809,38 @@ func tick_waves(delta: float) -> void:
 			_satellite_container.add_child(sat)
 			_satellites.append(sat)
 		if wave.is_complete():
-			meteorite_waves.remove_at(i)
+			asteroid_waves.remove_at(i)
 		else:
 			i += 1
 
 
 func has_active_waves() -> bool:
-	return not meteorite_waves.is_empty()
+	return not asteroid_waves.is_empty()
 
 
 # Sample a fresh nexus (entry direction, in-plane tangent, altitude,
-# base velocity) for a meteorite cluster. Shared between the
+# base velocity) for an asteroid cluster. Shared between the
 # instantaneous storm (m) and the time-distributed wave (i) so both
 # spawn paths use the same physics setup.
-func _build_meteorite_wave_at_random_nexus() -> MeteoriteWave:
-	return _build_meteorite_wave_at_nexus(_random_unit_vector())
+func _build_asteroid_wave_at_random_nexus() -> AsteroidWave:
+	return _build_asteroid_wave_at_nexus(_random_unit_vector())
 
 
-# Build a meteorite wave whose entry direction is the supplied unit
+# Build an asteroid wave whose entry direction is the supplied unit
 # vector. Tangent / altitude / velocity remain randomised — the caller
 # only locks the radial axis of the cluster, not its in-plane shape.
-func _build_meteorite_wave_at_nexus(r_hat: Vector3) -> MeteoriteWave:
-	var wave := MeteoriteWave.new()
+func _build_asteroid_wave_at_nexus(r_hat: Vector3) -> AsteroidWave:
+	var wave := AsteroidWave.new()
 	wave.r_hat = r_hat.normalized()
 	wave.tangent = _random_perpendicular_unit(wave.r_hat)
 	wave.base_altitude = _rng.randf_range(
-		METEORITE_ALT_MIN_KM, METEORITE_ALT_MAX_KM
+		ASTEROID_ALT_MIN_KM, ASTEROID_ALT_MAX_KM
 	)
 	var radial_speed := _rng.randf_range(
-		METEORITE_RADIAL_SPEED_MIN, METEORITE_RADIAL_SPEED_MAX
+		ASTEROID_RADIAL_SPEED_MIN, ASTEROID_RADIAL_SPEED_MAX
 	)
 	var tangential_speed := _rng.randf_range(
-		METEORITE_TANGENTIAL_SPEED_MIN, METEORITE_TANGENTIAL_SPEED_MAX
+		ASTEROID_TANGENTIAL_SPEED_MIN, ASTEROID_TANGENTIAL_SPEED_MAX
 	)
 	wave.base_velocity = (
 		-wave.r_hat * radial_speed + wave.tangent * tangential_speed
@@ -848,7 +848,7 @@ func _build_meteorite_wave_at_nexus(r_hat: Vector3) -> MeteoriteWave:
 	return wave
 
 
-func _make_meteorite(
+func _make_asteroid(
 	r_hat: Vector3,
 	tangent: Vector3,
 	base_altitude: float,
@@ -858,17 +858,17 @@ func _make_meteorite(
 	var sat := Satellite.new()
 	sat.team = Satellite.TEAM_ENEMY
 	sat.weapons.clear()
-	sat.is_meteorite = true
+	sat.is_asteroid = true
 	# Mass and bulk density together drive HP (heavier and denser
 	# bodies soak more shots) and the visual scale (3D marker, radar
 	# blip). Specs without mass / density fall back to defaults so the
 	# legacy storm path keeps working.
 	var mass: float = spec.get("mass", Satellite.DEFAULT_MASS_KG)
-	var density: float = spec.get("density", MeteorPhysics.COMP_TABLE[MeteorPhysics.COMP_S_TYPE][1])
+	var density: float = spec.get("density", AsteroidPhysics.COMP_TABLE[AsteroidPhysics.COMP_S_TYPE][1])
 	sat.mass = mass
 	sat.density_g_cm3 = density
-	sat.composition = int(spec.get("composition", MeteorPhysics.COMP_S_TYPE))
-	sat.max_hp = MeteorPhysics.hp_for(mass, density)
+	sat.composition = int(spec.get("composition", AsteroidPhysics.COMP_S_TYPE))
+	sat.max_hp = AsteroidPhysics.hp_for(mass, density)
 	sat.hp = sat.max_hp
 
 	# Lateral offset uses the in-plane basis (tangent + bitangent); the
@@ -886,28 +886,28 @@ func _make_meteorite(
 	)
 	var vel := base_velocity + vel_jitter
 	vel = EarthOrbit.clamp_velocity_for_periapsis(
-		pos, vel, meteorite_periapsis_target_km()
+		pos, vel, asteroid_periapsis_target_km()
 	)
 	sat.orbit = EarthOrbit.new(pos, vel)
 	return sat
 
 
-# Roll a single meteorite spec. Used by the instantaneous storm path,
+# Roll a single asteroid spec. Used by the instantaneous storm path,
 # which (unlike the time-distributed wave) has no pre-populated queue
 # to draw from. Mirrors the per-body sampling done in
-# MeteoriteWave.populate so both spawn paths produce the same kind of
+# AsteroidWave.populate so both spawn paths produce the same kind of
 # spread for the same lateral / altitude / velocity bands. Storm bodies
 # fall in the small mass class — the storm is the cheap-and-cheerful
-# threat; the wave path is where heavier meteorites and decaying-orbit
+# threat; the wave path is where heavier asteroids and decaying-orbit
 # bodies show up.
-func _sample_meteorite_spec(
+func _sample_asteroid_spec(
 	lateral_spread: float,
 	altitude_jitter: float,
 	vel_jitter: float,
 ) -> Dictionary:
 	var ang := _rng.randf_range(0.0, TAU)
 	var dist := _rng.randf_range(0.0, lateral_spread)
-	var comp_sample := MeteorPhysics.sample_density(_rng)
+	var comp_sample := AsteroidPhysics.sample_density(_rng)
 	return {
 		"t": 0.0,
 		"lateral": Vector2(cos(ang) * dist, sin(ang) * dist),
@@ -935,13 +935,13 @@ func _make_decaying_enemy(mass: float, density: float = -1.0, composition: int =
 	# composition roll for legacy callers (`add_decaying_enemy()`)
 	# that don't pre-sample density off the wave spec.
 	if density < 0.0 or composition < 0:
-		var sample := MeteorPhysics.sample_density(_rng)
+		var sample := AsteroidPhysics.sample_density(_rng)
 		composition = int(sample["composition"])
 		density = float(sample["density"])
 	sat.mass = mass
 	sat.density_g_cm3 = density
 	sat.composition = composition
-	sat.max_hp = MeteorPhysics.hp_for(mass, density)
+	sat.max_hp = AsteroidPhysics.hp_for(mass, density)
 	sat.hp = sat.max_hp
 
 	var r_p := EarthOrbit.EARTH_RADIUS_KM + DECAYING_PERIGEE_ALT_KM

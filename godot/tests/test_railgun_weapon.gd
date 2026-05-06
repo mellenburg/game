@@ -44,12 +44,12 @@ class FakeSat extends RefCounted:
 	# Railgun.can_fire refuses surface-anchored attackers; default false
 	# matches the orbital path the existing tests exercise.
 	var is_surface: bool = false
-	# Inert-meteorite flag: when true, the weapon's envelope check
+	# Inert-asteroid flag: when true, the weapon's envelope check
 	# treats this target as "atmosphere will finish it" and refuses to
 	# fire. Tests that exercise the burn-up skip flip this to true.
 	var inert: bool = false
 
-	func is_inert_meteorite() -> bool:
+	func is_inert_asteroid() -> bool:
 		return inert
 
 	func take_damage(amount: float, _attacker = null) -> bool:
@@ -251,9 +251,9 @@ func test_does_not_engage_when_los_blocked() -> void:
 	assert_false(w.fire(attacker, enemy, 1.0))
 
 
-func test_does_not_engage_inert_meteorite() -> void:
-	# A meteorite chipped down past the burn-up threshold reports
-	# `is_inert_meteorite()`; the railgun should disengage rather than
+func test_does_not_engage_inert_asteroid() -> void:
+	# An asteroid chipped down past the burn-up threshold reports
+	# `is_inert_asteroid()`; the railgun should disengage rather than
 	# spend a slug on a target the atmosphere is already handling.
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()

@@ -120,7 +120,7 @@ func _compute_points(orbit: EarthOrbit) -> void:
 ## current true anomaly forward in motion until the orbit dips below
 ## Earth's surface. Unlike update_orbit, the line truncates at the
 ## impact point — the segment that would tunnel through the planet is
-## omitted, so the visual matches the gameplay rule (meteorites exit
+## omitted, so the visual matches the gameplay rule (asteroids exit
 ## play on ground contact). Caller must keep `color` in sync; we don't
 ## cache anything here because the body's nu changes every tick.
 func update_trajectory(orbit: EarthOrbit) -> void:
@@ -138,7 +138,7 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	# motion.
 	var cos_nu_surf := (p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / e
 	if cos_nu_surf > 1.0 or cos_nu_surf < -1.0:
-		# Periapsis is above the surface — not a meteorite trajectory.
+		# Periapsis is above the surface — not an asteroid trajectory.
 		# Fall through to the regular orbit renderer.
 		_clear_surfaces()
 		return

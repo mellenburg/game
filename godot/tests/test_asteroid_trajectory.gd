@@ -1,5 +1,5 @@
 extends "res://tests/framework.gd"
-## Meteorite trajectory tests. Pure-math: a meteorite is just an
+## Asteroid trajectory tests. Pure-math: an asteroid is just an
 ## EarthOrbit whose periapsis is below Earth's surface. The Satellite
 ## entity keys ground-impact off the same propagator, so verifying the
 ## trajectory crosses the surface here covers the gameplay rule.
@@ -22,7 +22,7 @@ func test_initial_state_valid() -> void:
 
 
 func test_periapsis_below_surface() -> void:
-	# The defining property of a meteorite trajectory: closer approach
+	# The defining property of an asteroid trajectory: closer approach
 	# than Earth's radius, so propagation must eventually impact.
 	var o := _make_inbound()
 	assert_true(o.r_p < EarthOrbit.EARTH_RADIUS_KM)
@@ -40,7 +40,7 @@ func test_propagation_reaches_ground() -> void:
 		if o.norm_r <= EarthOrbit.EARTH_RADIUS_KM:
 			hit = true
 			break
-	assert_true(hit, "meteorite never crossed Earth surface")
+	assert_true(hit, "asteroid never crossed Earth surface")
 
 
 func test_surface_crossing_anomaly_lies_on_ellipse() -> void:
@@ -73,7 +73,7 @@ func test_inbound_nu_is_before_surface_nu() -> void:
 func test_tangential_only_does_not_impact() -> void:
 	# Sanity check: a circular-ish orbit at the same altitude must NOT
 	# trip the impact condition — we only want sub-orbital trajectories
-	# to be flagged as meteorites.
+	# to be flagged as asteroids.
 	var radius := EarthOrbit.EARTH_RADIUS_KM + 5000.0
 	var v_circ := sqrt(EarthOrbit.MU / radius)
 	var o := EarthOrbit.new(
@@ -86,7 +86,7 @@ func test_tangential_only_does_not_impact() -> void:
 
 
 func test_clamp_velocity_for_periapsis_pulls_flyby_into_impact() -> void:
-	# Construction that mimics the meteorite spawner's worst case:
+	# Construction that mimics the asteroid spawner's worst case:
 	# 50,000 km altitude, mostly inward, but with a tangential share
 	# big enough to lift periapsis above the surface (a hyperbolic
 	# flyby — the bug the clamp is here to fix).
@@ -107,7 +107,7 @@ func test_clamp_velocity_for_periapsis_pulls_flyby_into_impact() -> void:
 
 
 func test_clamp_velocity_is_a_noop_when_already_below_target() -> void:
-	# Already a meteorite (r_p well below surface) — clamp must not
+	# Already an asteroid (r_p well below surface) — clamp must not
 	# perturb the orbit.
 	var pos := Vector3(EarthOrbit.EARTH_RADIUS_KM + 50000.0, 0.0, 0.0)
 	var vel := Vector3(-6.0, 0.4, 0.0)

@@ -21,7 +21,7 @@ const ImpactMap = preload("res://scripts/impact_map.gd")
 const RadarMap = preload("res://scripts/radar_map.gd")
 const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
-const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
 const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
@@ -73,7 +73,7 @@ var planning_selected: int = 0
 # satellite sweep so it counts every termination once, regardless of
 # whether the cause was a weapon hit or a sub-orbital impact.
 var enemies_shot_down: int = 0
-var meteorites_impacted: int = 0
+var asteroids_impacted: int = 0
 # Sum of HP each impacting body still carried at ground contact —
 # i.e. the damage total Earth ate. Counted from the dead-sat sweep so
 # every impact flows through one place. Surfaced on the end-of-run
@@ -83,7 +83,7 @@ var total_impact_hp: float = 0.0
 # at the moment of surface crossing was at or below the burn-up
 # threshold (either spawned that small or chipped down by player fire
 # until the mass-HP coupling drove them inert). Tracked separately
-# from `meteorites_impacted` so the end-of-run summary can show
+# from `asteroids_impacted` so the end-of-run summary can show
 # "atmospheric defense did this much work for you" alongside the
 # damage Earth actually absorbed.
 var atmosphere_burnup_count: int = 0
@@ -166,7 +166,7 @@ var map_mode: int = MAP_MODE_SURFACE
 # Wall-clock cadence at which orbit visuals get rebuilt. Decoupled from
 # the physics tick: the orbit/trajectory mesh doesn't need to refresh
 # at 60 Hz — at high time_factor the orbit shape is cached anyway, and
-# meteorite/decaying-spiral geometry that *does* rebuild per tick is
+# asteroid/decaying-spiral geometry that *does* rebuild per tick is
 # visually indistinguishable above ~15 Hz. Rebuilding at this rate
 # avoids 1200+ surface re-allocations per second during a 20-body wave.
 const ORBIT_RENDER_INTERVAL: float = 1.0 / 15.0
@@ -201,7 +201,7 @@ func _ready() -> void:
 	combat_controller.setup(hud, beam_renderer, slug_renderer)
 
 	if radar_map != null:
-		radar_map.waves = spawn_director.meteorite_waves
+		radar_map.waves = spawn_director.asteroid_waves
 
 	var launches := _player_loadout_launches()
 	var pool := _player_loadout_pool()
@@ -355,7 +355,7 @@ func _process(delta: float) -> void:
 
 
 # Drain any wave-unit emissions whose start threshold elapsed this
-# tick and hand each off to the spawn director as one full meteorite
+# tick and hand each off to the spawn director as one full asteroid
 # wave. Wave-units sharing a wave_id reuse the same per-wave base
 # entry direction (sampled fresh on the first emission of each wave),
 # so the cluster of bursts lands inside one solid-angle patch rather
@@ -491,31 +491,31 @@ func _remove_dead_satellites() -> void:
 			i += 1
 			continue
 		# Tally enemy terminations by cause: HP gone -> shot down by a
-		# weapon; sub-orbital body (meteorite or post-burn decaying
+		# weapon; sub-orbital body (asteroid or post-burn decaying
 		# enemy) still has HP -> ground impact (advance_time kills it
 		# on surface crossing without touching hp).
 		if sat.team == Satellite.TEAM_ENEMY:
 			if sat.hp <= 0.0:
 				enemies_shot_down += 1
-			elif sat.is_meteorite or sat.is_decaying:
+			elif sat.is_asteroid or sat.is_decaying:
 				# Sub-threshold bodies fully ablate in the atmosphere —
 				# they reach the surface in the simulation but cause no
 				# damage. We don't paint the impact map for them and they
-				# don't count toward `meteorites_impacted`, but the HP
+				# don't count toward `asteroids_impacted`, but the HP
 				# they were still carrying at burn-up is the work the
 				# atmosphere just did for the player; tally it as
 				# `atmosphere_burnup_hp` for the end-of-run readout.
-				if MeteorPhysics.is_burn_up(sat.mass):
+				if AsteroidPhysics.is_burn_up(sat.mass):
 					atmosphere_burnup_count += 1
 					atmosphere_burnup_hp += maxf(sat.hp, 0.0)
 				else:
-					meteorites_impacted += 1
+					asteroids_impacted += 1
 					# HP at the moment of impact is the un-reduced threat
 					# Earth absorbed. Tally it before the satellite is
 					# freed so the end-of-run summary can show "total HP
 					# of impactors", not just a count.
 					total_impact_hp += maxf(sat.hp, 0.0)
-					_record_meteorite_impact(sat)
+					_record_asteroid_impact(sat)
 		elif sat.team == Satellite.TEAM_PLAYER and sat.unit_name != "":
 			# Snapshot the dying player unit's tallies so the summary
 			# still credits its damage / kills even though the live
@@ -576,7 +576,7 @@ func end_game_summary() -> Dictionary:
 		})
 	return {
 		"per_unit": per_unit,
-		"total_impacts": meteorites_impacted,
+		"total_impacts": asteroids_impacted,
 		"total_impact_hp": total_impact_hp,
 		"atmosphere_burnup_count": atmosphere_burnup_count,
 		"atmosphere_burnup_hp": atmosphere_burnup_hp,
@@ -721,10 +721,10 @@ func _process_one_shot_input() -> void:
 		toggle_planning()
 	if Input.is_action_just_pressed("add_enemies"):
 		spawn_director.add_enemies()
-	if Input.is_action_just_pressed("add_meteorites"):
-		spawn_director.add_meteorite_storm()
-	if Input.is_action_just_pressed("start_meteorite_wave"):
-		spawn_director.start_meteorite_wave()
+	if Input.is_action_just_pressed("add_asteroids"):
+		spawn_director.add_asteroid_storm()
+	if Input.is_action_just_pressed("start_asteroid_wave"):
+		spawn_director.start_asteroid_wave()
 	if Input.is_action_just_pressed("add_decaying_enemy"):
 		spawn_director.add_decaying_enemy()
 	hud.los_visible = Input.is_action_pressed("toggle_los")
@@ -756,7 +756,7 @@ func _process_one_shot_input() -> void:
 # Toggle fire-control mode on the active player satellite. Mutates
 # the *real* sat (planning clone gets resync'd next physics tick).
 # Unarmed units silently no-op so the user gets no feedback for a
-# meaningless toggle on an enemy or meteorite.
+# meaningless toggle on an enemy or asteroid.
 func _toggle_fire_control_on_selected() -> void:
 	if real_satellites.is_empty():
 		return
@@ -952,20 +952,20 @@ func add_satellite() -> void:
 	sat.select()
 
 
-# Capture the impact coordinates of a meteorite that just terminated
+# Capture the impact coordinates of an asteroid that just terminated
 # on ground contact. Pulls the body's last ECI position, samples the
 # day-side albedo at the resulting UV to flag ocean vs land, and hands
 # the record to the tracker. Robust to a missing albedo image — we
 # just skip the ocean hint in that case and let the bounding-box
 # fallback in classify_region pick a label.
-func _record_meteorite_impact(sat: Satellite) -> void:
+func _record_asteroid_impact(sat: Satellite) -> void:
 	if sat == null or sat.orbit == null:
 		return
 	# Sub-threshold bodies fully ablate in the atmosphere — no surface
 	# damage, no recorded impact, no map marker. The Keplerian
 	# propagator still terminated the body on its surface-cross, so
 	# nothing else needs unwinding here.
-	if MeteorPhysics.is_burn_up(sat.mass):
+	if AsteroidPhysics.is_burn_up(sat.mass):
 		return
 	var phase: float = earth.earth_phase if earth != null else 0.0
 	var surface_pos: Vector3 = sat.orbit.r.normalized() * EarthOrbit.EARTH_RADIUS_KM

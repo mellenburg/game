@@ -173,10 +173,10 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 		return false
 	if not attacker.orbit_alive or not target.orbit_alive:
 		return false
-	# Don't burn a slug on a meteorite / decaying body that's already
+	# Don't burn a slug on an asteroid / decaying body that's already
 	# eroded below the atmospheric burn-up threshold — it'll burn up
 	# before reaching the ground regardless.
-	if target.has_method("is_inert_meteorite") and target.is_inert_meteorite():
+	if target.has_method("is_inert_asteroid") and target.is_inert_asteroid():
 		return false
 	return not LosCheck.is_blocked(attacker.orbit.r, target.orbit.r)
 

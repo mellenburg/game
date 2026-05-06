@@ -1,8 +1,8 @@
-# Asteroid & meteor fun facts
+# Asteroid & asteroid fun facts
 
-Reference notes for keeping the meteorite system grounded in plausible
-physics. The numbers here drove the calibration of `MeteorPhysics`
-(`godot/scripts/meteor_physics.gd`); future tuning passes should
+Reference notes for keeping the asteroid system grounded in plausible
+physics. The numbers here drove the calibration of `AsteroidPhysics`
+(`godot/scripts/asteroid_physics.gd`); future tuning passes should
 update both this doc and the constants together so the gameplay model
 and the science don't drift apart.
 
@@ -20,7 +20,7 @@ mass, composition, and entry speed. Useful thresholds:
 | What                                      | Approx. mass        |
 | ----------------------------------------- | ------------------- |
 | Pebble-class fragments survive            | ~1 kg (rare)        |
-| Sizable meteorite makes it down           | ~100 kg (basketball)|
+| Sizable asteroid makes it down           | ~100 kg (basketball)|
 | Body retains cosmic velocity to surface   | ~10,000 kg (10 t)   |
 | Single-rock impact, small crater          | ~10⁶ kg (1 Gg)      |
 
@@ -39,7 +39,7 @@ is mass-only.)
 ## Composition & density
 
 Asteroids fall into a few rough taxonomic bins. The bulk densities
-below come from bulk-density measurements of meteorite analogs
+below come from bulk-density measurements of asteroid analogs
 reported in the meteoritics literature:
 
 | Class       | Density (g/cm³) | Notes                                 |
@@ -56,7 +56,7 @@ Population weighting (rough Near-Earth Asteroid distribution):
 * ~10% stony-iron
 * ~5% iron
 
-`MeteorPhysics.sample_density()` rolls the class first (weighted),
+`AsteroidPhysics.sample_density()` rolls the class first (weighted),
 then samples a uniform density inside the class band.
 
 
@@ -66,18 +66,22 @@ then samples a uniform density inside the class band.
 HP = HP_PER_KG_PER_DENSITY × mass_kg × density_g_cm3
 ```
 
-with `HP_PER_KG_PER_DENSITY = 0.003`. Linear in both factors so doubling
-mass or doubling density doubles HP. An iron rock soaks ~2.5× the
-shots a carbonaceous rock of the same mass would.
+`HP_PER_KG_PER_DENSITY` is now a **player-tunable** knob, exposed on
+the menu's Settings tab and persisted on `PlayerLoadout`. The shipped
+default is `0.0001`; a previous balance pass used `0.003` (~30× more
+HP across the board). Linear in both factors so doubling mass or
+doubling density doubles HP — an iron rock still soaks ~2.5× the
+shots a carbonaceous rock of the same mass would, regardless of the
+coefficient.
 
-Calibration points (stony, ρ = 3.4):
+Calibration points at the default (`0.0001`, stony ρ = 3.4):
 
-| Body                       | Mass            | HP        |
-| -------------------------- | --------------- | --------- |
-| Threshold (10 Mg)          | 1 × 10⁴ kg      | ~100 HP   |
-| Small impactor (1 Gg)      | 1 × 10⁶ kg      | ~10,000   |
-| Tunguska-class (1 Tg)      | 1 × 10⁹ kg      | ~10⁷      |
-| Didymos-class (500 Tg)     | 5 × 10¹¹ kg     | ~5 × 10⁹  |
+| Body                       | Mass            | HP at default |
+| -------------------------- | --------------- | ------------- |
+| Threshold (10 Mg)          | 1 × 10⁴ kg      | ~3 HP         |
+| Small impactor (1 Gg)      | 1 × 10⁶ kg      | ~340          |
+| Tunguska-class (1 Tg)      | 1 × 10⁹ kg      | ~3.4 × 10⁵    |
+| Didymos-class (500 Tg)     | 5 × 10¹¹ kg     | ~1.7 × 10⁸    |
 
 Anything Tg-class and up is effectively unkillable in flight — by
 design. Players thin numbers and pick off the small end; the big
@@ -114,10 +118,10 @@ range we routinely spawn.
 
 ## Mass-HP coupling under fire
 
-A meteorite's HP and physical mass are linked: damage represents
+An asteroid's HP and physical mass are linked: damage represents
 fragmentation and spalling, so as HP drops the surviving mass drops
 in lockstep. Implemented in `Satellite.take_damage` via
-`MeteorPhysics.mass_for_hp`:
+`AsteroidPhysics.mass_for_hp`:
 
 ```
 mass_remaining_kg = HP_remaining / (HP_PER_KG_PER_DENSITY * density)
@@ -133,7 +137,7 @@ Three knock-on effects, all derived (no extra plumbing):
   but not dramatic, which feels right.
 * **Burn-up if eroded enough**. Once the mass crosses below
   `BURN_UP_THRESHOLD_KG` (10 t) the body counts as fully ablating.
-  `EarthSystem._record_meteorite_impact` skips the impact entirely
+  `EarthSystem._record_asteroid_impact` skips the impact entirely
   and the body's surface crossing produces no damage, no marker,
   and no impact-explosion. The "kill" is the atmosphere finishing
   what we started.
@@ -146,7 +150,7 @@ Three knock-on effects, all derived (no extra plumbing):
 
 To prevent overkill against bodies the atmosphere has already won,
 both laser and railgun envelopes skip targets where
-`Satellite.is_inert_meteorite()` is true (meteorite or decaying body
+`Satellite.is_inert_asteroid()` is true (asteroid or decaying body
 with mass at or below the burn-up threshold). Weapons disengage
 automatically and re-allocate fire to remaining threats.
 
@@ -190,7 +194,7 @@ damage map:
 
 Implementation seam:
 
-* `MeteorPhysics.ocean_damage_radii_km(mass_kg)` would mirror
+* `AsteroidPhysics.ocean_damage_radii_km(mass_kg)` would mirror
   `damage_radii_km` but with ocean coefficients (likely
   `light_ocean ≈ 4 × light_land`, `moderate_ocean ≈ 3 × moderate_land`,
   `heavy_ocean ≈ 1.5 × heavy_land`).
@@ -262,7 +266,7 @@ In a 20-body alpha-class wave (default mix: 80% small / 15% medium
 * **1 large-band Tunguska / Didymos-class body** roughly every
   20-body wave — the boss-class threat the loadout has to plan for.
 
-The 3D marker uses a log-decade scale (`MeteorPhysics.mass_log_norm`)
+The 3D marker uses a log-decade scale (`AsteroidPhysics.mass_log_norm`)
 so the markers across that span actually look different on screen:
 
 | Mass        | Marker scale (× base 0.15 unit cube) |
@@ -276,7 +280,7 @@ so the markers across that span actually look different on screen:
 
 ## Mass bands the game spawns
 
-`MeteorPhysics` and `SpawnDirector` agree on three bands. Roughly:
+`AsteroidPhysics` and `SpawnDirector` agree on three bands. Roughly:
 
 | Band   | Mass range             | Stony HP range   | Heavy radius    |
 | ------ | ---------------------- | ---------------- | --------------- |
@@ -293,12 +297,12 @@ bodies in a wave are killable threats and the rare large body is the
 ## Sources
 
 - [Meteoroid — Wikipedia](https://en.wikipedia.org/wiki/Meteoroid)
-- [HowStuffWorks: How big does a meteor have to be to make it to the ground?](https://science.howstuffworks.com/question486.htm)
+- [HowStuffWorks: How big does an asteroid have to be to make it to the ground?](https://science.howstuffworks.com/question486.htm)
 - [Planetary Science Institute size threshold (via space.com asteroid apocalypse article)](https://www.space.com/asteroid-apocalypse-how-big-can-humanity-survive)
 - [Tunguska event — Wikipedia](https://en.wikipedia.org/wiki/Tunguska_event)
 - [NASA — Probabilistic Assessment of Tunguska-scale Asteroid Impacts](https://ntrs.nasa.gov/api/citations/20190002844/downloads/20190002844.pdf)
 - [Density of asteroids (B. Carry, 2012)](https://arxiv.org/pdf/1203.4336)
-- [Density and porosity of stone meteorites (Britt & Consolmagno)](https://www.sciencedirect.com/science/article/abs/pii/S0019103599962103)
+- [Density and porosity of stone asteroids (Britt & Consolmagno)](https://www.sciencedirect.com/science/article/abs/pii/S0019103599962103)
 - [C-type asteroid — Wikipedia](https://en.wikipedia.org/wiki/C-type_asteroid)
 - [Chicxulub crater — Britannica](https://www.britannica.com/place/Chicxulub)
 - [Deep Impact and the Mass Extinction of Species 65 Million Years Ago — NASA Science](https://science.nasa.gov/earth/deep-impact-and-the-mass-extinction-of-species-65-million-years-ago/)

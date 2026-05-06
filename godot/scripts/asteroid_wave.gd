@@ -1,6 +1,6 @@
-class_name MeteoriteWave
+class_name AsteroidWave
 extends RefCounted
-## Pending meteorite wave: a shared entry nexus and a queue of pre-sampled
+## Pending asteroid wave: a shared entry nexus and a queue of pre-sampled
 ## per-body specs (countdown timer + lateral offset + altitude jitter +
 ## velocity jitter). Each frame the owning system calls tick(delta) and
 ## spawns one body for every spec whose timer expired this frame, reusing
@@ -28,7 +28,7 @@ extends RefCounted
 ##                  when populate() is called without a mass band.
 ##   is_decaying  : bool, true if this spec should spawn as a decaying-
 ##                  orbit body (highly eccentric, perigee burns) rather
-##                  than a sub-orbital meteorite. Decaying specs use
+##                  than a sub-orbital asteroid. Decaying specs use
 ##                  their own random orbital plane and ignore the wave's
 ##                  shared nexus (r_hat / tangent / base_velocity); the
 ##                  lateral / alt / vel jitter fields are still sampled

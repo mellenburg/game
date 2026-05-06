@@ -68,7 +68,7 @@ static func default_settings() -> ReconSettings:
 	# the first wave fires ~30 min in, with subsequent waves spaced ~3 h
 	# apart. Wave-unit counts are tuned for the post-recalibration mass
 	# bands: each wave-unit now spawns multi-Gg-class threats, and the
-	# old 36 wave-unit schedule (built when meteorites were 100-10000 kg
+	# old 36 wave-unit schedule (built when asteroids were 100-10000 kg
 	# fodder) overwhelmed the player's defences. ~1/3 of the legacy
 	# count keeps the mission feeling busy without burying the fleet.
 	s.waves = [

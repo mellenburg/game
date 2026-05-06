@@ -15,6 +15,23 @@
 [ext_resource type="Script" path="res://scripts/end_game_overlay.gd" id="13_end_game"]
 [ext_resource type="Script" path="res://scripts/slug_renderer.gd" id="14_slugs"]
 [ext_resource type="Script" path="res://scripts/tessellation_grid.gd" id="15_tess"]
+[ext_resource type="Script" path="res://scripts/hp_bar.gd" id="16_hp_bar"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_asteroid_panel"]
+bg_color = Color(0.04, 0.05, 0.08, 0.78)
+border_color = Color(0.22, 0.30, 0.42, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_left = 4
+corner_radius_bottom_right = 4
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
 
 [sub_resource type="ShaderMaterial" id="ShaderMat_sky"]
 shader = ExtResource("7_sky")
@@ -135,38 +152,36 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="HelpLabel" type="RichTextLabel" parent="CanvasLayer/HUD"]
+[node name="AsteroidPanel" type="PanelContainer" parent="CanvasLayer/HUD"]
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -320.0
+offset_left = -300.0
 offset_top = 10.0
 offset_right = -10.0
-offset_bottom = 320.0
+offset_bottom = 240.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_asteroid_panel")
+
+[node name="VBox" type="VBoxContainer" parent="CanvasLayer/HUD/AsteroidPanel"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="HelpLabel" type="RichTextLabel" parent="CanvasLayer/HUD/AsteroidPanel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
 mouse_filter = 2
 bbcode_enabled = true
 scroll_active = false
-text = "[font_size=12][color=gray]Controls:
-WASD - Move camera
-Mouse - Look around
-Arrows - Thrust (pro/retro/lateral)
-PgUp/PgDn - Thrust (normal)
-Q/E - Speed up/down time
-Tab - Select next satellite
-N - Add satellite
-R - Remove satellite
-B - Spawn 3 enemy satellites
-M - Spawn meteorite cluster
-V - Toggle LOS lines
-K - Cycle map / wave radar / off
-P - Toggle planning mode
-T/G - Advance/retard plan time
-C - Toggle fire control
-U - Toggle railgun slug visual
-Shift - Show range circle
-Shift+Up/Dn - Adjust engage range
-Esc - Release mouse[/color][/font_size]"
+fit_content = true
+
+[node name="HPBar" type="Control" parent="CanvasLayer/HUD/AsteroidPanel/VBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+script = ExtResource("16_hp_bar")
 
 [node name="KillStats" type="RichTextLabel" parent="CanvasLayer/HUD"]
 layout_mode = 1

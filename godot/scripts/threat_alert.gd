@@ -1,6 +1,6 @@
 class_name ThreatAlert
 extends Control
-## Center-screen "THREAT DETECTED" overlay fired when a new meteorite
+## Center-screen "THREAT DETECTED" overlay fired when a new asteroid
 ## wave begins. A semi-opaque red panel + bold all-caps two-line label,
 ## anchored to the screen center, fading from full alpha through a
 ## sustain hold and then a linear decay to zero. Hidden when idle.

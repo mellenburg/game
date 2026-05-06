@@ -10,6 +10,7 @@ extends "res://tests/framework.gd"
 ## queue_free at end-of-test to keep the headless run clean.
 
 const Satellite = preload("res://scripts/satellite.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 
 
 func _make() -> Satellite:
@@ -83,8 +84,8 @@ func test_take_damage_without_attacker_still_applies() -> void:
 	target.queue_free()
 
 
-func test_meteorite_mass_couples_to_hp() -> void:
-	# A meteorite under fire should physically erode: damage represents
+func test_asteroid_mass_couples_to_hp() -> void:
+	# An asteroid under fire should physically erode: damage represents
 	# fragmentation, so HP loss drops mass proportionally. The mass-HP
 	# coupling is what feeds back into both impact damage radius
 	# (smaller mass → smaller blast) and railgun deflection (smaller
@@ -92,25 +93,28 @@ func test_meteorite_mass_couples_to_hp() -> void:
 	var attacker := _make()
 	var target := Satellite.new()
 	target.alive = true
-	target.is_meteorite = true
+	target.is_asteroid = true
 	target.density_g_cm3 = 3.4
 	target.mass = 1.0e6  # 1 Gg, well above the burn-up threshold
-	target.max_hp = 0.003 * target.mass * target.density_g_cm3
+	target.max_hp = AsteroidPhysics.hp_for(target.mass, target.density_g_cm3)
 	target.hp = target.max_hp
 	# Halve the HP, expect mass to halve too.
 	target.take_damage(target.max_hp * 0.5, attacker)
 	assert_close(target.hp, target.max_hp * 0.5, 1.0e-3)
 	assert_close(target.mass, 5.0e5, 5.0e5 * 1.0e-3)
 	# Reduce HP to a sliver — mass should track all the way down to
-	# (very nearly) zero without going negative.
+	# (very nearly) zero without going negative. Bound is set as a
+	# fraction of the spawn mass so the test isn't fragile to the
+	# player-tunable HP coefficient (a smaller coefficient → fewer
+	# HP at spawn → larger residual mass per remaining HP point).
 	target.take_damage(target.hp - 1.0, attacker)
 	assert_close(target.hp, 1.0, 1.0e-6)
-	assert_true(target.mass > 0.0 and target.mass < 1.0e3)
+	assert_true(target.mass > 0.0 and target.mass < 1.0e6 * 0.01)
 	attacker.queue_free()
 	target.queue_free()
 
 
-func test_non_meteorite_mass_unchanged_by_damage() -> void:
+func test_non_asteroid_mass_unchanged_by_damage() -> void:
 	# Player ships and unarmed orbital enemies don't track mass loss
 	# under fire — damage represents subsystem destruction, not
 	# fragmentation. The mass field stays at its spawn-time wet-mass
@@ -124,26 +128,26 @@ func test_non_meteorite_mass_unchanged_by_damage() -> void:
 	target.queue_free()
 
 
-func test_eroded_meteorite_is_inert() -> void:
-	# A meteorite chipped down to below the atmospheric burn-up
-	# threshold reports `is_inert_meteorite` so weapons can disengage.
+func test_eroded_asteroid_is_inert() -> void:
+	# An asteroid chipped down to below the atmospheric burn-up
+	# threshold reports `is_inert_asteroid` so weapons can disengage.
 	# A regular orbital enemy at the same low mass does NOT — the
-	# burn-up flag only applies to sub-orbital meteorites and
+	# burn-up flag only applies to sub-orbital asteroids and
 	# decaying-orbit threats.
 	var rock := Satellite.new()
 	rock.alive = true
-	rock.is_meteorite = true
+	rock.is_asteroid = true
 	rock.density_g_cm3 = 3.4
 	rock.mass = 1.0e3  # well below the 1e4 burn-up threshold
-	assert_true(rock.is_inert_meteorite())
+	assert_true(rock.is_inert_asteroid())
 	rock.mass = 1.0e6
-	assert_false(rock.is_inert_meteorite())
-	# Non-meteorite at sub-threshold mass: not inert (regular enemies
+	assert_false(rock.is_inert_asteroid())
+	# Non-asteroid at sub-threshold mass: not inert (regular enemies
 	# still get engaged regardless of their default 1000 kg mass).
 	var enemy := Satellite.new()
 	enemy.alive = true
 	enemy.mass = 500.0
-	assert_false(enemy.is_inert_meteorite())
+	assert_false(enemy.is_inert_asteroid())
 	rock.queue_free()
 	enemy.queue_free()
 

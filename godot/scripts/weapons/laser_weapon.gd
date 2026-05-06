@@ -86,7 +86,7 @@ const RAYLEIGH_RANGE_KM: float = (
 # check and the on-plane fire-control circle can never render larger
 # than this physics-level kill envelope. With D=1.4 m and λ=1 μm this
 # lands at ~19 600 km — comfortably outside opposite-side-of-Earth
-# LEO (~14 000 km) but well inside the high meteorite spawn shell
+# LEO (~14 000 km) but well inside the high asteroid spawn shell
 # (40–70 000 km altitude), which is the band where missiles and
 # kinetics are supposed to take over.
 const MAX_RANGE_KM: float = 10.0 * RAYLEIGH_RANGE_KM
@@ -167,10 +167,10 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 		return false
 	if not attacker.orbit_alive or not target.orbit_alive:
 		return false
-	# Don't waste shots on a meteorite / decaying body that's already
+	# Don't waste shots on an asteroid / decaying body that's already
 	# eroded below the atmospheric burn-up threshold — the atmosphere
 	# will finish it without our help.
-	if target.has_method("is_inert_meteorite") and target.is_inert_meteorite():
+	if target.has_method("is_inert_asteroid") and target.is_inert_asteroid():
 		return false
 	# Physics ceiling always applies — past MAX_RANGE_KM the falloff
 	# already drives damage to zero. The operator's engagement_range_km

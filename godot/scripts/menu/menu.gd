@@ -32,6 +32,7 @@ const ResearchGraph = preload("res://scripts/menu/research_graph.gd")
 const ReconEditor = preload("res://scripts/menu/recon_editor.gd")
 const SystemMap = preload("res://scripts/menu/system_map.gd")
 const CelestialBody = preload("res://scripts/celestial_body.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 
 const STAGE_SCENE_PATH := "res://scenes/main.tscn"
 
@@ -195,6 +196,10 @@ func _build_chrome() -> void:
 	var research := _build_research_tab()
 	research.name = "Research"
 	_tabs.add_child(research)
+
+	var settings := _build_settings_tab()
+	settings.name = "Settings"
+	_tabs.add_child(settings)
 
 	_previous_tab_index = _tabs.current_tab
 	_tabs.tab_changed.connect(_on_tab_changed)
@@ -2044,6 +2049,79 @@ func _on_research_unlock_pressed() -> void:
 	_rebuild_unit_editor()
 	_rebuild_launch_rows()
 	_refresh_surface_list()
+
+
+# ---------------------------------------------------------------- Settings
+
+# Settings tab: gameplay-tuning knobs that persist on PlayerLoadout
+# across runs. Currently exposes the asteroid HP / mass / density
+# coefficient — bumping it up makes asteroids tankier, dropping it makes
+# them more fragile. Editing the SpinBox writes through PlayerLoadout's
+# setter, which mirrors the value onto AsteroidPhysics.HP_PER_KG_PER_DENSITY
+# so spawn-time HP, mass-erosion, and the impact-map mass readout all
+# pick up the new coefficient on the next-spawned body.
+func _build_settings_tab() -> Control:
+	var hbox := _padded_hbox()
+	var pad: Control = hbox.get_parent() as Control
+
+	var section := _section("ASTEROID DIFFICULTY", 0.0)
+	hbox.add_child(section[0])
+	var col: VBoxContainer = section[1]
+
+	var blurb := Label.new()
+	blurb.text = (
+		"HP coefficient — how many shots an in-flight asteroid soaks. "
+		+ "HP = coefficient × mass × density. Lower values make rocks "
+		+ "more fragile; higher values make them tankier."
+	)
+	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	blurb.add_theme_color_override("font_color", COLOR_FG_DIM)
+	blurb.add_theme_font_size_override("font_size", 11)
+	col.add_child(blurb)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	col.add_child(row)
+
+	var lbl := Label.new()
+	lbl.text = "HP_PER_KG_PER_DENSITY"
+	lbl.add_theme_color_override("font_color", COLOR_FG)
+	lbl.add_theme_font_size_override("font_size", 12)
+	lbl.custom_minimum_size = Vector2(220, 0)
+	row.add_child(lbl)
+
+	# SpinBox-only — covering an 8-decade range with a slider would
+	# leave the useful 1e-5..1e-2 band crammed into a few pixels.
+	# Step is small enough to nudge in increments of 1e-5; the player
+	# can also type a value directly.
+	var sb := SpinBox.new()
+	sb.min_value = 0.0
+	sb.max_value = 1.0
+	sb.step = 0.00001
+	sb.value = PlayerLoadout.hp_per_kg_per_density
+	sb.custom_minimum_size = Vector2(140, 0)
+	row.add_child(sb)
+
+	var reset_btn := Button.new()
+	reset_btn.text = "Reset to default (%.5f)" % AsteroidPhysics.DEFAULT_HP_PER_KG_PER_DENSITY
+	row.add_child(reset_btn)
+
+	sb.value_changed.connect(
+		func(v: float) -> void: PlayerLoadout.hp_per_kg_per_density = v
+	)
+	reset_btn.pressed.connect(
+		func() -> void:
+			PlayerLoadout.hp_per_kg_per_density = (
+				AsteroidPhysics.DEFAULT_HP_PER_KG_PER_DENSITY
+			)
+			sb.value = PlayerLoadout.hp_per_kg_per_density
+	)
+
+	# Spacer so the controls hug the top of the section.
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(spacer)
+	return pad
 
 
 # ---------------------------------------------------------------- helpers

@@ -282,7 +282,7 @@ func test_default_settings_total_unit_counts() -> void:
 	# Sum of alpha/beta/gamma unit counts across all five default
 	# waves: 7 alpha (1+2+1+2+1), 3 beta (0+0+1+1+1), 2 gamma
 	# (0+0+0+1+1). Thinned to ~1/3 of the legacy 20/11/5 totals when
-	# the meteorite mass bands moved up to Gg / Tg / Pg-class threats.
+	# the asteroid mass bands moved up to Gg / Tg / Pg-class threats.
 	var s := ReconSettings.default_settings()
 	var totals := {"alpha": 0, "beta": 0, "gamma": 0}
 	for w in s.waves:

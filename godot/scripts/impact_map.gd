@@ -1,7 +1,7 @@
 class_name ImpactMap
 extends Control
 ## Mercator-projected world map overlay with markers at every recorded
-## meteorite impact. The map background is the same equirectangular
+## asteroid impact. The map background is the same equirectangular
 ## texture the globe uses, reprojected to Web Mercator on the GPU by
 ## a small canvas-item shader; that avoids a CPU resample on startup
 ## and keeps the rendering side compatible with the project's GL
@@ -20,7 +20,7 @@ extends Control
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const CelestialBody = preload("res://scripts/celestial_body.gd")
-const MeteorPhysics = preload("res://scripts/meteor_physics.gd")
+const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 
 # Inner Control that draws the impact markers and grid. Lives as a
 # child of ImpactMap, added AFTER the map TextureRect so Godot's
@@ -32,7 +32,7 @@ class _MarkerLayer extends Control:
 	# don't inherit the outer file's preload constants. Same script,
 	# same instance — the parent passes its tracker straight through.
 	const _Tracker = preload("res://scripts/impact_tracker.gd")
-	const _Physics = preload("res://scripts/meteor_physics.gd")
+	const _Physics = preload("res://scripts/asteroid_physics.gd")
 	var tracker: _Tracker = null
 	# Bound to EarthSystem.real_satellites; the layer filters for
 	# is_surface each draw call so newly-placed or destroyed surface
@@ -46,7 +46,7 @@ class _MarkerLayer extends Control:
 	var lat_clamp_deg: float = 85.0
 	var grid_color: Color = Color(0.6, 0.7, 0.85, 0.18)
 	# Three-tier damage palette. Each impact paints up to three
-	# concentric circles whose radii come from MeteorPhysics:
+	# concentric circles whose radii come from AsteroidPhysics:
 	#   * yellow (light)    — overpressure, broken windows
 	#   * orange (moderate) — severe blast / structural collapse
 	#   * red    (heavy)    — near-instant lethality
@@ -80,7 +80,7 @@ class _MarkerLayer extends Control:
 	# the two readouts coexist on the same map without ambiguity.
 	# Squares (drawn by _draw_rect) instead of circles so the eye can
 	# tell at a glance which markers are friendly emplacements vs.
-	# meteorite impacts at the same lat/lon.
+	# asteroid impacts at the same lat/lon.
 	var surface_outer: Color = Color(0.85, 1.0, 0.30, 0.95)
 	var surface_inner: Color = Color(0.20, 0.70, 0.15, 0.95)
 	var surface_marker_side: float = 8.0
@@ -130,7 +130,7 @@ class _MarkerLayer extends Control:
 			draw_circle(p, r_heavy_px, damage_color_heavy)
 
 	# Surface-unit markers are drawn UNDER the impact dots so a
-	# meteorite that lands on top of an emplacement still shows the
+	# asteroid that lands on top of an emplacement still shows the
 	# impact splash on top — easier to read as "this position was hit"
 	# than the inverse layering would be.
 	func _draw_surface_units() -> void:
@@ -352,7 +352,7 @@ static func _format_impact_detail(
 		return ""
 	var parts: Array[String] = []
 	if composition >= 0:
-		parts.append(MeteorPhysics.composition_name(composition))
+		parts.append(AsteroidPhysics.composition_name(composition))
 	parts.append(_format_mass(mass_kg))
 	if density_g_cm3 > 0.0:
 		parts.append("%.1f g/cm³" % density_g_cm3)

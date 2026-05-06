@@ -1,6 +1,6 @@
 class_name ImpactTracker
 extends RefCounted
-## Records meteorite ground impacts and resolves them to a (lat, lon)
+## Records asteroid ground impacts and resolves them to a (lat, lon)
 ## on Earth's surface plus a coarse region label.
 ##
 ## Pure-RefCounted so the conversion logic can be unit-tested
@@ -170,7 +170,7 @@ static func _match(table: Array[Dictionary], lon: float, lat: float) -> String:
 	return ""
 
 
-## Record one meteorite impact. `p_world` is the satellite's last ECI
+## Record one asteroid impact. `p_world` is the satellite's last ECI
 ## position; we project it radially to the Earth surface so an entry
 ## that stepped slightly past the ground still maps to a clean (lat,
 ## lon). `is_ocean_hint` should come from sampling the day-side
@@ -178,8 +178,8 @@ static func _match(table: Array[Dictionary], lon: float, lat: float) -> String:
 ## `hp` is the impactor's remaining HP at the moment of contact;
 ## `mass_kg` and `density_g_cm3` carry the body's physical
 ## parameters so the minimap can render the three-tier damage
-## circles via MeteorPhysics.damage_radii_km. `composition` is a
-## MeteorPhysics.COMP_* index used cosmetically by the latest-impact
+## circles via AsteroidPhysics.damage_radii_km. `composition` is a
+## AsteroidPhysics.COMP_* index used cosmetically by the latest-impact
 ## panel; -1 leaves it unset for legacy callers.
 func record_impact(
 	p_world: Vector3,

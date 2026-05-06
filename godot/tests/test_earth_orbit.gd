@@ -307,7 +307,7 @@ func test_time_to_impact_capped_by_horizon() -> void:
 	assert_eq(o.time_to_impact(60.0, 30.0), INF)
 
 
-func test_time_to_impact_orders_two_meteorites_by_urgency() -> void:
+func test_time_to_impact_orders_two_asteroids_by_urgency() -> void:
 	# Two inbound bodies at the same radius but different speeds: the
 	# faster-falling one should report a smaller time-to-impact. This
 	# is the property the laser "max danger" targeting depends on.

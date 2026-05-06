@@ -87,8 +87,8 @@ lost in the issue queue.
 - [ ] **Extract `SpawnDirector` and `CombatController` from
   `earth_system.gd`.** The controller is ~1000 lines mixing input,
   spawning, combat scheduling, planning mode, and HUD plumbing.
-  Splitting the spawn paths (starting fleet, enemies, meteorites,
-  meteorite waves, decaying-orbit body) and the combat loop
+  Splitting the spawn paths (starting fleet, enemies, asteroids,
+  asteroid waves, decaying-orbit body) and the combat loop
   (`_process_combat`, `_pick_target_for_weapon`) into focused nodes
   makes the hot loop profileable in isolation and gives the eventual
   network refactor a clean seam for moving spawn/combat authority to

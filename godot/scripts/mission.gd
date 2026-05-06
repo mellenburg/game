@@ -2,7 +2,7 @@ class_name Mission
 extends RefCounted
 ## Pure-state wave scheduler driven by a player-edited ReconSettings.
 ## Each "wave" is a tight cluster of N wave-units of mixed size classes
-## (small / medium / large); each wave-unit is one full meteorite-wave
+## (small / medium / large); each wave-unit is one full asteroid-wave
 ## burst of objects whose count / decaying ratio / per-object size mix
 ## come from the relevant WaveUnitClass. Mission resolves the player's
 ## ranges (count / duration / delay) into concrete timestamps once at
@@ -199,7 +199,7 @@ func tick(delta: float) -> Array[Dictionary]:
 
 
 # True once tick() has emitted every scheduled wave-unit. The
-# controller combines this with "no in-flight meteorite waves + no
+# controller combines this with "no in-flight asteroid waves + no
 # living enemies" to decide that the mission has finally cleared.
 func all_waves_spawned() -> bool:
 	return _next_idx >= _schedule.size()
