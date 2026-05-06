@@ -235,7 +235,9 @@ func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 	)
 	lines.append("[font_size=10][color=#7c8896]")
 	var kind := "enemy body"
-	if sat.is_decaying:
+	if sat.is_deflected:
+		kind = "deflecting fragment"
+	elif sat.is_decaying:
 		kind = "decaying-orbit threat"
 	elif sat.is_asteroid:
 		kind = "sub-orbital asteroid"
@@ -247,19 +249,20 @@ func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 			"[color=#5a6470]comp[/color]    %s"
 			% AsteroidPhysics.composition_name(sat.composition)
 		)
-	if AsteroidPhysics.is_burn_up(sat.mass):
-		lines.append("[color=#6fa07f]burn-up on entry[/color]")
-	else:
-		var radii: Dictionary = AsteroidPhysics.damage_radii_km(sat.mass)
-		lines.append(
-			"[color=#5a6470]radii[/color]   H %.0f · M %.0f · L %.0f km" % [
-				float(radii["heavy"]),
-				float(radii["moderate"]),
-				float(radii["light"]),
-			]
-		)
+	if not sat.is_deflected:
+		if AsteroidPhysics.is_burn_up(sat.mass):
+			lines.append("[color=#6fa07f]burn-up on entry[/color]")
+		else:
+			var radii: Dictionary = AsteroidPhysics.damage_radii_km(sat.mass)
+			lines.append(
+				"[color=#5a6470]radii[/color]   H %.0f · M %.0f · L %.0f km" % [
+					float(radii["heavy"]),
+					float(radii["moderate"]),
+					float(radii["light"]),
+				]
+			)
+	var eta_str := "escaping" if sat.is_deflected else "stable"
 	var eta := sat.predict_impact_sim_time(sim_time) - sim_time
-	var eta_str := "stable"
 	if is_finite(eta) and eta > 0.0:
 		eta_str = _format_eta(eta)
 	lines.append("[color=#5a6470]eta[/color]     %s" % eta_str)

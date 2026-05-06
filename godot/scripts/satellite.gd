@@ -508,6 +508,8 @@ func toggle_fire_control() -> void:
 ## (and stored) for orbits whose periapsis stays above the surface or
 ## whose impact is past the propagator's horizon.
 func predict_impact_sim_time(current_sim_time: float) -> float:
+	if is_deflected:
+		return INF
 	if is_nan(impact_sim_time):
 		var eta: float
 		if is_decaying:
