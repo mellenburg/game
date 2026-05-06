@@ -9,7 +9,7 @@ extends Control
 ## after each change so this Control redraws.
 
 const Launch = preload("res://scripts/launch.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 const COLOR_BG := Color(0.04, 0.05, 0.07)
 const COLOR_GRID := Color(0.18, 0.20, 0.24, 0.5)
@@ -51,11 +51,11 @@ func _draw() -> void:
 	# Apogee = perigee · (1+e)/(1-e); collapses to perigee for ecc==0
 	# so circular orbits scale identically to the pre-eccentricity
 	# build. Min ceiling so an empty roster still renders sensibly.
-	var max_world_km: float = EarthOrbit.EARTH_RADIUS_KM
+	var max_world_km: float = MassCenterOrbit.MASS_CENTER_RADIUS_KM
 	for launch: Launch in PlayerLoadout.launches:
 		max_world_km = maxf(
 			max_world_km,
-			EarthOrbit.EARTH_RADIUS_KM + launch.apogee_altitude_km(),
+			MassCenterOrbit.MASS_CENTER_RADIUS_KM + launch.apogee_altitude_km(),
 		)
 	max_world_km *= 1.10  # 10% padding so labels don't crop on the rim
 	var px_per_km: float = span / max_world_km
@@ -74,7 +74,7 @@ func _draw() -> void:
 	)
 
 	# Planet
-	var planet_r: float = EarthOrbit.EARTH_RADIUS_KM * px_per_km
+	var planet_r: float = MassCenterOrbit.MASS_CENTER_RADIUS_KM * px_per_km
 	draw_circle(center, planet_r, COLOR_PLANET)
 	draw_arc(center, planet_r, 0.0, TAU, 64, COLOR_PLANET_RING, 1.0)
 
@@ -101,7 +101,7 @@ func _draw() -> void:
 func _draw_orbit(
 	launch: Launch, center: Vector2, px_per_km: float, color: Color
 ) -> void:
-	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var r_p_km: float = MassCenterOrbit.MASS_CENTER_RADIUS_KM + launch.altitude_km
 	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
 	var p_km: float = r_p_km * (1.0 + e)
 	var i_rad: float = deg_to_rad(launch.inclination_deg)
@@ -159,7 +159,7 @@ func _draw_label(
 	px_per_km: float,
 	color: Color,
 ) -> void:
-	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var r_p_km: float = MassCenterOrbit.MASS_CENTER_RADIUS_KM + launch.altitude_km
 	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
 	var p_km: float = r_p_km * (1.0 + e)
 	var i_rad: float = deg_to_rad(launch.inclination_deg)

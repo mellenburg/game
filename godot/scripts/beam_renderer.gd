@@ -18,7 +18,7 @@ extends Node3D
 ##
 ## A single CylinderMesh is shared across every beam; per-beam
 ## StandardMaterial3D is allocated once at spawn so _process only
-## mutates transform + alpha (see CLAUDE.md "cache meshes and
+## mutates transform + alpha (see AGENTS.md "cache meshes and
 ## materials").
 
 const Satellite = preload("res://scripts/satellite.gd")
@@ -99,7 +99,7 @@ func _ready() -> void:
 	_shared_mesh.rings = 1
 
 
-## Called by EarthSystem each physics tick a weapon successfully fires.
+## Called by MassCenterSystem each physics tick a weapon successfully fires.
 ## Spawns a beam for this (attacker, weapon_index) if absent, otherwise
 ## refreshes target ref + last-fired timestamp. `style` selects the
 ## visual preset (STYLE_LASER vs STYLE_KINETIC) — only honored on first
@@ -161,7 +161,7 @@ func _make_material(color: Color, blend_mode: int) -> StandardMaterial3D:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	# Don't write depth — overlapping beams (or core+halo on one beam)
 	# would otherwise occlude one another in a brittle order-dependent
-	# way. Depth-test still applies, so Earth still occludes.
+	# way. Depth-test still applies, so MassCenter still occludes.
 	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	return mat
 

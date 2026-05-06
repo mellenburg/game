@@ -9,7 +9,7 @@ extends Control
 ##   * Orbital Ops  — manage launches. Each launch picks an orbit and
 ##                    must be assigned a unit from the pool; unassigned
 ##                    launches are dropped on tab-leave / LAUNCH.
-##   * Surface Ops  — click-to-place fixed installations on the Earth
+##   * Surface Ops  — click-to-place fixed installations on the MassCenter
 ##                    surface; placed units spawn anchored to (lat, lon).
 ##   * Research     — placeholder for now.
 ##
@@ -126,11 +126,11 @@ func _ready() -> void:
 	# same setup).
 	PlayerLoadout.launched = false
 
-	# Sync the static EarthOrbit physics constants to the menu's
+	# Sync the static MassCenterOrbit physics constants to the menu's
 	# selection so the orbit-preview's planet radius / altitude lines
 	# match the body the operator is actually configuring for. Returning
-	# to the menu after a Mars run leaves EarthOrbit.EARTH_RADIUS_KM at
-	# Mars's value; without this re-apply, an Earth selection here would
+	# to the menu after a Mars run leaves MassCenterOrbit.MASS_CENTER_RADIUS_KM at
+	# Mars's value; without this re-apply, an MassCenter selection here would
 	# preview against the wrong surface.
 	CelestialBody.for_stage(
 		String(PlayerLoadout.selected_stage_id)
@@ -394,9 +394,9 @@ func _build_campaign_tab() -> Control:
 	_stage_brief_meta.add_theme_font_size_override("font_size", 11)
 	brief_text.add_child(_stage_brief_meta)
 
-	# Body almanac block — radius, mass, and surface gravity (in Earth
+	# Body almanac block — radius, mass, and surface gravity (in MassCenter
 	# g) for the selected stage's primary body, plus the same trio for
-	# Earth as a reference frame. The brief summary that follows reads
+	# MassCenter as a reference frame. The brief summary that follows reads
 	# as flavour prose; this block is the "what's the actual physics
 	# of the stage" readout the operator wants before launch.
 	_stage_brief_vitals = RichTextLabel.new()
@@ -455,7 +455,7 @@ func _on_stage_selected(idx: int) -> void:
 		return
 	PlayerLoadout.selected_stage_id = String(stage.get("id", ""))
 	# Reapply the body's physics so the orbit preview / launch panels
-	# update against Mars's smaller radius (or Earth's, switching back).
+	# update against Mars's smaller radius (or MassCenter's, switching back).
 	CelestialBody.for_stage(
 		PlayerLoadout.selected_stage_id
 	).apply_to_propagator()
@@ -530,8 +530,8 @@ func _refresh_stage_brief() -> void:
 
 # Build the body-vitals BBCode block for the selected stage's brief.
 # Renders only the stage's own body — the Mars brief shouldn't be
-# carrying an Earth-reference row, the operator selected Mars and the
-# brief should describe Mars. Surface gravity is normalised to Earth
+# carrying an MassCenter-reference row, the operator selected Mars and the
+# brief should describe Mars. Surface gravity is normalised to MassCenter
 # g₀ regardless; that's the unit the operator reads intuitively (0.38 g
 # tells you more than 3.71 m/s²).
 func _stage_vitals_text(stage_id: String) -> String:
@@ -543,7 +543,7 @@ func _body_vitals_block(body: CelestialBody) -> String:
 	# as the row's prefix so the eye lands on the planet first. Mass is
 	# formatted in scientific notation by hand (GDScript's % formatter
 	# only supports %f among floats — %g / %e aren't in the list per
-	# CLAUDE.md's gotchas).
+	# AGENTS.md's gotchas).
 	var radius_str := "%.1f km" % body.radius_km
 	var mass_str := "%s kg" % _format_scientific(body.mass_kg)
 	var gravity_str := "%.3f g" % body.surface_gravity_g
@@ -554,9 +554,9 @@ func _body_vitals_block(body: CelestialBody) -> String:
 
 
 # Render `value` as `m.dddE±e`. Stand-in for %e / %g, which GDScript's
-# format operator doesn't expose (CLAUDE.md's gotchas list — only
+# format operator doesn't expose (AGENTS.md's gotchas list — only
 # %s %c %d %o %x %X %f %v are supported). Three-digit mantissa is
-# enough headroom to disambiguate planetary masses (Earth 5.972e24
+# enough headroom to disambiguate planetary masses (MassCenter 5.972e24
 # vs Mars 6.417e23) without crowding the brief row.
 func _format_scientific(value: float) -> String:
 	if value == 0.0:
@@ -804,7 +804,7 @@ func _rebuild_unit_editor() -> void:
 # emits one labelled row per stat. Called after any change that could
 # move the numbers (chassis swap, part swap, selection change). Laser
 # and railgun rows are suppressed when the unit carries none of that
-# weapon class, so a railgun-only ship doesn't show "Laser DPS: 0".
+# weapon class, so a railgun-only unit doesn't show "Laser DPS: 0".
 func _rebuild_unit_summary() -> void:
 	if _hangar_summary == null:
 		return

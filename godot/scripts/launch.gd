@@ -10,7 +10,7 @@ extends RefCounted
 ## PlayerLoadout.purge_unassigned_launches() before the run begins.
 
 const Propulsion = preload("res://scripts/propulsion.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 # Bounds for the orbit sliders. Match what the menu's pre-existing
 # Orbital Ops tab shipped with so the operator's mental model carries
@@ -36,7 +36,7 @@ var name: String = "L-01"
 var unit_id: String = ""
 # Perigee altitude (km). Equals the orbit's altitude when eccentricity
 # is zero; for e > 0 it's the lowest point and the apogee climbs to
-# `r_p · (1+e)/(1-e) - EARTH_RADIUS`. Field name kept as `altitude_km`
+# `r_p · (1+e)/(1-e) - MASS_CENTER_RADIUS`. Field name kept as `altitude_km`
 # for save-file continuity — the menu re-labels it "Perigee (km)".
 var altitude_km: float = 500.0
 var inclination_deg: float = 0.0
@@ -86,10 +86,10 @@ func setup_dv_ms() -> float:
 # of dialing eccentricity up. Returns the perigee altitude unchanged
 # when ecc == 0.
 func apogee_altitude_km() -> float:
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + altitude_km
+	var r_p := MassCenterOrbit.MASS_CENTER_RADIUS_KM + altitude_km
 	var e: float = clampf(eccentricity, 0.0, 0.999)
 	var r_a := r_p * (1.0 + e) / (1.0 - e)
-	return r_a - EarthOrbit.EARTH_RADIUS_KM
+	return r_a - MassCenterOrbit.MASS_CENTER_RADIUS_KM
 
 
 # Propellant cost (kg) to fly this launch with a stage of the given

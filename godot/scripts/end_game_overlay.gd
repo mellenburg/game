@@ -2,9 +2,9 @@ class_name EndGameOverlay
 extends Control
 ## End-of-run summary overlay. Bound to the `end_game` action (Enter
 ## by default), and also openable programmatically via `show_summary`
-## when EarthSystem detects the mission has cleared. Pauses the
+## when MassCenterSystem detects the mission has cleared. Pauses the
 ## simulation, shows a per-unit damage / kill breakdown plus aggregate
-## Earth-impact stats, and routes the user back to the pre-game menu
+## MassCenter-impact stats, and routes the user back to the pre-game menu
 ## when acknowledged.
 ##
 ## process_mode = ALWAYS so this node keeps ticking once paused —
@@ -66,7 +66,7 @@ func show_summary() -> void:
 func _show_summary() -> void:
 	var summary := _gather_summary()
 	if summary.is_empty():
-		# Defensive: if we can't find an EarthSystem (e.g. the scene
+		# Defensive: if we can't find an MassCenterSystem (e.g. the scene
 		# was reorganised), just open the menu rather than freezing
 		# the player on a blank overlay.
 		get_tree().change_scene_to_file(MENU_SCENE_PATH)
@@ -77,8 +77,8 @@ func _show_summary() -> void:
 	_render_summary(summary)
 
 
-# Walk up to the EarthSystem ancestor and pull its summary dict. The
-# overlay sits under CanvasLayer which sits under EarthSystem, so the
+# Walk up to the MassCenterSystem ancestor and pull its summary dict. The
+# overlay sits under CanvasLayer which sits under MassCenterSystem, so the
 # walk is short — but doing it dynamically keeps the overlay node-path
 # independent of the surrounding scene structure.
 func _gather_summary() -> Dictionary:
@@ -164,9 +164,9 @@ func _render_summary(summary: Dictionary) -> void:
 
 	_content_root.add_child(_hr())
 
-	# Earth-side totals: count of impactors that reached the ground +
+	# MassCenter-side totals: count of impactors that reached the ground +
 	# the sum of HP they were still carrying at impact (i.e. the damage
-	# the surface absorbed). Both numbers come from EarthSystem's dead-
+	# the surface absorbed). Both numbers come from MassCenterSystem's dead-
 	# sat sweep so they stay consistent with the in-game kill counter.
 	_content_root.add_child(_section_header("SURFACE"))
 	var impacts := int(summary.get("total_impacts", 0))

@@ -8,7 +8,7 @@ extends Control
 ## Compatibility constraint.
 ##
 ## The active body's texture is picked off CelestialBody at _ready —
-## Earth missions get the day-side JPEG, Mars missions get the NASA
+## MassCenter missions get the day-side JPEG, Mars missions get the NASA
 ## PIA02066 cylindrical mosaic. The Mercator reprojection is
 ## body-agnostic; only the source texture and the panel title differ.
 ##
@@ -34,7 +34,7 @@ class _MarkerLayer extends Control:
 	const _Tracker = preload("res://scripts/impact_tracker.gd")
 	const _Physics = preload("res://scripts/asteroid_physics.gd")
 	var tracker: _Tracker = null
-	# Bound to EarthSystem.real_satellites; the layer filters for
+	# Bound to MassCenterSystem.real_satellites; the layer filters for
 	# is_surface each draw call so newly-placed or destroyed surface
 	# installations show up without any signal plumbing. Plain Array
 	# typing because the inner class can't reach the outer file's typed-
@@ -202,7 +202,7 @@ var tracker: ImpactTracker:
 		tracker = value
 		if _marker_layer != null:
 			_marker_layer.tracker = value
-# Reference to the live game's satellite list. Bound from EarthSystem
+# Reference to the live game's satellite list. Bound from MassCenterSystem
 # at _ready; the marker layer filters for is_surface each draw call.
 var satellites: Array[Satellite] = []:
 	set(value):
@@ -322,12 +322,12 @@ func _update_readout() -> void:
 	var latest: Dictionary = tracker.impacts[tracker.impacts.size() - 1]
 	var lat: float = latest["lat"]
 	var lon: float = latest["lon"]
-	# ImpactTracker.classify_region keys off Earth's bounding-box table,
-	# so Mars impacts come back tagged with Earth region names. Skip
-	# the region row on non-Earth bodies and use the body's own name as
+	# ImpactTracker.classify_region keys off MassCenter's bounding-box table,
+	# so Mars impacts come back tagged with MassCenter region names. Skip
+	# the region row on non-MassCenter bodies and use the body's own name as
 	# a generic location label rather than mislead the operator.
 	var region: String = (
-		String(latest["region"]) if _body.id == CelestialBody.ID_EARTH
+		String(latest["region"]) if _body.id == CelestialBody.ID_MASS_CENTER
 		else "%s surface" % _body.display_name
 	)
 	var mass: float = float(latest.get("mass_kg", 0.0))

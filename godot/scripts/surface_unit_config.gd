@@ -2,7 +2,7 @@ class_name SurfaceUnitConfig
 extends RefCounted
 ## Per-surface-unit pre-game configuration: display name, lat/lon
 ## placement, mass + HP stats, and weapon kind. Mirrors UnitConfig in
-## intent but for fixed installations on Earth's surface rather than
+## intent but for fixed installations on MassCenter's surface rather than
 ## orbital satellites. Owned by PlayerLoadout, mutated by the menu's
 ## Surface Ops tab, consumed by SpawnDirector.spawn_surface_units when
 ## the player launches a stage.
@@ -14,7 +14,7 @@ extends RefCounted
 # Surface units are laser-only in the MVP. The railgun's recoil math
 # (impulse divided by mass yields a Δv applied to the shooter's orbit)
 # doesn't translate cleanly to a body that's mechanically anchored to
-# the rotating Earth, so RailgunWeapon.can_fire refuses surface-unit
+# the rotating MassCenter, so RailgunWeapon.can_fire refuses surface-unit
 # shooters. Keeping the enum entry around so the Hangar-style picker in
 # the menu has a stable index for future surface railgun support.
 const WEAPON_LASER: int = 0

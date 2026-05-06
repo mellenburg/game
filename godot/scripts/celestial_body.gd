@@ -7,27 +7,27 @@ extends RefCounted
 ## entry in `for_stage`, one entry in `PlayerLoadout.STAGES`, and a
 ## directory of textures under `resources/3D/<id>/`.
 ##
-## Consumers (EarthSystem, Earth, ImpactMap, SurfacePlacementMap,
+## Consumers (MassCenterSystem, MassCenter, ImpactMap, SurfacePlacementMap,
 ## Menu's brief panel) ask the body for whatever they need rather than
 ## holding their own per-body switch. That keeps "what's different
 ## about Mars" in this file instead of smeared across the codebase.
 ##
-## μ values use km^3/s^2 so they slot directly into EarthOrbit's
+## μ values use km^3/s^2 so they slot directly into MassCenterOrbit's
 ## propagator without unit conversion. Surface gravity is stored in
-## Earth-g for the mission brief; it's redundant with (μ, radius) but
+## MassCenter-g for the mission brief; it's redundant with (μ, radius) but
 ## the headline value reads more naturally than a recomputed m/s².
 ##
 ## Pure RefCounted — no scene dependencies — so this file is safely
 ## loadable from the menu, the in-game system, and headless tests.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 # IDs match the corresponding entry in PlayerLoadout.STAGES so a stage
 # selection trivially looks up its body. Adding a body means appending
 # an ID here AND a `make_<id>()` factory below AND a match arm in
 # `for_stage` — keeping the three in one file is intentional so the
 # wiring is auditable in one place.
-const ID_EARTH := "earth"
+const ID_MASS_CENTER := "earth"
 const ID_MARS := "mars"
 
 # Physics ------------------------------------------------------------
@@ -42,15 +42,20 @@ var mass_kg: float
 # Standard gravitational parameter (km^3/s^2). The orbital propagator
 # reads this one; mass / G is implicit.
 var mu_km3_s2: float
-# Surface gravity expressed as a multiple of Earth's g₀. Cached for the
+# Surface gravity expressed as a multiple of MassCenter's g₀. Cached for the
 # mission brief; recomputable from (μ, radius) but redundant on purpose.
 var surface_gravity_g: float
-# Sidereal rotation period in seconds — drives the Earth node's daily
+# Sidereal rotation period in seconds — drives the MassCenter node's daily
 # spin so the day/night terminator cycles at the body's actual day
-# length (Mars's 24.6 h, etc.) instead of always Earth's 24 h.
+# length (Mars's 24.6 h, etc.) instead of always MassCenter's 24 h.
 var sidereal_day_s: float
 # Obliquity of the body's spin axis relative to its orbital plane.
 var axial_tilt_rad: float
+# Altitude (km above surface) below which the atmosphere meaningfully
+# affects an orbiting body. Asteroid/decaying threats entering this zone
+# begin losing apoapsis continuously; the ablation floor (impact
+# threshold) is derived as safe_orbit_altitude_km - 90 km.
+var safe_orbit_altitude_km: float
 
 # Rendering ----------------------------------------------------------
 # Hint colour the system map / orbit preview / fallback material can
@@ -61,7 +66,7 @@ var fallback_color: Color
 var albedo_path: String
 # Optional companion textures. Empty string == "this body doesn't have
 # one"; the planet shader's corresponding branch collapses to a 1×1
-# black placeholder. Earth ships all four; Mars has only albedo.
+# black placeholder. MassCenter ships all four; Mars has only albedo.
 var night_path: String
 var normal_path: String
 var clouds_path: String
@@ -69,14 +74,15 @@ var clouds_path: String
 
 static func make_earth() -> CelestialBody:
 	var body := CelestialBody.new()
-	body.id = ID_EARTH
-	body.display_name = "Earth"
+	body.id = ID_MASS_CENTER
+	body.display_name = "MassCenter"
 	body.radius_km = 6371.0
 	body.mass_kg = 5.972e24
 	body.mu_km3_s2 = 398600.4415
 	body.surface_gravity_g = 1.0
 	body.sidereal_day_s = 86164.0
 	body.axial_tilt_rad = 23.5 * PI / 180.0
+	body.safe_orbit_altitude_km = 150.0
 	body.fallback_color = Color(0.36, 0.58, 0.92)
 	body.albedo_path = "res://resources/3D/earth/4096_earth.jpg"
 	body.night_path = "res://resources/3D/earth/4096_night_lights.jpg"
@@ -102,6 +108,7 @@ static func make_mars() -> CelestialBody:
 	body.surface_gravity_g = 0.3794
 	body.sidereal_day_s = 88642.66
 	body.axial_tilt_rad = 25.19 * PI / 180.0
+	body.safe_orbit_altitude_km = 100.0
 	body.fallback_color = Color(0.82, 0.40, 0.28)
 	# NASA PIA02066 cylindrical mosaic, south pole filled in via mirror —
 	# see resources/3D/mars/CREDITS.md.
@@ -112,9 +119,9 @@ static func make_mars() -> CelestialBody:
 	return body
 
 
-# Look up a body record by stage id. Falls back to Earth when the id
+# Look up a body record by stage id. Falls back to MassCenter when the id
 # doesn't match a known body — keeps the legacy debug-boot path (no
-# PlayerLoadout) on Earth defaults.
+# PlayerLoadout) on MassCenter defaults.
 static func for_stage(stage_id: String) -> CelestialBody:
 	match stage_id:
 		ID_MARS:
@@ -127,7 +134,7 @@ static func for_stage(stage_id: String) -> CelestialBody:
 # entry point so callers don't repeat the get_tree → get_node_or_null
 # dance — they just call CelestialBody.active() and get a body record
 # they can read texture paths / radius / display_name off. Falls back
-# to Earth when PlayerLoadout isn't reachable (headless tests, direct
+# to MassCenter when PlayerLoadout isn't reachable (headless tests, direct
 # main.tscn boots) so the legacy entry path keeps working.
 static func active(tree: SceneTree) -> CelestialBody:
 	if tree == null:
@@ -138,13 +145,14 @@ static func active(tree: SceneTree) -> CelestialBody:
 	return for_stage(String(loadout.selected_stage_id))
 
 
-# Apply this body's μ and radius to the static EarthOrbit fields so
+# Apply this body's μ and radius to the static MassCenterOrbit fields so
 # every orbital propagation downstream of this call uses the matching
-# physics. Idempotent; called from EarthSystem._ready before any
+# physics. Idempotent; called from MassCenterSystem._ready before any
 # satellite spawn / propagation work.
 func apply_to_propagator() -> void:
-	EarthOrbit.MU = mu_km3_s2
-	EarthOrbit.EARTH_RADIUS_KM = radius_km
+	MassCenterOrbit.MU = mu_km3_s2
+	MassCenterOrbit.MASS_CENTER_RADIUS_KM = radius_km
+	MassCenterOrbit.SAFE_ORBIT_ALT_KM = safe_orbit_altitude_km
 
 
 # Convenience for the impact-map / surface-placement-map basemaps:

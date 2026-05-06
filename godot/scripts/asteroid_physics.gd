@@ -17,7 +17,7 @@ extends RefCounted
 ##
 ## Below the burn-up threshold (10 metric tons / 10 Mg / 1e4 kg) bodies
 ## are treated as fully ablating in the atmosphere and never produce
-## a recorded surface impact. EarthSystem._record_asteroid_impact
+## a recorded surface impact. MassCenterSystem._record_asteroid_impact
 ## reads `is_burn_up()` to gate that branch.
 
 # Below this mass (kg) a body is assumed to fully burn up in the
@@ -58,7 +58,7 @@ static var HP_PER_KG_PER_DENSITY: float = DEFAULT_HP_PER_KG_PER_DENSITY
 # Composition classes, modeled on the dominant asteroid taxonomic
 # bins. Densities are bulk values in g/cm^3, ranges drawn from the
 # meteoritics literature (carbonaceous chondrites, ordinary
-# chondrites, stony-iron, iron). Weights approximate the near-Earth
+# chondrites, stony-iron, iron). Weights approximate the near-MassCenter
 # population: stony dominates; iron is rare but heavy.
 const COMP_C_TYPE: int = 0     # carbonaceous chondrite (~15%)
 const COMP_S_TYPE: int = 1     # stony / ordinary chondrite (~70%)

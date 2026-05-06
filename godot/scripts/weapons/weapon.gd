@@ -71,7 +71,7 @@ func pool_draw_w() -> float:
 # 5 MJ/HP is a balance pick: a 1 GJ railgun slug coupled at 50% drops
 # 100 HP per shot — one-shotting a default 100-HP target. Re-tuning
 # weapon power / coupling shifts the curve; re-tuning MJ_PER_HP shifts
-# the whole game's TTK. See the design discussion in CLAUDE.md.
+# the whole game's TTK. See the design discussion in AGENTS.md.
 const MJ_PER_HP: float = 5.0
 const J_PER_HP: float = MJ_PER_HP * 1.0e6
 

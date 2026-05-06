@@ -9,8 +9,8 @@ extends RefCounted
 ##     in m/s and the in-game player budget is denominated the same way.
 ##   * Propellant masses are in kg.
 ##   * Specific impulse Isp is in seconds.
-##   * Internally, orbital radii are in km / km·s — same as EarthOrbit —
-##     so this module reads EarthOrbit.MU and EarthOrbit.EARTH_RADIUS_KM
+##   * Internally, orbital radii are in km / km·s — same as MassCenterOrbit —
+##     so this module reads MassCenterOrbit.MU and MassCenterOrbit.MASS_CENTER_RADIUS_KM
 ##     directly rather than redeclaring them.
 ##
 ## The two equations the rest of the game leans on:
@@ -28,7 +28,7 @@ extends RefCounted
 ## charging the player for the ~9 km/s gravity-loss tax that every real
 ## payload pays the same way.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 # Standard gravity. Only ever appears as the "Isp · g0 → exhaust velocity"
 # unit conversion; identical to the value Wikipedia and every aerospace
@@ -55,7 +55,7 @@ const REF_LAUNCH_ISP_S: float = 350.0
 static func circular_speed_kms(radius_km: float) -> float:
 	if radius_km <= 0.0:
 		return 0.0
-	return sqrt(EarthOrbit.MU / radius_km)
+	return sqrt(MassCenterOrbit.MU / radius_km)
 
 
 # Total Δv (m/s) for a Hohmann transfer between two circular orbits of
@@ -66,10 +66,10 @@ static func hohmann_dv_ms(r1_km: float, r2_km: float) -> float:
 	if r1_km <= 0.0 or r2_km <= 0.0 or r1_km == r2_km:
 		return 0.0
 	var a_t := 0.5 * (r1_km + r2_km)
-	var v1 := sqrt(EarthOrbit.MU / r1_km)
-	var v2 := sqrt(EarthOrbit.MU / r2_km)
-	var v_peri := sqrt(EarthOrbit.MU * (2.0 / r1_km - 1.0 / a_t))
-	var v_apo := sqrt(EarthOrbit.MU * (2.0 / r2_km - 1.0 / a_t))
+	var v1 := sqrt(MassCenterOrbit.MU / r1_km)
+	var v2 := sqrt(MassCenterOrbit.MU / r2_km)
+	var v_peri := sqrt(MassCenterOrbit.MU * (2.0 / r1_km - 1.0 / a_t))
+	var v_apo := sqrt(MassCenterOrbit.MU * (2.0 / r2_km - 1.0 / a_t))
 	# km/s -> m/s. The two burns are along (or against) the velocity
 	# vector at each apsis, so the magnitudes add even when one of the
 	# burns is a deceleration (transferring inward).
@@ -111,8 +111,8 @@ static func launch_setup_dv_ms(
 	target_eccentricity: float,
 	target_inc_rad: float,
 ) -> float:
-	var r_base := EarthOrbit.EARTH_RADIUS_KM + BASELINE_LEO_ALT_KM
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + target_perigee_alt_km
+	var r_base := MassCenterOrbit.MASS_CENTER_RADIUS_KM + BASELINE_LEO_ALT_KM
+	var r_p := MassCenterOrbit.MASS_CENTER_RADIUS_KM + target_perigee_alt_km
 	var v_base := circular_speed_kms(r_base)
 	var inc_dv := inclination_change_dv_ms(target_inc_rad, v_base)
 	var alt_dv := hohmann_dv_ms(r_base, r_p)
@@ -132,8 +132,8 @@ static func apogee_raise_dv_ms(r_p_km: float, ecc: float) -> float:
 		return 0.0
 	var e := minf(ecc, 0.999)
 	var a := r_p_km / (1.0 - e)
-	var v_circ := sqrt(EarthOrbit.MU / r_p_km)
-	var v_peri := sqrt(EarthOrbit.MU * (2.0 / r_p_km - 1.0 / a))
+	var v_circ := sqrt(MassCenterOrbit.MU / r_p_km)
+	var v_peri := sqrt(MassCenterOrbit.MU * (2.0 / r_p_km - 1.0 / a))
 	# km/s -> m/s. Always positive: at perigee the elliptical orbit is
 	# faster than the circular one of the same radius, so v_peri > v_circ.
 	return (v_peri - v_circ) * 1000.0

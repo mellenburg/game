@@ -7,7 +7,7 @@ extends MeshInstance3D
 ## off the configured engagement distance against neighbouring units.
 ##
 ## Cached ArrayMesh + StandardMaterial3D — same pattern as OrbitalPath
-## (CLAUDE.md: "Cache meshes and materials"). The vertex buffer is
+## (AGENTS.md: "Cache meshes and materials"). The vertex buffer is
 ## only rewritten when the radius changes; per-tick repositioning is
 ## done via `position` so a moving satellite doesn't trigger a buffer
 ## upload every physics step.
@@ -30,7 +30,7 @@ func _ready() -> void:
 	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_material.albedo_color = color
 	_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	# Keep the ring readable when it crosses the dark side of Earth or
+	# Keep the ring readable when it crosses the dark side of MassCenter or
 	# the bright sun — drop depth writes so overlapping geometry doesn't
 	# fight it for visibility, but keep depth test so the planet does
 	# still occlude when the ring sinks into it.

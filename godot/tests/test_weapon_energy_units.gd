@@ -14,11 +14,11 @@ const Weapon = preload("res://scripts/weapons/weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const Satellite = preload("res://scripts/satellite.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
-# EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable static var (per-
-# mission body), so a const can't read it. Tests run on Earth defaults.
-const EARTH_RADIUS_KM: float = 6371.0
+# MassCenterOrbit.MASS_CENTER_RADIUS_KM is a runtime-mutable static var (per-
+# mission body), so a const can't read it. Tests run on MassCenter defaults.
+const MASS_CENTER_RADIUS_KM: float = 6371.0
 
 
 # Same fake-satellite shape the railgun test uses. Energy starts at a
@@ -26,7 +26,7 @@ const EARTH_RADIUS_KM: float = 6371.0
 # guard in RailgunWeapon.fire keeps the fake's mass static, which is
 # what the per-shot Δv tests want).
 class FakeSat extends RefCounted:
-	var orbit: EarthOrbit
+	var orbit: MassCenterOrbit
 	var team: int = 0
 	var alive: bool = true
 	var orbit_alive: bool = true
@@ -55,9 +55,9 @@ class FakeSat extends RefCounted:
 func _make_player() -> FakeSat:
 	var s := FakeSat.new()
 	s.team = 0
-	var radius: float = EARTH_RADIUS_KM + 5000.0
-	var v_circ := sqrt(EarthOrbit.MU / radius)
-	s.orbit = EarthOrbit.new(
+	var radius: float = MASS_CENTER_RADIUS_KM + 5000.0
+	var v_circ := sqrt(MassCenterOrbit.MU / radius)
+	s.orbit = MassCenterOrbit.new(
 		Vector3(radius, 0.0, 0.0), Vector3(0.0, v_circ, 0.0),
 	)
 	return s
@@ -66,9 +66,9 @@ func _make_player() -> FakeSat:
 func _make_enemy() -> FakeSat:
 	var s := FakeSat.new()
 	s.team = 1
-	var radius: float = EARTH_RADIUS_KM + 5000.0
-	var v_circ := sqrt(EarthOrbit.MU / radius)
-	s.orbit = EarthOrbit.new(
+	var radius: float = MASS_CENTER_RADIUS_KM + 5000.0
+	var v_circ := sqrt(MassCenterOrbit.MU / radius)
+	s.orbit = MassCenterOrbit.new(
 		Vector3(radius, 3000.0, 0.0), Vector3(0.0, 0.0, v_circ),
 	)
 	return s

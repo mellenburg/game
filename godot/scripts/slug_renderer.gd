@@ -27,7 +27,7 @@ extends Node3D
 ##
 ## A single BoxMesh is shared across every slug; per-slug
 ## StandardMaterial3D is allocated once at spawn so _process only
-## mutates transform + alpha (see CLAUDE.md "cache meshes and
+## mutates transform + alpha (see AGENTS.md "cache meshes and
 ## materials").
 
 const Satellite = preload("res://scripts/satellite.gd")
@@ -89,7 +89,7 @@ class _Slug:
 func _ready() -> void:
 	_shared_mesh = BoxMesh.new()
 	# Unit cube; per-slug transform scales each axis by SLUG_SIZE_SCENE.
-	# Single shared mesh across every slug — see CLAUDE.md "cache
+	# Single shared mesh across every slug — see AGENTS.md "cache
 	# meshes and materials".
 	_shared_mesh.size = Vector3.ONE
 
@@ -132,7 +132,7 @@ func register_fire(
 
 
 ## Advance every slug's position by `sim_delta` of simulated travel.
-## EarthSystem calls this from _physics_process so slug motion uses
+## MassCenterSystem calls this from _physics_process so slug motion uses
 ## the same clock the simulation runs on — at high time_factor the
 ## slug whips across visibly fast; at time_factor=1 it crawls at
 ## literal 10 km/s.
@@ -219,7 +219,7 @@ func _make_material() -> StandardMaterial3D:
 	mat.albedo_color = SLUG_COLOR
 	# Don't write depth so a slug behind another slug (or the kill
 	# flash on the same target) doesn't fight for the depth buffer.
-	# Depth-test still applies, so Earth still occludes a slug behind
+	# Depth-test still applies, so MassCenter still occludes a slug behind
 	# the planet.
 	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	return mat

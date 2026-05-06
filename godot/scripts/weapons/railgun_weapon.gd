@@ -33,7 +33,7 @@ extends "res://scripts/weapons/weapon.gd"
 ## engagement visually distinct without complicating the AI.
 
 const LosCheck = preload("res://scripts/los_check.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 # Slug physics. 20 kg at 20 km/s ⇒ 400 kg·km/s of momentum and 4 GJ
 # of muzzle KE. 20 km/s is ~8× a real Navy railgun and ~80% of solar
@@ -86,13 +86,13 @@ const HEAT_CAPACITY_J: float = HEAT_PER_SHOT_J
 # above the active body's surface, per the design spec. Lives on the
 # weapon (the code that consumes it) so the safety predicate is
 # self-contained. Surfaces as a function rather than a constant
-# because EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable static var
+# because MassCenterOrbit.MASS_CENTER_RADIUS_KM is a runtime-mutable static var
 # now (different missions run on different bodies); a `const` would
 # refuse to compile against a non-constant initialiser.
 const SAFE_PERIAPSIS_CLEARANCE_KM: float = 100.0
 
 static func safe_periapsis_km() -> float:
-	return EarthOrbit.EARTH_RADIUS_KM + SAFE_PERIAPSIS_CLEARANCE_KM
+	return MassCenterOrbit.MASS_CENTER_RADIUS_KM + SAFE_PERIAPSIS_CLEARANCE_KM
 
 # Damage tier multiplier — see laser_weapon.gd for the rationale.
 # Cooldown is now sourced from the satellite's cooling_power_w; advanced
@@ -140,7 +140,7 @@ func can_fire(attacker) -> bool:
 		return false
 	if not attacker.railgun_enabled:
 		return false
-	# Surface installations are mechanically anchored to Earth — applying
+	# Surface installations are mechanically anchored to MassCenter — applying
 	# a recoil Δv to a static structure has no clean physical analogue,
 	# and fire() would mutate orbit.v in a state the next physics tick
 	# overwrites from update_surface_position anyway. Refuse outright so
@@ -187,7 +187,7 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 ## attacker.orbit.v, attacker.mass, attacker.max_orbital_radius_km,
 ## SAFE_PERIAPSIS, target direction) — no mutation, used both as the
 ## fire() gate and (indirectly via test coverage) as the spec for the
-## "refuse to escape Earth" rule.
+## "refuse to escape MassCenter" rule.
 static func is_shot_safe_for_attacker(attacker, target) -> bool:
 	if attacker == null or target == null or attacker.mass <= 0.0:
 		return false
@@ -206,12 +206,12 @@ static func is_shot_safe_for_attacker(attacker, target) -> bool:
 	# tracking unit mass separately from HP.
 	var recoil_dv: Vector3 = -dir * (SLUG_MOMENTUM_KG_KM_S / attacker.mass)
 	var new_v: Vector3 = attacker.orbit.v + recoil_dv
-	var r_a: float = EarthOrbit.compute_apoapsis(attacker.orbit.r, new_v)
+	var r_a: float = MassCenterOrbit.compute_apoapsis(attacker.orbit.r, new_v)
 	if not is_finite(r_a):
 		return false
 	if r_a > attacker.max_orbital_radius_km:
 		return false
-	var r_p: float = EarthOrbit.compute_periapsis(attacker.orbit.r, new_v)
+	var r_p: float = MassCenterOrbit.compute_periapsis(attacker.orbit.r, new_v)
 	if r_p < safe_periapsis_km():
 		return false
 	return true

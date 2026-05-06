@@ -3,10 +3,10 @@ extends "res://tests/framework.gd"
 ## without spinning up a SceneTree (the static rotation math is checked
 ## by reproducing it locally and comparing to the orbit's own r vector).
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 
-func _pqw_to_eci_columns(orbit: EarthOrbit) -> Array:
+func _pqw_to_eci_columns(orbit: MassCenterOrbit) -> Array:
 	# Same rotation that orbital_path.gd applies internally.
 	var co := cos(orbit.raan); var so := sin(orbit.raan)
 	var ci := cos(orbit.inc); var si := sin(orbit.inc)
@@ -18,8 +18,8 @@ func _pqw_to_eci_columns(orbit: EarthOrbit) -> Array:
 
 func test_periapsis_distance_matches_elements() -> void:
 	# At eccentric anomaly = 0, perifocal coords are (a*(1-e), 0).
-	# Radial distance from Earth's center should equal r_p.
-	var o := EarthOrbit.new(
+	# Radial distance from MassCenter's center should equal r_p.
+	var o := MassCenterOrbit.new(
 		Vector3(7000.0, 0.0, 0.0),
 		Vector3(0.0, 8.0, 1.0),
 	)
@@ -31,7 +31,7 @@ func test_periapsis_distance_matches_elements() -> void:
 
 
 func test_apoapsis_distance_matches_elements() -> void:
-	var o := EarthOrbit.new(
+	var o := MassCenterOrbit.new(
 		Vector3(7000.0, 0.0, 0.0),
 		Vector3(0.0, 8.0, 1.0),
 	)
@@ -47,7 +47,7 @@ func test_perifocal_axes_are_orthonormal_to_h() -> void:
 	# Tolerance of 1e-6 accounts for Vector3's 32-bit float precision —
 	# cross() and normalize() each lose a few ulps even though the
 	# trig calls themselves are 64-bit.
-	var o := EarthOrbit.new(
+	var o := MassCenterOrbit.new(
 		Vector3(-6045.0, -3490.0, 2500.0),
 		Vector3(-3.56, 6.618, 2.533),
 	)
@@ -61,7 +61,7 @@ func test_actual_position_lies_on_the_ellipse() -> void:
 	# Stronger check: walk the eccentric-anomaly ellipse densely and find
 	# the closest point to the propagated state. It must be within tens
 	# of meters (sampling resolution * derivative magnitude).
-	var o := EarthOrbit.new(
+	var o := MassCenterOrbit.new(
 		Vector3(7000.0, 1000.0, 500.0),
 		Vector3(-1.0, 7.5, 0.5),
 	)

@@ -1,17 +1,17 @@
 class_name LosCheck
 extends RefCounted
-## Earth line-of-sight ray test. Pulled into its own RefCounted so the
+## MassCenter line-of-sight ray test. Pulled into its own RefCounted so the
 ## geometric core can be unit-tested without spinning up a SceneTree.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 
 ## Returns true if the segment from `start` to `end` (km, ECI) intersects
 ## the planet's bounding sphere — i.e. line of sight is blocked. Reads
-## the radius from EarthOrbit so a Mars stage (smaller body) doesn't fall
-## back to Earth's 6371 km cutoff.
+## the radius from MassCenterOrbit so a Mars stage (smaller body) doesn't fall
+## back to MassCenter's 6371 km cutoff.
 static func is_blocked(start: Vector3, end: Vector3) -> bool:
-	var radius_sq := EarthOrbit.EARTH_RADIUS_KM * EarthOrbit.EARTH_RADIUS_KM
+	var radius_sq := MassCenterOrbit.MASS_CENTER_RADIUS_KM * MassCenterOrbit.MASS_CENTER_RADIUS_KM
 	var dir := end - start
 	var a := dir.dot(dir)
 	if a == 0.0:

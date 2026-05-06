@@ -1,8 +1,8 @@
-class_name Earth
+class_name MassCenter
 extends MeshInstance3D
-## Rotating planet globe. Originally Earth-only; now drives whichever
+## Rotating planet globe. Originally MassCenter-only; now drives whichever
 ## body the player picked on the Campaign tab. The class name is
-## retained for the rest of the codebase (which references `$Earth`),
+## retained for the rest of the codebase (which references `$MassCenter`),
 ## but the radius, sidereal day, axial tilt, and texture set all come
 ## from the active CelestialBody record — adding a new body needs no
 ## changes to this script.
@@ -13,7 +13,7 @@ extends MeshInstance3D
 ## branch in the shared shader (city lights, cloud overlay) collapses
 ## to no contribution.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const CelestialBody = preload("res://scripts/celestial_body.gd")
 
 # Scene-units-per-km. Sun.gd reads this to convert km offsets into the
@@ -23,7 +23,7 @@ const SCENE_SCALE: float = 1.0 / 1000.0
 var earth_phase: float = 0.0
 var rotation_rate: float
 # Active body. Resolved in _ready from the menu's stage selection;
-# defaults to Earth when no PlayerLoadout autoload is reachable.
+# defaults to MassCenter when no PlayerLoadout autoload is reachable.
 var body: CelestialBody
 
 # SphereMesh's poles sit on local Y, but the world is Z-up (the
@@ -51,7 +51,7 @@ func _ready() -> void:
 
 func _axial_tilt_basis() -> Basis:
 	# Compose tilt about the world X axis the same way the original
-	# Earth code did — only the magnitude changes per body. Applied
+	# MassCenter code did — only the magnitude changes per body. Applied
 	# last so the daily spin happens about the tilted pole, while the
 	# sun direction (a shader uniform) stays unchanged.
 	return Basis(Vector3(1.0, 0.0, 0.0), body.axial_tilt_rad)

@@ -20,7 +20,7 @@ const LosCheck = preload("res://scripts/los_check.gd")
 # by pick_target() to rank in-envelope candidates. Definitions live on
 # the weapon (the strategy that consumes them) rather than the
 # satellite (which just carries the operator setting); HUD and
-# EarthSystem reference them via LaserWeapon.* so toggling and
+# MassCenterSystem reference them via LaserWeapon.* so toggling and
 # rendering stay aligned with the weapon's semantics.
 const TARGETING_MAX_DAMAGE: int = 0
 const TARGETING_MAX_DANGER: int = 1
@@ -85,7 +85,7 @@ const RAYLEIGH_RANGE_KM: float = (
 # on engagement; targets past this radius are rejected by the envelope
 # check and the on-plane fire-control circle can never render larger
 # than this physics-level kill envelope. With D=1.4 m and λ=1 μm this
-# lands at ~19 600 km — comfortably outside opposite-side-of-Earth
+# lands at ~19 600 km — comfortably outside opposite-side-of-MassCenter
 # LEO (~14 000 km) but well inside the high asteroid spawn shell
 # (40–70 000 km altitude), which is the band where missiles and
 # kinetics are supposed to take over.
@@ -190,7 +190,7 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 ## Two-key lexicographic ranking. In MAX_DAMAGE mode the primary key is
 ## distance² (closest wins, so range-falloff damage is highest). In
 ## MAX_DANGER mode the primary key is predicted time-to-impact (soonest
-## threat to Earth wins), with distance² as a tiebreaker so non-impacting
+## threat to MassCenter wins), with distance² as a tiebreaker so non-impacting
 ## candidates fall back to the same closest-target rule rather than
 ## leaving the weapon idle when nothing is currently inbound. Time-to-
 ## impact is computed only when MAX_DANGER is active — the propagation

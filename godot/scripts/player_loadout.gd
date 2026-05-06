@@ -139,7 +139,7 @@ const STAGES: Array = [
 		"difficulty": "—",
 		"waves": 0,
 		"playable": false,
-		"summary": "Capital-ship engagement at Hyperion. (Locked)",
+		"summary": "Capital-unit engagement at Hyperion. (Locked)",
 		"orbit_radius": 0.70,
 		"angle_deg": 145.0,
 		"body_radius": 14.0,

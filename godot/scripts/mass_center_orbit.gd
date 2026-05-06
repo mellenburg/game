@@ -1,17 +1,22 @@
-class_name EarthOrbit
+class_name MassCenterOrbit
 extends RefCounted
 ## Keplerian orbital mechanics. Universal-variable propagator with
 ## Newton-Raphson iteration on the Kepler equation. Pure RefCounted so
 ## it can be unit-tested headlessly without a SceneTree.
 
-# MU and EARTH_RADIUS_KM start at Earth defaults but are mission-mutable
+# MU and MASS_CENTER_RADIUS_KM start at MassCenter defaults but are mission-mutable
 # `static var`s so the same propagator can run against Mars (or any other
-# body) without forking. EarthSystem rewrites them at scene boot from the
+# body) without forking. MassCenterSystem rewrites them at scene boot from the
 # selected stage's body record; tests never touch them and observe the
-# Earth defaults. Class name retained as `EarthOrbit` for compatibility
+# MassCenter defaults. Class name retained as `MassCenterOrbit` for compatibility
 # with the existing call sites.
-static var MU: float = 398600.4415       # Earth gravitational parameter (km^3/s^2)
-static var EARTH_RADIUS_KM: float = 6371.0
+static var MU: float = 398600.4415       # MassCenter gravitational parameter (km^3/s^2)
+static var MASS_CENTER_RADIUS_KM: float = 6371.0
+# Altitude above which orbits are stable against atmospheric drag (km).
+# Set by CelestialBody.apply_to_propagator() at scene boot. MassCenter default
+# is 150 km; the atmosphere impact floor (ablation termination) is derived
+# as SAFE_ORBIT_ALT_KM - 90 (60 km for MassCenter).
+static var SAFE_ORBIT_ALT_KM: float = 150.0
 const NUM_ITER: int = 50
 const RTOL: float = 1.0e-10
 # Cap how long a single propagate() step is allowed to be. Larger steps are
@@ -45,7 +50,7 @@ func _init(r_in: Vector3, v_in: Vector3) -> void:
 	_recompute_elements()
 
 
-func clone_from(other: EarthOrbit) -> void:
+func clone_from(other: MassCenterOrbit) -> void:
 	r = other.r
 	v = other.v
 	r_p = other.r_p
@@ -120,7 +125,7 @@ func maneuver(dv: Vector3, t: float, min_periapsis_km: float = 0.0) -> bool:
 ##
 ## Used by the asteroid spawner: lateral position spread plus per-axis
 ## velocity jitter pump enough angular momentum into the orbit that
-## periapsis can lift above Earth's surface, turning the trajectory
+## periapsis can lift above MassCenter's surface, turning the trajectory
 ## into a hyperbolic flyby that never impacts and that the trajectory
 ## renderer correctly refuses to draw — so without this clamp, "some
 ## asteroids have no arc" and "some asteroids never hit the ground".
@@ -174,13 +179,13 @@ static func make_elliptical(
 	raan: float,
 	argp: float,
 	nu: float,
-) -> EarthOrbit:
+) -> MassCenterOrbit:
 	# Clamp eccentricity strictly below 1 — a parabolic / hyperbolic
 	# orbit is unbound and outside the menu's "place a unit in a
 	# starting orbit" contract. The menu's slider gate enforces the
 	# cap too; this is the pure-math safety net.
 	var e: float = clampf(ecc, 0.0, 0.999)
-	var r_p: float = EARTH_RADIUS_KM + perigee_alt_km
+	var r_p: float = MASS_CENTER_RADIUS_KM + perigee_alt_km
 	var a: float = r_p / (1.0 - e)
 	var p: float = a * (1.0 - e * e)
 	# r at the requested true anomaly via the conic identity.
@@ -209,19 +214,19 @@ static func make_elliptical(
 	)
 	var pos := pqw_x * pos_pqw.x + pqw_y * pos_pqw.y
 	var vel := pqw_x * vel_pqw.x + pqw_y * vel_pqw.y
-	return EarthOrbit.new(pos, vel)
+	return MassCenterOrbit.new(pos, vel)
 
 
 ## Build a circular orbit at altitude `alt_km` above the surface with
 ## the given inclination, RAAN, and true anomaly (all in radians).
 ## Argument of periapsis is degenerate for a circle, so true anomaly is
 ## measured from the ascending node. Used by the starting fleet spawner
-## (and any future "drop a ship in this orbital slot" gameplay code) so
+## (and any future "drop a unit in this orbital slot" gameplay code) so
 ## the conversion from elements to ECI state lives in one tested place.
 static func make_circular(
 	alt_km: float, inc: float, raan: float, nu: float
-) -> EarthOrbit:
-	var radius := EARTH_RADIUS_KM + alt_km
+) -> MassCenterOrbit:
+	var radius := MASS_CENTER_RADIUS_KM + alt_km
 	var v_mag := sqrt(MU / radius)
 	var cn := cos(nu)
 	var sn := sin(nu)
@@ -243,11 +248,11 @@ static func make_circular(
 		v_mag * (-sn * so + cn * ci * co),
 		v_mag * cn * si,
 	)
-	return EarthOrbit.new(pos, vel)
+	return MassCenterOrbit.new(pos, vel)
 
 
 ## Forward-only estimate of when this orbit's trajectory crosses the
-## Earth's surface, in seconds. Returns 0.0 if already underground, INF
+## MassCenter's surface, in seconds. Returns 0.0 if already underground, INF
 ## if the orbit's periapsis is above the surface (no current-trajectory
 ## impact) or no crossing is found within `max_seconds`. Stateless on
 ## the receiver — propagation runs on a temporary clone, so calling
@@ -259,7 +264,7 @@ func time_to_impact(
 ) -> float:
 	if not is_state_valid():
 		return INF
-	if norm_r <= EARTH_RADIUS_KM:
+	if norm_r <= MASS_CENTER_RADIUS_KM:
 		return 0.0
 	# A bound orbit whose periapsis sits above the surface won't cross it
 	# on its own — short-circuit before we waste a clone on a satellite
@@ -267,18 +272,18 @@ func time_to_impact(
 	# also fall through the inequality cleanly: their r_p is well-defined
 	# (positive in both arms of the branch above) and the gate still
 	# eliminates the ones that miss.
-	if is_finite(r_p) and r_p > EARTH_RADIUS_KM:
+	if is_finite(r_p) and r_p > MASS_CENTER_RADIUS_KM:
 		return INF
 	if step_seconds <= 0.0 or max_seconds <= 0.0:
 		return INF
-	var clone := EarthOrbit.new(r, v)
+	var clone := MassCenterOrbit.new(r, v)
 	var t := 0.0
 	while t < max_seconds:
 		var dt: float = minf(step_seconds, max_seconds - t)
 		if not clone.propagate(dt):
 			return INF
 		t += dt
-		if clone.norm_r <= EARTH_RADIUS_KM:
+		if clone.norm_r <= MASS_CENTER_RADIUS_KM:
 			return t
 	return INF
 

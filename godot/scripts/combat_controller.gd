@@ -5,7 +5,7 @@ extends Node
 ## to each weapon's strategy methods (`pick_target`, `fire`). Weapons
 ## that don't fire this tick cool toward ready instead. Pure
 ## scheduling — no input, no spawning, no planning-mode logic.
-## Splitting this out of EarthSystem makes the hot loop profileable in
+## Splitting this out of MassCenterSystem makes the hot loop profileable in
 ## isolation and gives the eventual server-authoritative refactor a
 ## clean seam.
 

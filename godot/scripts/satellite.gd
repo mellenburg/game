@@ -5,7 +5,7 @@ extends Node3D
 ## _ready(); selection / damage just toggles the cached material's
 ## albedo_color.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const OrbitalPath = preload("res://scripts/orbital_path.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
@@ -26,7 +26,7 @@ const SCENE_SCALE: float = 1.0 / 1000.0
 const MARKER_BASE_SIZE: float = 0.15
 const MARKER_REFERENCE_MASS_KG: float = 1000.0
 # Mass-to-marker-size envelope. Two regimes:
-#   * Bodies below the asteroid burn-up threshold (player ships,
+#   * Bodies below the asteroid burn-up threshold (player units,
 #     unarmed enemies) keep the legacy cube-root-of-mass scaling,
 #     anchored to the 1000 kg reference and clamped so a fully-
 #     fueled default unit looks the same as it always did.
@@ -43,8 +43,8 @@ const DEFAULT_V := Vector3(-3.56, 6.618, 2.533)
 const DELTA_V_MAGNITUDE: float = 0.050
 const COLOR_SELECTED := Color(0.15, 0.7, 0.5)
 # Bright white, used when the operator clicks a tile in the bottom-left
-# tessellation grid. Distinct from COLOR_SELECTED (player-ship cycle) so
-# the two selection surfaces don't conflict — a player ship can be
+# tessellation grid. Distinct from COLOR_SELECTED (player-unit cycle) so
+# the two selection surfaces don't conflict — a player unit can be
 # Tab-selected while an asteroid is grid-highlighted at the same time.
 const COLOR_HIGHLIGHTED := Color.WHITE
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
@@ -96,8 +96,8 @@ const PLAYER_PATH_WIDTH_PX: float = 1.5
 # blue + selected green so a glance at the 3D view (or the in-game HUD
 # roster) tells the player which units are anchored to the ground.
 const COLOR_SURFACE := Color(0.85, 1.0, 0.30)
-# Antenna offset above the Earth radius, in km. A few-km cushion keeps
-# the LOS check (which fails closed when start.length²==EARTH_RADIUS²
+# Antenna offset above the MassCenter radius, in km. A few-km cushion keeps
+# the LOS check (which fails closed when start.length²==MASS_CENTER_RADIUS²
 # due to a degenerate quadratic) from refusing every shot a surface
 # unit could legitimately make. Same scale as SAFE_PERIAPSIS_KM's 1 km
 # margin — small enough to read as "on the ground", large enough that
@@ -143,13 +143,13 @@ const DEFAULT_MAX_ORBITAL_RADIUS_KM: float = 50000.0
 # stays at or above (active body radius + this clearance). 1 km of slack
 # above the surface keeps floating-point slop in the propagator from
 # tipping the body across the surface termination check. Surfaces as a
-# function because EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable
+# function because MassCenterOrbit.MASS_CENTER_RADIUS_KM is a runtime-mutable
 # static var (per-mission body) — a `const` would refuse to compile
 # against a non-constant initialiser.
 const SAFE_PERIAPSIS_CLEARANCE_KM: float = 1.0
 
 static func safe_periapsis_km() -> float:
-	return EarthOrbit.EARTH_RADIUS_KM + SAFE_PERIAPSIS_CLEARANCE_KM
+	return MassCenterOrbit.MASS_CENTER_RADIUS_KM + SAFE_PERIAPSIS_CLEARANCE_KM
 # The damage scale (MJ_PER_HP / J_PER_HP) lives on Weapon — Satellite
 # preloads each weapon class for its default loadout, so the constants
 # can't sit here without creating a circular preload. Read them via
@@ -177,10 +177,10 @@ const DEFAULT_REACTOR_POWER_W: float = 1.0e10
 # this number was chosen against.
 const DEFAULT_COOLING_POWER_W: float = LaserWeapon.HEAT_CAPACITY_J / 160.0
 
-var orbit: EarthOrbit
+var orbit: MassCenterOrbit
 var selected: bool = false
 # Operator-chosen highlight from the bottom-left tessellation grid.
-# Independent of `selected` (which is the player-ship Tab cycle); when
+# Independent of `selected` (which is the player-unit Tab cycle); when
 # both flags are true `highlighted` wins for the orbit-line tint so the
 # white grid pick is unambiguous on screen.
 var highlighted: bool = false
@@ -207,7 +207,7 @@ var hp: float = MAX_HP
 var damage_dealt: float = 0.0
 # Number of enemies this satellite has finished off (dealt the killing
 # blow against). Incremented by take_damage when the attacker's hit
-# brings the target to 0 HP. Surface units and orbital ships share the
+# brings the target to 0 HP. Surface units and orbital units share the
 # same counter — both count as "kills" for the unit summary.
 var kills: int = 0
 # Per-instance mass (kg). Tracks the unit's *wet* mass — dry structure
@@ -221,7 +221,7 @@ var kills: int = 0
 var mass: float = DEFAULT_MASS_KG
 # Bulk density in g/cm^3. Spawners override per-body for asteroids
 # and decaying-orbit threats (sampled from the asteroid composition
-# table in AsteroidPhysics); player ships and unarmed enemies leave
+# table in AsteroidPhysics); player units and unarmed enemies leave
 # this at the stony-chondrite default since it only feeds the
 # asteroid HP formula and the impact-map readout.
 var density_g_cm3: float = 3.4
@@ -244,22 +244,26 @@ var max_propellant_kg: float = DEFAULT_PROPELLANT_KG
 var isp_s: float = DEFAULT_ISP_S
 var thrust_n: float = DEFAULT_THRUST_N
 var alive: bool = true
-# Sub-orbital trajectory (an asteroid) — its periapsis is below Earth's
+# Sub-orbital trajectory (an asteroid) — its periapsis is below MassCenter's
 # surface by construction, so it impacts ground in finite time. Used to
 # suppress the orbit-path visual (a meaningless ellipse clipping through
-# Earth) and to terminate the entity on ground contact.
+# MassCenter) and to terminate the entity on ground contact.
 var is_asteroid: bool = false
 # Decaying-orbit enemy: spawned just past apogee on a highly eccentric
-# ellipse, descending. Each perigee crossing fires a retrograde burn
-# that halves r_a, so the orbit spirals inward; once the burn drops
-# the trailing apsis below the surface the body impacts on its next
-# descending leg. Drives both the burn step in advance_time and the
-# render dispatch (full ellipse while r_p ≥ R, truncated trajectory
-# once r_p dips below the surface).
+# ellipse, descending. Atmospheric drag lowers its apoapsis every tick
+# while its current radius is inside the atmosphere. Drives the render
+# dispatch (full ellipse while r_p ≥ impact_r, truncated spiral once
+# r_p dips below) and the atmospheric decay in advance_time.
 var is_decaying: bool = false
-# Surface installation: anchored to a point on Earth's surface, rotating
+# Whether this decaying-orbit body also fires a retrograde burn at each
+# perigee crossing that halves r_a on top of the continuous atmospheric
+# drag. Controlled by ReconSettings.perigee_burn_enabled; off by default
+# so atmospheric drag alone drives decay — the burn is an opt-in harder
+# mode set at spawn time by SpawnDirector.
+var perigee_burn_enabled: bool = false
+# Surface installation: anchored to a point on MassCenter's surface, rotating
 # with the planet's daily phase rather than following Keplerian motion.
-# EarthSystem detects the flag in _physics_process and skips advance_time
+# MassCenterSystem detects the flag in _physics_process and skips advance_time
 # in favour of update_surface_position(earth_phase) — orbit.r is
 # rewritten each tick from (lat, lon) so combat / LOS / range queries
 # (which all read attacker.orbit.r) keep working without any additional
@@ -302,11 +306,11 @@ var engagement_range_km: float = LaserWeapon.MAX_RANGE_KM
 # engagement_range_km value is preserved so re-toggling fire control
 # brings the same setting back.
 var fire_control_active: bool = false
-# Per-ship laser targeting mode. Honored by LaserWeapon.pick_target
+# Per-unit laser targeting mode. Honored by LaserWeapon.pick_target
 # when selecting which in-envelope enemy each weapon will fire at this
 # tick. Cloned across planning satellites so the planning view shows
 # the same auto-targeting choice the live simulation will make. Stored
-# on the satellite (not the weapon) because all of a ship's lasers
+# on the satellite (not the weapon) because all of a unit's lasers
 # share the same operator setting, even though the constants live on
 # LaserWeapon as the strategy that consumes them.
 var targeting_mode: int = LaserWeapon.TARGETING_MAX_DAMAGE
@@ -322,15 +326,15 @@ var max_orbital_radius_km: float = DEFAULT_MAX_ORBITAL_RADIUS_KM
 # active; press X to silence the entire fleet's railguns when the
 # operator wants to preserve momentum / energy. Stored per-satellite so
 # the weapon strategy (which only sees its attacker) can read a single
-# field; EarthSystem._toggle_railgun_on_all keeps the flag consistent
+# field; MassCenterSystem._toggle_railgun_on_all keeps the flag consistent
 # across player units.
 var railgun_enabled: bool = true
 
 # Cached absolute simulated time at which this body's current
-# trajectory crosses Earth's surface. NAN means "unknown — compute on
+# trajectory crosses MassCenter's surface. NAN means "unknown — compute on
 # next access"; INF means "no impact within the propagator's horizon"
 # (which collapses to "never" for an orbit that won't be perturbed);
-# any finite value is in the same sim-clock frame EarthSystem.sim_time
+# any finite value is in the same sim-clock frame MassCenterSystem.sim_time
 # advances. Storing the *absolute* impact time means free propagation
 # never has to update it — the body moves through time but the
 # impact instant doesn't. Maneuvers / perigee burns invalidate it
@@ -367,7 +371,7 @@ var _path_alpha: float = 1.0
 
 
 func _init() -> void:
-	orbit = EarthOrbit.new(DEFAULT_R, DEFAULT_V)
+	orbit = MassCenterOrbit.new(DEFAULT_R, DEFAULT_V)
 	# Player loadout: two lasers (continuous-fire) plus a single railgun
 	# (impulse, momentum-conserving). Lasers sit first so their HUD
 	# bars line up with prior screenshots; the railgun bar tails the
@@ -473,7 +477,7 @@ func toggle_fire_control() -> void:
 
 
 ## Absolute simulated time at which this body's current trajectory
-## crosses Earth, computed lazily on first access against the current
+## crosses MassCenter, computed lazily on first access against the current
 ## sim-clock. Subsequent accesses return the stored value as-is — the
 ## impact *instant* is invariant under free propagation, so neither the
 ## caller nor advance_time has to nudge it each tick. INF is returned
@@ -485,7 +489,7 @@ func predict_impact_sim_time(current_sim_time: float) -> float:
 		if is_decaying:
 			# Decaying bodies' current orbit has periapsis well above the
 			# surface — only the spiral's final over-shoot burn drops r_p
-			# below ground. EarthOrbit.time_to_impact would short-circuit
+			# below ground. MassCenterOrbit.time_to_impact would short-circuit
 			# every intermediate cycle as INF, leaving the path-color
 			# gradient (and any other ETA-keyed UI) stuck on "no impact"
 			# right up to the kill tick. Sum Kepler tof across the same
@@ -511,7 +515,7 @@ func invalidate_impact_cache() -> void:
 
 
 ## Flip the laser targeting mode between MAX_DAMAGE (closest target) and
-## MAX_DANGER (target whose trajectory impacts Earth soonest). Only
+## MAX_DANGER (target whose trajectory impacts MassCenter soonest). Only
 ## meaningful on armed units; on unarmed bodies the flag is harmless but
 ## ignored by the combat loop.
 func toggle_targeting_mode() -> void:
@@ -545,7 +549,7 @@ func set_max_orbital_radius(km: float) -> void:
 
 
 ## Flip the railgun-enabled gate. Like toggle_fire_control this is
-## per-instance; EarthSystem keeps the whole fleet in sync via X.
+## per-instance; MassCenterSystem keeps the whole fleet in sync via X.
 func toggle_railgun() -> void:
 	railgun_enabled = not railgun_enabled
 
@@ -553,7 +557,7 @@ func toggle_railgun() -> void:
 ## Whether this satellite carries at least one laser. Drives every
 ## laser-specific UI surface and input gate (the targeting-mode toggle,
 ## fire-control toggle, engagement-range slider, and their HUD
-## readouts). A railgun-only ship returns false and is silently
+## readouts). A railgun-only unit returns false and is silently
 ## skipped by all of those — pressing L on it does nothing, the HUD
 ## doesn't render a TGT or FC line, and the range slider stays put.
 func has_laser() -> bool:
@@ -643,7 +647,7 @@ func take_damage(amount: float, attacker: Satellite = null) -> bool:
 	# shrinks in lockstep with HP. That drops the impact's damage radius
 	# (mass × density model on the ImpactMap) and lifts the railgun's
 	# per-slug deflection (recoil and target-push are momentum / mass).
-	# Player ships and unarmed enemies stay at their spawn-time mass —
+	# Player units and unarmed enemies stay at their spawn-time mass —
 	# damage there represents subsystem damage, not mass loss.
 	if (is_asteroid or is_decaying) and density_g_cm3 > 0.0:
 		mass = AsteroidPhysics.mass_for_hp(hp, density_g_cm3)
@@ -725,23 +729,38 @@ func advance_time(delta_time: float) -> void:
 	# this function terminates the body on its descent.
 	if (
 		is_decaying
+		and perigee_burn_enabled
 		and r_dot_v_before < 0.0
 		and orbit.r.dot(orbit.v) > 0.0
 	):
 		_perigee_decay_burn()
-	# Any satellite whose trajectory crosses the surface exits play. The
-	# Keplerian propagator is happy to push a body straight through the
-	# planet and out the other side, so we kill on either (a) the post-
-	# step radius being inside the surface, or (b) an inbound→outbound
-	# transition during the step combined with a sub-surface periapsis
-	# (the body just tunneled through ground inside one tick).
+	# Atmospheric drag for asteroids and decaying threats. Applied after
+	# any perigee burn so the two effects are additive within the same tick.
+	if is_asteroid or is_decaying:
+		_apply_atmospheric_decay(delta_time)
+		if not alive:
+			return  # Atmospheric ablation burned the body up
+	# Any satellite whose trajectory crosses the impact threshold exits play.
+	# Keplerian propagator happily pushes bodies through the planet, so we
+	# kill on either (a) post-step radius inside the threshold, or (b) an
+	# inbound→outbound transition with a sub-threshold periapsis (tunneled
+	# through in one tick). Atmospheric bodies (asteroids, decaying threats)
+	# are considered impacted at 60 km altitude (safe_alt − 90 km); all
+	# others terminate at the actual surface.
 	var crossed_periapsis := r_dot_v_before < 0.0 and orbit.r.dot(orbit.v) > 0.0
-	var sub_surface_periapsis := (
-		is_finite(orbit.r_p) and orbit.r_p <= EarthOrbit.EARTH_RADIUS_KM
+	var impact_r: float
+	if is_asteroid or is_decaying:
+		impact_r = MassCenterOrbit.MASS_CENTER_RADIUS_KM + maxf(
+			MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0
+		)
+	else:
+		impact_r = MassCenterOrbit.MASS_CENTER_RADIUS_KM
+	var sub_impact_periapsis := (
+		is_finite(orbit.r_p) and orbit.r_p <= impact_r
 	)
 	if (
-		orbit.norm_r <= EarthOrbit.EARTH_RADIUS_KM
-		or (crossed_periapsis and sub_surface_periapsis)
+		orbit.norm_r <= impact_r
+		or (crossed_periapsis and sub_impact_periapsis)
 	):
 		alive = false
 		_hide_visuals()
@@ -756,7 +775,7 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 		path_visual.visible = false
 		return
 	# Surface installations don't follow a Keplerian arc — they ride
-	# Earth's daily rotation. Drawing an "orbit" here would be both
+	# MassCenter's daily rotation. Drawing an "orbit" here would be both
 	# meaningless and (because orbit.v is just the surface tangential
 	# speed) numerically ill-conditioned, so we hide the path entirely.
 	if is_surface:
@@ -776,7 +795,7 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 			_apply_path_color()
 	# Asteroids get the truncated-trajectory renderer: the same line
 	# style as a regular orbit, but cut off at the surface so the part
-	# that would tunnel through Earth isn't drawn.
+	# that would tunnel through MassCenter isn't drawn.
 	if is_decaying:
 		# Render the body's entire predicted future trajectory as a
 		# multi-segment spiral: current arc to next perigee, then a
@@ -820,6 +839,86 @@ func _perigee_decay_burn() -> void:
 		_hide_visuals()
 
 
+# Continuously lower the apoapsis by atmospheric drag while the body is
+# inside the atmosphere. Called every physics tick from advance_time.
+#
+# Zone structure (relative to MassCenterOrbit.SAFE_ORBIT_ALT_KM, 150 km for MassCenter):
+#   Air brake   (safe - 30 … safe km):  drag 0→20 km/kg/s, no HP loss
+#   Reentry     (safe - 50 … safe - 30): drag 20→40 km/kg/s, 0.001 %/s HP
+#   Ablation    (safe - 90 … safe - 50): drag 40→100 km/kg/s, 0.01 %/s HP
+#   ≤ safe - 90 km: body already past impact threshold, handled by advance_time
+func _apply_atmospheric_decay(sim_delta: float) -> void:
+	if not is_finite(mass) or mass <= 0.0:
+		return
+	var safe_alt: float = MassCenterOrbit.SAFE_ORBIT_ALT_KM
+	var alt_km: float = orbit.norm_r - MassCenterOrbit.MASS_CENTER_RADIUS_KM
+	if alt_km >= safe_alt:
+		return
+	var air_brake_bot: float = safe_alt - 30.0
+	var reentry_bot: float = safe_alt - 50.0
+	var ablation_bot: float = safe_alt - 90.0
+	if alt_km < ablation_bot:
+		return  # Below impact threshold — advance_time kills the body next
+	var drag_rate_km_per_kg_s: float
+	var hp_frac_per_s: float
+	if alt_km >= air_brake_bot:
+		# Air brake zone: 0 km/kg/s at safe_alt, 20 km/kg/s at air_brake_bot
+		var t: float = (alt_km - air_brake_bot) / (safe_alt - air_brake_bot)
+		drag_rate_km_per_kg_s = lerpf(20.0, 0.0, t)
+		hp_frac_per_s = 0.0
+	elif alt_km >= reentry_bot:
+		# Reentry interface: 20 km/kg/s at air_brake_bot, 40 km/kg/s at reentry_bot
+		var t: float = (alt_km - reentry_bot) / (air_brake_bot - reentry_bot)
+		drag_rate_km_per_kg_s = lerpf(40.0, 20.0, t)
+		hp_frac_per_s = 0.001 / 100.0
+	else:
+		# Ablation zone: 40 km/kg/s at reentry_bot, 100 km/kg/s at ablation_bot
+		var t: float = (alt_km - ablation_bot) / (reentry_bot - ablation_bot)
+		drag_rate_km_per_kg_s = lerpf(100.0, 40.0, t)
+		hp_frac_per_s = 0.01 / 100.0
+	if hp_frac_per_s > 0.0 and hp > 0.0:
+		# Atmospheric ablation erodes mass in lockstep with HP (same path as
+		# weapon damage for asteroids), so the impact radius and deflection
+		# math keep working without special-casing.
+		var atmo_damage: float = hp * hp_frac_per_s * sim_delta
+		take_damage(atmo_damage)
+	var delta_r_a: float = drag_rate_km_per_kg_s * mass * sim_delta
+	_reduce_apoapsis(delta_r_a)
+
+
+# Lower the apoapsis by `delta_r_a` km while approximately preserving the
+# periapsis. Uses vis-viva to compute the velocity magnitude consistent with
+# a new semi-major axis a_new = (r_p + r_a - delta_r_a) / 2, then scales
+# the current velocity vector to that magnitude — equivalent to a retrograde
+# burn that keeps the orbital plane and direction intact. Accurate at
+# periapsis; a useful game approximation elsewhere.
+func _reduce_apoapsis(delta_r_a: float) -> void:
+	if delta_r_a <= 0.0:
+		return
+	var r_a := orbit.r_a
+	var r_p := orbit.r_p
+	if not is_finite(r_a) or not is_finite(r_p) or r_a <= 0.0 or r_p <= 0.0:
+		return
+	var r_a_new := maxf(r_a - delta_r_a, r_p)
+	if r_a_new >= r_a:
+		return
+	var a_new := 0.5 * (r_p + r_a_new)
+	var r := orbit.norm_r
+	var v_sq_new := MassCenterOrbit.MU * (2.0 / r - 1.0 / a_new)
+	if v_sq_new <= 0.0:
+		orbit_alive = false
+		_hide_visuals()
+		return
+	var v_old := orbit.norm_v
+	if v_old <= 0.0:
+		return
+	var dv := orbit.v * (sqrt(v_sq_new) / v_old - 1.0)
+	invalidate_impact_cache()
+	if not orbit.maneuver(dv, 0.0):
+		orbit_alive = false
+		_hide_visuals()
+
+
 ## Full clone — orbital state and operator-queued maneuver intent.
 ## Use on planning-mode entry, where you want the plan to start identical
 ## to reality.
@@ -851,6 +950,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	alive = other.alive
 	is_asteroid = other.is_asteroid
 	is_decaying = other.is_decaying
+	perigee_burn_enabled = other.perigee_burn_enabled
 	is_surface = other.is_surface
 	surface_lat_deg = other.surface_lat_deg
 	surface_lon_deg = other.surface_lon_deg
@@ -909,9 +1009,9 @@ func _marker_box_size() -> Vector3:
 		var t := AsteroidPhysics.mass_log_norm(mass)
 		scale = lerpf(MARKER_SCALE_MIN, MARKER_SCALE_MAX, t)
 	else:
-		# Player ships and orbital enemies keep the legacy cube-root
+		# Player units and orbital enemies keep the legacy cube-root
 		# scaling against the 1000 kg reference. Clamp so a runaway
-		# mass (shouldn't happen, but defensive) doesn't dwarf Earth.
+		# mass (shouldn't happen, but defensive) doesn't dwarf MassCenter.
 		var ratio := pow(
 			maxf(mass, 1.0) / MARKER_REFERENCE_MASS_KG, 1.0 / 3.0
 		)
@@ -943,8 +1043,8 @@ func _base_color() -> Color:
 	return COLOR_ENEMY if team == TEAM_ENEMY else COLOR_PLAYER
 
 
-## Recompute orbit.r for a surface installation at the given Earth
-## phase. Called from EarthSystem._physics_process for every is_surface
+## Recompute orbit.r for a surface installation at the given MassCenter
+## phase. Called from MassCenterSystem._physics_process for every is_surface
 ## sat in lieu of advance_time — the body never propagates, it just
 ## rides the planet's daily rotation. orbit.v is set to the local
 ## tangential velocity so any code path that reads it (currently the
@@ -953,7 +1053,7 @@ func _base_color() -> Color:
 func update_surface_position(earth_phase: float) -> void:
 	if not is_surface:
 		return
-	var radius := EarthOrbit.EARTH_RADIUS_KM + SURFACE_UNIT_ALTITUDE_KM
+	var radius := MassCenterOrbit.MASS_CENTER_RADIUS_KM + SURFACE_UNIT_ALTITUDE_KM
 	var pos := SurfacePosition.latlon_to_eci(
 		surface_lat_deg, surface_lon_deg, earth_phase, radius
 	)

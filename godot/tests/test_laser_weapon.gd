@@ -12,7 +12,7 @@ extends "res://tests/framework.gd"
 
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
-const EARTH_RADIUS_KM: float = 6371.0
+const MASS_CENTER_RADIUS_KM: float = 6371.0
 
 
 class FakeOrbit extends RefCounted:
@@ -79,7 +79,7 @@ const HEAT_PER_SEC_W: float = LaserWeapon.POOL_DRAIN_W * LaserWeapon.HEAT_FRACTI
 const STARTING_ENERGY_J: float = 4.0e13
 
 
-func _make_player(pos: Vector3 = Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0)) -> FakeSat:
+func _make_player(pos: Vector3 = Vector3(MASS_CENTER_RADIUS_KM + 500.0, 0.0, 0.0)) -> FakeSat:
 	var s := FakeSat.new()
 	s.team = 0
 	s.orbit.r = pos
@@ -122,7 +122,7 @@ func test_demands_cooling_after_fire() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	w.fire(attacker, target, 1.0)
 	assert_true(w.heat_j > 0.0)
 	assert_true(w.demands_cooling())
@@ -136,7 +136,7 @@ func test_cannot_fire_with_no_energy() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = 0.0
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_false(w.can_fire(attacker))
 	assert_false(w.fire(attacker, target, 1.0))
 	assert_close(target.hp, 100.0)
@@ -146,7 +146,7 @@ func test_fire_applies_damage_drains_energy_and_adds_heat() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	# Bump HP above the per-burn damage so we can verify the exact
 	# subtraction rather than asserting the take_damage clamp at zero.
 	target.hp = 1.0e9
@@ -177,7 +177,7 @@ func test_cool_drains_heat_at_supplied_power() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_true(w.fire(attacker, target, 4.0))
 	var heat_after_fire: float = w.heat_j
 	# 100 MW of cooling for 1 sec drains 100 MJ of heat.
@@ -190,7 +190,7 @@ func test_continuous_fire_overheats_at_capacity() -> void:
 	# capacity. Use a giant energy pool so heat is the only limiter.
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	target.hp = 1.0e9  # large so it survives the burn
 	# Sim-sec to fully overheat = HEAT_CAPACITY_J / heat-per-sec; pad
 	# slightly so the final tick crosses zero.
@@ -207,7 +207,7 @@ func test_overheated_weapon_refuses_to_fire_until_fully_cool() -> void:
 	# let the weapon fire again until heat hits 0.
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	target.hp = 1.0e9
 	var burn := LaserWeapon.HEAT_CAPACITY_J / HEAT_PER_SEC_W + 1.0
 	attacker.energy = burn * LaserWeapon.POOL_DRAIN_W * 2.0
@@ -239,7 +239,7 @@ func test_fire_does_not_overshoot_remaining_energy() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = 0.5 * LaserWeapon.POOL_DRAIN_W  # 0.5 sim-sec budget
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	# HP big enough that 0.5 sec of zero-range fire leaves a residual
 	# rather than clamping at the take_damage floor.
 	target.hp = 1.0e9
@@ -258,7 +258,7 @@ func test_does_not_engage_same_team() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
-	var ally := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var ally := _make_player(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_false(w.is_target_in_engagement_envelope(attacker, ally))
 	assert_false(w.fire(attacker, ally, 1.0))
 	assert_close(ally.hp, 100.0)
@@ -267,9 +267,9 @@ func test_does_not_engage_same_team() -> void:
 
 func test_does_not_engage_when_los_blocked() -> void:
 	var w := LaserWeapon.new()
-	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	var attacker := _make_player(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 0.0, 0.0))
 	attacker.energy = STARTING_ENERGY_J
-	var enemy := _make_enemy(Vector3(-(EARTH_RADIUS_KM + 500.0), 0.0, 0.0))
+	var enemy := _make_enemy(Vector3(-(MASS_CENTER_RADIUS_KM + 500.0), 0.0, 0.0))
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
 	assert_close(enemy.hp, 100.0)
@@ -283,7 +283,7 @@ func test_does_not_engage_inert_asteroid() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
-	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var enemy := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	enemy.inert = true
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 
@@ -292,7 +292,7 @@ func test_does_not_engage_dead_target() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
-	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var enemy := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	enemy.alive = false
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
@@ -303,7 +303,7 @@ func test_cool_ignores_zero_or_negative_inputs() -> void:
 	# Fire briefly to push heat above 0 so cooling has somewhere to go.
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	w.fire(attacker, target, 1.0)
 	var heat_before := w.heat_j
 	w.cool(0.0, 1.0)
@@ -318,7 +318,7 @@ func test_fire_ignores_zero_or_negative_delta() -> void:
 	var w := LaserWeapon.new()
 	var attacker := _make_player()
 	attacker.energy = STARTING_ENERGY_J
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 1000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 1000.0, 0.0))
 	assert_false(w.fire(attacker, target, 0.0))
 	assert_false(w.fire(attacker, target, -1.0))
 	assert_close(target.hp, 100.0)
@@ -369,14 +369,14 @@ func test_damage_scales_with_distance() -> void:
 	# stationary target setup keeps LOS clear in both cases.
 	var w_near := LaserWeapon.new()
 	var w_far := LaserWeapon.new()
-	var atk_near := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
-	var atk_far := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	var atk_near := _make_player(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 0.0, 0.0))
+	var atk_far := _make_player(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 0.0, 0.0))
 	atk_near.energy = STARTING_ENERGY_J
 	atk_far.energy = STARTING_ENERGY_J
 	# 2000 km vs 8000 km lateral offset — both well clear of LOS
 	# blockage at this altitude, both well inside MAX_RANGE_KM.
-	var tgt_near := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 2000.0, 0.0))
-	var tgt_far := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 8000.0, 0.0))
+	var tgt_near := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 2000.0, 0.0))
+	var tgt_far := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 8000.0, 0.0))
 	# HP large enough that a 1-sec zero-range burn leaves a measurable
 	# residue at both ranges instead of clamping at zero.
 	tgt_near.hp = 1.0e9
@@ -400,11 +400,11 @@ func test_does_not_engage_beyond_max_range() -> void:
 	# A target past MAX_RANGE_KM is out of envelope regardless of
 	# engagement_range_km — physics ceiling caps the operator setting.
 	var w := LaserWeapon.new()
-	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	var attacker := _make_player(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 0.0, 0.0))
 	attacker.energy = STARTING_ENERGY_J
 	var far := LaserWeapon.MAX_RANGE_KM + 1000.0
 	var enemy := _make_enemy(
-		Vector3(EARTH_RADIUS_KM + 500.0, far, 10000.0)
+		Vector3(MASS_CENTER_RADIUS_KM + 500.0, far, 10000.0)
 	)
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
@@ -421,10 +421,10 @@ func test_engagement_range_gates_fire_only_with_fire_control_on() -> void:
 	# expects their lasers to fire freely again without first having
 	# to widen the slider).
 	var w := LaserWeapon.new()
-	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	var attacker := _make_player(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 0.0, 0.0))
 	attacker.energy = STARTING_ENERGY_J
 	# Place enemy 6000 km away laterally.
-	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 6000.0, 0.0))
+	var enemy := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 6000.0, 0.0))
 	# Tighten engagement to 3000 km. With fire control off the cap is
 	# silently ignored — the laser still fires at the 6000 km enemy.
 	attacker.engagement_range_km = 3000.0
@@ -451,9 +451,9 @@ func test_toggling_fire_control_off_restores_default_engagement() -> void:
 	# fire_control_active; the saved value persists so toggling back
 	# on restores the operator's chosen ring.
 	var w := LaserWeapon.new()
-	var attacker := _make_player(Vector3(EARTH_RADIUS_KM + 500.0, 0.0, 0.0))
+	var attacker := _make_player(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 0.0, 0.0))
 	attacker.energy = STARTING_ENERGY_J
-	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 6000.0, 0.0))
+	var enemy := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 6000.0, 0.0))
 	# Operator opens fire control, dials the cap below the enemy.
 	attacker.fire_control_active = true
 	attacker.engagement_range_km = 1000.0

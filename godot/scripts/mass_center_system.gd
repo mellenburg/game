@@ -1,4 +1,4 @@
-class_name EarthSystem
+class_name MassCenterSystem
 extends Node3D
 ## Top-level controller. Simulation runs in _physics_process at a fixed
 ## tick rate so the orbit math is frame-rate independent. _process is
@@ -10,10 +10,10 @@ extends Node3D
 ## input through to the right service.
 
 const Satellite = preload("res://scripts/satellite.gd")
-const Earth = preload("res://scripts/earth.gd")
+const MassCenter = preload("res://scripts/mass_center.gd")
 const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const SlugRenderer = preload("res://scripts/slug_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
@@ -66,7 +66,7 @@ var sim_time: float = 0.0
 
 var real_satellites: Array[Satellite] = []
 var planning_satellites: Array[Satellite] = []
-var selected_ship: int = 0
+var selected_unit: int = 0
 var planning_selected: int = 0
 
 # Running tallies of how each enemy left play. Driven from the dead-
@@ -75,7 +75,7 @@ var planning_selected: int = 0
 var enemies_shot_down: int = 0
 var asteroids_impacted: int = 0
 # Sum of HP each impacting body still carried at ground contact —
-# i.e. the damage total Earth ate. Counted from the dead-sat sweep so
+# i.e. the damage total MassCenter ate. Counted from the dead-sat sweep so
 # every impact flows through one place. Surfaced on the end-of-run
 # summary alongside per-unit damage / kills.
 var total_impact_hp: float = 0.0
@@ -85,7 +85,7 @@ var total_impact_hp: float = 0.0
 # until the mass-HP coupling drove them inert). Tracked separately
 # from `asteroids_impacted` so the end-of-run summary can show
 # "atmospheric defense did this much work for you" alongside the
-# damage Earth actually absorbed.
+# damage MassCenter actually absorbed.
 var atmosphere_burnup_count: int = 0
 var atmosphere_burnup_hp: float = 0.0
 # Snapshots of player satellites that died during the run. Each entry
@@ -138,7 +138,7 @@ var _mission_wave_bases: Dictionary = {}
 # class config the player intended at launch time.
 var _mission_settings: ReconSettings = null
 
-@onready var earth: Earth = $Earth as Earth
+@onready var mass_center: MassCenter = $MassCenter as MassCenter
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
 @onready var hud: HUD = $CanvasLayer/HUD as HUD
 @onready var satellite_container: Node3D = $Satellites as Node3D
@@ -179,9 +179,9 @@ var satellites: Array[Satellite]:
 func _ready() -> void:
 	# Apply the active body's μ and surface radius before anything
 	# else looks at orbital state. SpawnDirector and the satellites it
-	# materialises read EarthOrbit.MU / EARTH_RADIUS_KM eagerly at spawn
+	# materialises read MassCenterOrbit.MU / MASS_CENTER_RADIUS_KM eagerly at spawn
 	# time, so a deferred apply would leave the very first fleet sitting
-	# on Earth physics inside a Mars stage.
+	# on MassCenter physics inside a Mars stage.
 	CelestialBody.active(get_tree()).apply_to_propagator()
 
 	_albedo_image = _load_albedo_image()
@@ -207,7 +207,7 @@ func _ready() -> void:
 	var pool := _player_loadout_pool()
 	spawn_director.spawn_starting_fleet(launches, pool)
 	spawn_director.spawn_surface_units(
-		_player_loadout_surface_units(), earth.earth_phase
+		_player_loadout_surface_units(), mass_center.earth_phase
 	)
 	# Position surface units immediately so the very first render frame
 	# already shows them on the ground — _physics_process won't run until
@@ -215,16 +215,17 @@ func _ready() -> void:
 	# briefly sit at orbit.r's spawn placeholder.
 	for sat in real_satellites:
 		if sat.is_surface:
-			sat.update_surface_position(earth.earth_phase)
+			sat.update_surface_position(mass_center.earth_phase)
 	if not real_satellites.is_empty():
-		selected_ship = _first_orbital_player_index()
-		real_satellites[selected_ship].select()
+		selected_unit = _first_orbital_player_index()
+		real_satellites[selected_unit].select()
 
 	# Only auto-arm the mission scheduler when the player came in via
 	# the menu's Launch button. Direct main.tscn boot keeps the legacy
 	# sandbox where waves are only triggered by the debug keybinds.
 	if _player_loadout_is_launched():
 		_mission_settings = _player_loadout_recon_settings()
+		spawn_director.perigee_burn_enabled = _mission_settings.perigee_burn_enabled
 		mission = Mission.new()
 		mission.start_from_settings(_mission_settings)
 
@@ -312,7 +313,7 @@ func _player_loadout_surface_units() -> Array[SurfaceUnitConfig]:
 # Default-select the first orbital player satellite rather than blindly
 # picking index 0, which after spawn_starting_fleet + spawn_surface_units
 # could be any team / kind. Surface installations don't accept thrust
-# input, and selecting one as the active ship would silently make every
+# input, and selecting one as the active unit would silently make every
 # arrow key a no-op until the operator pressed Tab.
 func _first_orbital_player_index() -> int:
 	for i in range(real_satellites.size()):
@@ -325,7 +326,7 @@ func _first_orbital_player_index() -> int:
 # Pull the day-side albedo into an Image once. Sampling at impact time
 # is then a single pixel read — no GPU readback, no per-impact load.
 func _load_albedo_image() -> Image:
-	const path := "res://resources/3D/earth/4096_earth.jpg"
+	const path := "res://resources/3D/mass_center/4096_earth.jpg"
 	if not ResourceLoader.exists(path):
 		return null
 	var tex := load(path) as Texture2D
@@ -419,15 +420,15 @@ func _physics_process(delta: float) -> void:
 	# Convert wall-clock seconds to simulated seconds.
 	var sim_delta := float(time_factor) * delta
 	sim_time += sim_delta
-	earth.advance_phase(sim_delta)
+	mass_center.advance_phase(sim_delta)
 	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
 		if sat.is_surface:
-			# Surface installations ride Earth's daily rotation rather
+			# Surface installations ride MassCenter's daily rotation rather
 			# than propagating Keplerian motion — orbit.r is rewritten
 			# from (lat, lon, earth_phase) so combat queries that read
 			# attacker.orbit.r still work.
-			sat.update_surface_position(earth.earth_phase)
+			sat.update_surface_position(mass_center.earth_phase)
 		else:
 			sat.advance_time(sim_delta)
 	combat_controller.process_combat(real_satellites, sim_time, sim_delta)
@@ -454,7 +455,7 @@ func _physics_process(delta: float) -> void:
 					# rotation rather than the orbit so the planning
 					# preview shows the unit's future ECI position.
 					var future_phase: float = (
-						earth.earth_phase + earth.rotation_rate * window
+						mass_center.earth_phase + mass_center.rotation_rate * window
 					)
 					plan_sat.update_surface_position(future_phase)
 				else:
@@ -511,7 +512,7 @@ func _remove_dead_satellites() -> void:
 				else:
 					asteroids_impacted += 1
 					# HP at the moment of impact is the un-reduced threat
-					# Earth absorbed. Tally it before the satellite is
+					# MassCenter absorbed. Tally it before the satellite is
 					# freed so the end-of-run summary can show "total HP
 					# of impactors", not just a count.
 					total_impact_hp += maxf(sat.hp, 0.0)
@@ -532,24 +533,24 @@ func _remove_dead_satellites() -> void:
 			plan_sat.queue_free()
 		real_satellites.remove_at(i)
 		sat.queue_free()
-		if i < selected_ship:
-			selected_ship -= 1
+		if i < selected_unit:
+			selected_unit -= 1
 		if i < planning_selected:
 			planning_selected -= 1
 	if real_satellites.is_empty():
-		selected_ship = 0
+		selected_unit = 0
 		planning_selected = 0
 		return
-	selected_ship = clampi(selected_ship, 0, real_satellites.size() - 1)
+	selected_unit = clampi(selected_unit, 0, real_satellites.size() - 1)
 	planning_selected = clampi(planning_selected, 0, maxi(planning_satellites.size() - 1, 0))
-	# Picking a fresh selection above can leave the new ship un-highlighted.
-	if not real_satellites[selected_ship].selected:
-		real_satellites[selected_ship].select()
+	# Picking a fresh selection above can leave the new unit un-highlighted.
+	if not real_satellites[selected_unit].selected:
+		real_satellites[selected_unit].select()
 
 
 # Build the end-of-run report. Combines live player-satellite tallies
 # (read directly from each Satellite) with the dead_player_stats
-# snapshots captured in _remove_dead_satellites, so a unit whose ship
+# snapshots captured in _remove_dead_satellites, so a unit whose unit
 # was lost mid-run still gets credit for what it did. The end-game
 # overlay renders this dictionary directly; storing it as a struct
 # rather than a formatted string keeps the formatting concern in the
@@ -634,15 +635,15 @@ func _process_continuous_input(delta: float) -> void:
 
 	# Apply thrust to whichever satellite is "hot". Enemies are not
 	# operator-controlled, so refuse thrust input on them; a stale
-	# selection pointing at an enemy after a player ship died just means
+	# selection pointing at an enemy after a player unit died just means
 	# the keys do nothing this frame.
 	var target_satellites: Array[Satellite] = (
 		planning_satellites if planning_mode else real_satellites
 	)
-	var idx := planning_selected if planning_mode else selected_ship
+	var idx := planning_selected if planning_mode else selected_unit
 	if not target_satellites.is_empty() and idx >= 0 and idx < target_satellites.size():
 		var sat := target_satellites[idx]
-		# Surface installations are anchored to Earth's surface — thrust
+		# Surface installations are anchored to MassCenter's surface — thrust
 		# inputs are silently ignored on them, otherwise the queued Δv
 		# would land in raw_maneuver and confuse the planning preview.
 		if sat.team == Satellite.TEAM_PLAYER and not sat.is_surface:
@@ -654,8 +655,8 @@ func _process_continuous_input(delta: float) -> void:
 	# planning sat would be visually invisible the next frame.
 	#
 	# Two modes share the same arrow-while-Shift gesture:
-	#   * Shift + arrows  → adjusts the selected ship only.
-	#   * Shift + C + arrows → snaps every armed player ship to the fleet
+	#   * Shift + arrows  → adjusts the selected unit only.
+	#   * Shift + C + arrows → snaps every armed player unit to the fleet
 	#     average on the press edge, then drives the shared value as long
 	#     as the keys stay held. Snap-on-edge keeps the operator from
 	#     having to manually equalise ranges before commanding the fleet.
@@ -663,8 +664,8 @@ func _process_continuous_input(delta: float) -> void:
 	var fleet_adjusting_now := false
 	if range_input != 0.0 and fleet_range_mode and not real_satellites.is_empty():
 		# Engagement range only governs the laser. Shift+C+arrows
-		# snaps every laser-armed ship to the fleet average and
-		# nudges from there; railgun-only ships are skipped.
+		# snaps every laser-armed unit to the fleet average and
+		# nudges from there; railgun-only units are skipped.
 		var laser_armed := _laser_armed_player_sats()
 		if not laser_armed.is_empty():
 			if not _fleet_range_adjusting:
@@ -679,7 +680,7 @@ func _process_continuous_input(delta: float) -> void:
 				sat.set_engagement_range(sat.engagement_range_km + step_km)
 			fleet_adjusting_now = true
 	elif range_input != 0.0 and not real_satellites.is_empty():
-		var real_idx := planning_selected if planning_mode else selected_ship
+		var real_idx := planning_selected if planning_mode else selected_unit
 		if real_idx >= 0 and real_idx < real_satellites.size():
 			var rsat := real_satellites[real_idx]
 			if (
@@ -696,11 +697,11 @@ func _process_continuous_input(delta: float) -> void:
 	# Railgun max-orbital-radius nudge. Same write-to-real-not-planning
 	# pattern as the engagement-range slider, since clone_orbit_from
 	# overwrites the planning copy each tick. Gated on the selected
-	# ship carrying a railgun — the cap is read only by the railgun's
-	# safety check, so adjusting it on a laser-only ship would mutate
+	# unit carrying a railgun — the cap is read only by the railgun's
+	# safety check, so adjusting it on a laser-only unit would mutate
 	# a value nothing ever reads.
 	if radius_input != 0.0 and not real_satellites.is_empty():
-		var real_idx := planning_selected if planning_mode else selected_ship
+		var real_idx := planning_selected if planning_mode else selected_unit
 		if real_idx >= 0 and real_idx < real_satellites.size():
 			var rsat := real_satellites[real_idx]
 			if rsat.team == Satellite.TEAM_PLAYER and rsat.has_railgun():
@@ -712,7 +713,7 @@ func _process_continuous_input(delta: float) -> void:
 
 func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("select_next"):
-		select_next_ship()
+		select_next_unit()
 	if Input.is_action_just_pressed("add_satellite"):
 		add_satellite()
 	if Input.is_action_just_pressed("remove_satellite"):
@@ -760,12 +761,12 @@ func _process_one_shot_input() -> void:
 func _toggle_fire_control_on_selected() -> void:
 	if real_satellites.is_empty():
 		return
-	var idx := planning_selected if planning_mode else selected_ship
+	var idx := planning_selected if planning_mode else selected_unit
 	if idx < 0 or idx >= real_satellites.size():
 		return
 	var sat := real_satellites[idx]
 	# Fire control adjusts the laser's engagement-range cap; on a
-	# railgun-only ship it would toggle a flag nothing reads. Silently
+	# railgun-only unit it would toggle a flag nothing reads. Silently
 	# no-op so the input doesn't produce confusing HUD blink.
 	if sat.team != Satellite.TEAM_PLAYER or not sat.has_laser():
 		return
@@ -774,7 +775,7 @@ func _toggle_fire_control_on_selected() -> void:
 
 # Toggle fire-control mode across every laser-armed player satellite
 # at once (Shift+C). Same "consensus then flip" pattern as the
-# targeting / railgun toggles. Railgun-only and unarmed ships skip:
+# targeting / railgun toggles. Railgun-only and unarmed units skip:
 # fire control only governs the laser's engagement_range_km cap.
 func _toggle_fire_control_on_all() -> void:
 	var laser_armed := _laser_armed_player_sats()
@@ -794,12 +795,12 @@ func _toggle_fire_control_on_all() -> void:
 # Toggle targeting mode on the active player satellite. Targeting
 # (MAX DAMAGE / MAX DANGER) is laser-only — the railgun ignores it
 # and picks randomly from in-envelope LOS targets — so we silently
-# no-op on railgun-only and unarmed ships rather than flipping a
+# no-op on railgun-only and unarmed units rather than flipping a
 # flag the weapon strategy doesn't read.
 func _toggle_targeting_mode_on_selected() -> void:
 	if real_satellites.is_empty():
 		return
-	var idx := planning_selected if planning_mode else selected_ship
+	var idx := planning_selected if planning_mode else selected_unit
 	if idx < 0 or idx >= real_satellites.size():
 		return
 	var sat := real_satellites[idx]
@@ -810,7 +811,7 @@ func _toggle_targeting_mode_on_selected() -> void:
 
 # Fleet-wide targeting toggle (Shift+L). Same "consensus then flip"
 # pattern as the other fleet toggles, but only over laser-armed
-# ships — the railgun has no targeting_mode of its own.
+# units — the railgun has no targeting_mode of its own.
 func _toggle_targeting_mode_on_all() -> void:
 	var laser_armed := _laser_armed_player_sats()
 	if laser_armed.is_empty():
@@ -829,9 +830,9 @@ func _toggle_targeting_mode_on_all() -> void:
 			sat.toggle_targeting_mode()
 
 
-# Fleet-wide railgun gate (X). If any railgun-armed player ship
+# Fleet-wide railgun gate (X). If any railgun-armed player unit
 # currently has it on, snap the whole fleet off; otherwise snap them
-# all on. Laser-only and unarmed ships skip — railgun_enabled is
+# all on. Laser-only and unarmed units skip — railgun_enabled is
 # meaningless on them.
 func _toggle_railgun_on_all() -> void:
 	var rg_armed := _railgun_armed_player_sats()
@@ -859,7 +860,7 @@ func _armed_player_sats() -> Array[Satellite]:
 	return out
 
 
-# Player ships that carry at least one laser. Drives the laser-only
+# Player units that carry at least one laser. Drives the laser-only
 # fleet toggles (Shift+L targeting, Shift+C fire control) and the
 # fleet-wide engagement-range adjustment under Shift+C+arrows.
 func _laser_armed_player_sats() -> Array[Satellite]:
@@ -870,7 +871,7 @@ func _laser_armed_player_sats() -> Array[Satellite]:
 	return out
 
 
-# Player ships that carry at least one railgun. Drives the fleet-wide
+# Player units that carry at least one railgun. Drives the fleet-wide
 # X toggle for the railgun on/off gate.
 func _railgun_armed_player_sats() -> Array[Satellite]:
 	var out: Array[Satellite] = []
@@ -922,7 +923,7 @@ func _update_range_circle() -> void:
 	var sats: Array[Satellite] = (
 		planning_satellites if planning_mode else real_satellites
 	)
-	var idx := planning_selected if planning_mode else selected_ship
+	var idx := planning_selected if planning_mode else selected_unit
 	var visible_now := false
 	if (
 		Input.is_key_pressed(KEY_SHIFT)
@@ -945,10 +946,10 @@ func _update_range_circle() -> void:
 func add_satellite() -> void:
 	var sat := Satellite.new()
 	satellite_container.add_child(sat)
-	if not real_satellites.is_empty() and selected_ship < real_satellites.size():
-		real_satellites[selected_ship].unselect()
+	if not real_satellites.is_empty() and selected_unit < real_satellites.size():
+		real_satellites[selected_unit].unselect()
 	real_satellites.append(sat)
-	selected_ship = real_satellites.size() - 1
+	selected_unit = real_satellites.size() - 1
 	sat.select()
 
 
@@ -967,8 +968,8 @@ func _record_asteroid_impact(sat: Satellite) -> void:
 	# nothing else needs unwinding here.
 	if AsteroidPhysics.is_burn_up(sat.mass):
 		return
-	var phase: float = earth.earth_phase if earth != null else 0.0
-	var surface_pos: Vector3 = sat.orbit.r.normalized() * EarthOrbit.EARTH_RADIUS_KM
+	var phase: float = mass_center.earth_phase if mass_center != null else 0.0
+	var surface_pos: Vector3 = sat.orbit.r.normalized() * MassCenterOrbit.MASS_CENTER_RADIUS_KM
 	var local := ImpactTracker.eci_to_mesh_local(surface_pos, phase)
 	var uv := ImpactTracker.mesh_local_to_uv(local)
 	var ocean_hint := false
@@ -1002,30 +1003,30 @@ func _spawn_impact_explosion(surface_pos: Vector3, mass_kg: float) -> void:
 func remove_satellite() -> void:
 	if real_satellites.size() <= 1:
 		return
-	var sat := real_satellites[selected_ship]
-	real_satellites.remove_at(selected_ship)
+	var sat := real_satellites[selected_unit]
+	real_satellites.remove_at(selected_unit)
 	sat.queue_free()
-	selected_ship = 0
+	selected_unit = 0
 	if not real_satellites.is_empty():
-		real_satellites[selected_ship].select()
+		real_satellites[selected_unit].select()
 
 
-# Cycle through *player* ships only — enemies aren't operator-targets.
-func select_next_ship() -> void:
+# Cycle through **player* units only — enemies aren't operator-targets.
+func select_next_unit() -> void:
 	if real_satellites.is_empty():
 		return
 	var n := real_satellites.size()
-	var start := selected_ship
+	var start := selected_unit
 	for offset in range(1, n + 1):
 		var i: int = (start + int(offset)) % n
 		if real_satellites[i].team == Satellite.TEAM_PLAYER:
-			real_satellites[selected_ship].unselect()
-			selected_ship = i
-			real_satellites[selected_ship].select()
+			real_satellites[selected_unit].unselect()
+			selected_unit = i
+			real_satellites[selected_unit].select()
 			break
 	if planning_mode and not planning_satellites.is_empty():
 		planning_satellites[planning_selected].unselect()
-		planning_selected = clampi(selected_ship, 0, planning_satellites.size() - 1)
+		planning_selected = clampi(selected_unit, 0, planning_satellites.size() - 1)
 		planning_satellites[planning_selected].select()
 
 
@@ -1040,7 +1041,7 @@ func toggle_planning() -> void:
 		planning_container.add_child(clone)
 		clone.clone_from(sat)
 		planning_satellites.append(clone)
-	planning_selected = clampi(selected_ship, 0, maxi(planning_satellites.size() - 1, 0))
+	planning_selected = clampi(selected_unit, 0, maxi(planning_satellites.size() - 1, 0))
 	if not planning_satellites.is_empty():
 		planning_satellites[planning_selected].select()
 	planning_mode = true
@@ -1054,7 +1055,7 @@ func _clear_planning() -> void:
 
 
 # Keep planning_satellites length matched to real_satellites. add/remove
-# of real ships during planning would otherwise leave the arrays
+# of real units during planning would otherwise leave the arrays
 # misaligned and the HUD/selection logic indexing past the planning end.
 func _sync_planning_to_reality() -> void:
 	while planning_satellites.size() < real_satellites.size():

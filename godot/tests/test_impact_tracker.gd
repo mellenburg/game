@@ -37,10 +37,10 @@ func test_mesh_local_uv_seam_and_pole() -> void:
 
 func test_eci_to_latlon_consistent_under_daily_rotation() -> void:
 	# A single fixed mesh-local point — the impact spot — should
-	# produce the same (lat, lon) regardless of how far Earth has
+	# produce the same (lat, lon) regardless of how far MassCenter has
 	# rotated, provided we feed the world ECI vector that places the
 	# spot at the same body-fixed direction. We synthesize that ECI
-	# vector by running the forward Earth basis on the mesh-local
+	# vector by running the forward MassCenter basis on the mesh-local
 	# point, then check the inverse pipeline rebuilds the original.
 	var mesh_pt := Vector3(0.3, 0.5, 0.8).normalized() * 6371.0
 	var phases: Array[float] = [0.0, 0.5, 1.7, TAU - 0.1]

@@ -17,7 +17,7 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SimClock = preload("res://scripts/sim_clock.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const HPBar = preload("res://scripts/hp_bar.gd")
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
@@ -57,7 +57,7 @@ const FC_TEXT_COLOR := Color(0.55, 0.95, 0.65, 1.0)
 const FC_FONT_SIZE: int = 10
 const FC_NODE_NAME: String = "FCStatus"
 
-# Targeting-mode readout. Always present on armed player ships (unlike
+# Targeting-mode readout. Always present on armed player units (unlike
 # the FC line which only shows when fire control is on) — it's a
 # persistent gameplay setting, not a toggle-into-an-overlay state. Cyan
 # tint is distinct from the FC green so the two single-line meta
@@ -68,7 +68,7 @@ const TGT_NODE_NAME: String = "TargetingStatus"
 
 # Railgun readout — orange-tinted to distinguish from the FC green and
 # TGT cyan, since this line carries two pieces of state (on/off + max
-# orbital radius cap). Only present on armed player ships that carry
+# orbital radius cap). Only present on armed player units that carry
 # at least one railgun; unarmed bodies and laser-only loadouts skip it.
 const RG_TEXT_COLOR := Color(0.95, 0.65, 0.30, 1.0)
 const RG_FONT_SIZE: int = 10
@@ -121,7 +121,7 @@ var _last_text_update: float = 0.0
 # lives in BeamRenderer; this list is just timed metadata for the
 # box / marker feedback so it outlives the firing tick.
 var _hits: Array[Dictionary] = []
-# Driven by EarthSystem from the "toggle_los" input action — true only
+# Driven by MassCenterSystem from the "toggle_los" input action — true only
 # while the V key is held. The yellow / pink LOS lines from the
 # selected satellite to opposing units render only during that window;
 # hit pulses remain visible regardless.
@@ -263,7 +263,7 @@ func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 	if is_finite(eta) and eta > 0.0:
 		eta_str = _format_eta(eta)
 	lines.append("[color=#5a6470]eta[/color]     %s" % eta_str)
-	var alt_km: float = sat.orbit.r.length() - EarthOrbit.EARTH_RADIUS_KM
+	var alt_km: float = sat.orbit.r.length() - MassCenterOrbit.MASS_CENTER_RADIUS_KM
 	lines.append("[color=#5a6470]alt[/color]     %s km" % _format_scientific(alt_km))
 	lines.append("[/color][/font_size]")
 	return "\n".join(lines)
@@ -353,12 +353,12 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 	var satellites: Array = orbital_set.satellites
 	var selected_idx: int = (
 		orbital_set.planning_selected if planning_mode
-		else orbital_set.selected_ship
+		else orbital_set.selected_unit
 	)
 
 	# Player units are partitioned into orbital and surface so the two
 	# rosters render as separate rows in the top-left strip — orbital
-	# ships above, ground installations below. The selection index
+	# units above, ground installations below. The selection index
 	# tracks separately for each subset so the green tint follows the
 	# satellite into whichever row holds it.
 	var orbital_players: Array[Satellite] = []
@@ -571,7 +571,7 @@ func _update_box(
 	# Bars below the name + HP rows, in display order:
 	#   [energy] [propellant] [weapon 0..N]
 	# Energy is gated on the unit being armed; propellant on the unit
-	# being a player orbital ship with a non-zero tank (surface
+	# being a player orbital unit with a non-zero tank (surface
 	# installations and enemies skip it — they don't burn propellant
 	# in the maneuver branch). Each gate maps to a flag so the
 	# rendering loop below can compute its slot index without a tangle
@@ -603,7 +603,7 @@ func _update_box(
 	# Reattach (or drop) the FC label after the bars are in their
 	# final shape. Fire control adjusts engagement_range_km, which is
 	# read only by the laser, so the line is gated on the satellite
-	# carrying at least one laser — railgun-only ships don't render
+	# carrying at least one laser — railgun-only units don't render
 	# it even if some upstream code flipped fire_control_active.
 	var has_laser := sat.has_laser()
 	var want_fc := sat.fire_control_active and has_laser
@@ -618,7 +618,7 @@ func _update_box(
 	# Targeting mode (MAX DAMAGE / MAX DANGER) is a laser-only setting
 	# — the railgun ignores attacker.targeting_mode and picks randomly
 	# from in-envelope LOS targets. Show the line only on satellites
-	# that actually carry a laser; railgun-only ships skip it.
+	# that actually carry a laser; railgun-only units skip it.
 	if has_laser:
 		if tgt_label == null:
 			tgt_label = _make_targeting_label()
@@ -762,7 +762,7 @@ func _draw_selected_los_lines() -> void:
 	var satellites: Array = _system.satellites
 	var selected_idx: int = (
 		_system.planning_selected if _system.planning_mode
-		else _system.selected_ship
+		else _system.selected_unit
 	)
 	if satellites.is_empty() or selected_idx < 0 or selected_idx >= satellites.size():
 		return

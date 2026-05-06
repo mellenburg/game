@@ -13,7 +13,7 @@ extends RefCounted
 ##
 ## Pure-state RefCounted so the timer logic is testable without a
 ## SceneTree. Construction is two-phase — set the nexus fields, then
-## populate the queue — so the EarthSystem keeps ownership of random
+## populate the queue — so the MassCenterSystem keeps ownership of random
 ## distributions.
 ##
 ## Per-body spec layout (Dictionary keys):
@@ -44,7 +44,7 @@ var base_velocity: Vector3 = Vector3.ZERO
 
 # Wave-shape metadata kept around so renderers (the radar overlay) can
 # normalise per-body specs into [-1, 1] / [0, 1] screen space without
-# reaching into EarthSystem's constants.
+# reaching into MassCenterSystem's constants.
 var duration_sec: float = 0.0
 var lateral_spread_km: float = 0.0
 

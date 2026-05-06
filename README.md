@@ -22,7 +22,7 @@ CI runs `make test` on every push and PR — see `.github/workflows/godot-ci.yml
       scenes/main.tscn      # Root scene
       scripts/              # All gameplay logic
       shaders/planet.gdshader
-      resources/            # Earth textures (with .import sidecars)
+      resources/            # MassCenter textures (with .import sidecars)
       tests/
         framework.gd        # RefCounted assertion harness
         run_tests.gd        # SceneTree entry — discovers test_*.gd
@@ -31,7 +31,7 @@ CI runs `make test` on every push and PR — see `.github/workflows/godot-ci.yml
 ## Architecture notes
 
 - **Coordinate convention**: Z-up world (orbital-mechanics convention). The
-  Earth `SphereMesh` is rotated once at `_ready` so its texture poles align
+  MassCenter `SphereMesh` is rotated once at `_ready` so its texture poles align
   with world Z, then composed with a 23.5° axial tilt and the daily spin.
 - **`class_name` + `preload()` for cross-script references** so type
   resolution doesn't depend on the editor's `.godot/` cache being warm.
@@ -56,15 +56,15 @@ CI runs `make test` on every push and PR — see `.github/workflows/godot-ci.yml
 
 - [x] Basic orbital physics simulation in 3D
 - [x] Refactor with classes so an arbitrary number of orbits may be added
-- [x] Per-ship selection — selected ship and orbit colored differently
-- [x] LOS line from selected ship to every other ship, colored by whether
-  it intersects Earth
-- [x] Distance and relative velocity readout for every targeted ship
+- [x] Per-unit selection — selected unit and orbit colored differently
+- [x] LOS line from selected unit to every other unit, colored by whether
+  it intersects MassCenter
+- [x] Distance and relative velocity readout for every targeted unit
 - [x] Consistent time ticking — propagation does not accumulate drift
 - [x] One derivation of orbital elements per R-V update
 - [x] Planning mode — clone orbital state, scrub through "what if I'm
   here in N seconds"
-- [x] Tilt Earth's axis 23.5° (obliquity of the ecliptic)
+- [x] Tilt MassCenter's axis 23.5° (obliquity of the ecliptic)
 - [ ] Calculated thrust UI: display pitch/yaw/ΔV/ΔT, queue maneuvers
 - [ ] Camera snap-to-target locations and pitch/yaw-only orbital view
 - [ ] Galactic background sphere
@@ -75,12 +75,12 @@ CI runs `make test` on every push and PR — see `.github/workflows/godot-ci.yml
 Deferred but blocking on a real mobile build; track here so they don't get
 lost in the issue queue.
 
-- [ ] **Mobile texture variants for the Earth shader.** The four 4096²
+- [ ] **Mobile texture variants for the MassCenter shader.** The four 4096²
   JPEGs (`albedo`, `night`, `normal`, `clouds`) total ~80 MB of VRAM
   after compression — fine on desktop, OOM on a 2 GB Android device.
   Ship 1024²/2048² ETC2/ASTC variants selected at startup via
   `OS.has_feature("mobile")`, wired through the existing `*_path`
-  exports on `earth.gd`. Same change should drop the persistent
+  exports on `mass_center.gd`. Same change should drop the persistent
   `_albedo_image` in `earth_system.gd` (a fully-decompressed 4096²
   Image kept in RAM just to read one pixel per impact) — replace with
   a small landmask texture or load-then-free at impact time.
@@ -161,7 +161,7 @@ math.
 
 ### Maps
 
-The central body is **not** fixed to Earth. Future maps include black
+The central body is **not** fixed to MassCenter. Future maps include black
 holes, neutron stars, red giants, gas giants (some with rings), smaller
 rocky planets, etc. Implications:
 

@@ -1,5 +1,5 @@
 extends "res://tests/framework.gd"
-## Line-of-sight ray-vs-Earth-sphere tests.
+## Line-of-sight ray-vs-MassCenter-sphere tests.
 
 const LosCheck = preload("res://scripts/los_check.gd")
 const R := 6371.0  # km
@@ -13,7 +13,7 @@ func test_clear_above_planet() -> void:
 
 
 func test_blocked_through_planet() -> void:
-	# Antipodal satellites: line passes through Earth's center.
+	# Antipodal satellites: line passes through MassCenter's center.
 	var a := Vector3(R + 400.0, 0.0, 0.0)
 	var b := Vector3(-(R + 400.0), 0.0, 0.0)
 	assert_true(LosCheck.is_blocked(a, b))

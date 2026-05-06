@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-Operating instructions for Claude (or any agent) working in this repo.
+Operating instructions for any agent working in this repo.
 Read this first; it captures decisions that aren't obvious from a fresh
 read of the code, and gotchas that have already cost time once.
 
@@ -12,7 +12,7 @@ read of the code, and gotchas that have already cost time once.
   switch to Forward+/Mobile** without explicit user approval — the
   Chromebook constraint is the reason Compatibility was chosen.
 - **Coordinate convention**: **Z-up** world (orbital-mechanics
-  convention). The Earth `SphereMesh` is rotated once at `_ready` so
+  convention). The MassCenter `SphereMesh` is rotated once at `_ready` so
   its texture poles align with world Z, then composed with axial tilt
   and the daily spin.
 - **Units**: simulation is in km and km/s; scene units are
@@ -35,12 +35,12 @@ Run / test:
         earth_system.gd     # Top-level controller, planning mode
         satellite.gd        # Unit instance: state + marker + path
         orbital_path.gd     # Cached ArrayMesh orbit visualiser
-        earth.gd            # Procedural Earth, day/night/clouds shader
+        mass_center.gd            # Procedural MassCenter, day/night/clouds shader
         orbit_camera.gd     # Free-look Z-up camera
         hud.gd              # Throttled BBCode info + targeting lines
         los_check.gd        # Pure RefCounted ray-vs-sphere
       shaders/planet.gdshader
-      resources/3D/earth/   # Day/night/normal/clouds JPEGs + .import
+      resources/3D/mass_center/   # Day/night/normal/clouds JPEGs + .import
       tests/
         framework.gd        # Tiny RefCounted assertion harness
         run_tests.gd        # SceneTree entry — discovers test_*.gd
@@ -121,7 +121,7 @@ expansions without rewriting orbital math:
 
 - **Multi-map support**. `MU`, planet radius, surface-launch
   availability, and texture set are all map parameters — *not*
-  constants in `EarthOrbit` or `Earth`. When you touch
+  constants in `EarthOrbit` or `MassCenter`. When you touch
   `EarthOrbit.MU`, push back: it should become a constructor / scope
   parameter, not a constant.
 - **Server authority later**. Keep simulation, player intent, and
@@ -145,7 +145,7 @@ expansions without rewriting orbital math:
 - PvP / networking. Don't build a server yet. Do keep the seams clean.
 - Unit micromanagement UX. The MVP's success criterion is "novice
   player launches units and has fun". Maneuver coordination, fire
-  control, and per-unit selection panels come after that ships.
+  control, and per-unit selection panels come after that.
 - Visual polish on legacy assets. The repo has been pruned —
   unreferenced models / fonts / images were removed. Don't restore
   them; build new assets when needed.
@@ -154,7 +154,7 @@ expansions without rewriting orbital math:
 
 - `Array.pop_back()` returns Variant on a typed array → use explicit
   type annotation.
-- `SphereMesh` poles are local Y; the world is Z-up — don't spin Earth
+- `SphereMesh` poles are local Y; the world is Z-up — don't spin MassCenter
   about Z without first applying `POLE_ALIGN`.
 - The C++ tradition was `4096_bump.jpg` for height; we use the normal
   map only. Don't try to wire bump and normal together — pick one.

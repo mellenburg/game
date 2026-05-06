@@ -1,12 +1,12 @@
 class_name SurfacePosition
 extends RefCounted
-## Pure-math helper for converting (lat, lon) on Earth's rotating
+## Pure-math helper for converting (lat, lon) on MassCenter's rotating
 ## surface to an ECI position. Inverse of ImpactTracker.eci_to_latlon —
 ## kept in its own RefCounted so the surface-unit spawner can fire-and-
 ## forget without dragging in a SceneTree, and so the round-trip
 ## identity is unit-testable.
 ##
-## The basis composition mirrors Earth.gd's render transform exactly —
+## The basis composition mirrors MassCenter.gd's render transform exactly —
 ## ECI = AXIAL_TILT * daily(earth_phase) * POLE_ALIGN * mesh_local.
 ## Mesh-local conventions match SphereMesh's UV layout (u=0 seam runs
 ## through +Z, +Y is the north pole), so a satellite spawned via this
@@ -18,7 +18,7 @@ const AXIAL_TILT_RAD: float = 23.5 * PI / 180.0
 const AXIAL_TILT := Basis(Vector3(1.0, 0.0, 0.0), AXIAL_TILT_RAD)
 
 
-## Mesh-local unit vector for a (lat, lon) on the Earth surface. Matches
+## Mesh-local unit vector for a (lat, lon) on the MassCenter surface. Matches
 ## the inverse of ImpactTracker.mesh_local_to_uv: lat=0, lon=0 lands at
 ## (0, 0, -1); lat=90 at the +Y pole; lon=+90 along +X (cos_lat) etc.
 static func latlon_to_mesh_local(lat_deg: float, lon_deg: float) -> Vector3:
@@ -29,7 +29,7 @@ static func latlon_to_mesh_local(lat_deg: float, lon_deg: float) -> Vector3:
 
 
 ## ECI position (km) of a surface point at (lat_deg, lon_deg) at the
-## given Earth phase. `radius_km` is typically EARTH_RADIUS plus a
+## given MassCenter phase. `radius_km` is typically MASS_CENTER_RADIUS plus a
 ## small antenna offset so the position is strictly above the LOS-
 ## blocking sphere.
 static func latlon_to_eci(

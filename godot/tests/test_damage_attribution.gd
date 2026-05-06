@@ -115,7 +115,7 @@ func test_asteroid_mass_couples_to_hp() -> void:
 
 
 func test_non_asteroid_mass_unchanged_by_damage() -> void:
-	# Player ships and unarmed orbital enemies don't track mass loss
+	# Player units and unarmed orbital enemies don't track mass loss
 	# under fire — damage represents subsystem destruction, not
 	# fragmentation. The mass field stays at its spawn-time wet-mass
 	# value so railgun recoil and propellant math don't drift.

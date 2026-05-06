@@ -1,7 +1,7 @@
 extends Control
 ## Equirectangular world map widget for the menu's Surface Ops tab.
 ## Shows the same basemap the in-game ImpactMap uses for the active
-## body (Earth's day-side JPEG on Earth missions, the NASA PIA02066
+## body (MassCenter's day-side JPEG on MassCenter missions, the NASA PIA02066
 ## cylindrical mosaic on Mars), and emits `placed(lat_deg, lon_deg)`
 ## whenever the operator clicks anywhere inside the map area. Existing
 ## surface installations from PlayerLoadout are drawn as green markers
@@ -90,7 +90,7 @@ var _map_rect: TextureRect
 var _marker_layer: _MarkerLayer
 # Stage id whose basemap is currently bound. refresh() compares this
 # against the live PlayerLoadout selection and reloads the texture
-# when they diverge — that's the seam the menu uses to swap Earth →
+# when they diverge — that's the seam the menu uses to swap MassCenter →
 # Mars after the operator picks a different mission.
 var _bound_stage_id: String = ""
 

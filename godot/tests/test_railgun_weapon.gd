@@ -1,16 +1,16 @@
 extends "res://tests/framework.gd"
-## Railgun weapon unit tests. Uses real EarthOrbit instances on the
+## Railgun weapon unit tests. Uses real MassCenterOrbit instances on the
 ## fakes (rather than a duck-typed FakeOrbit like the laser tests)
 ## because the railgun's safety check actually cares about post-recoil
 ## orbital geometry — substituting it with a stub would defeat the
 ## point.
 
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
-# EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable static var (per-
-# mission body), so a const can't read it. Tests run on Earth defaults.
-const EARTH_RADIUS_KM: float = 6371.0
+# MassCenterOrbit.MASS_CENTER_RADIUS_KM is a runtime-mutable static var (per-
+# mission body), so a const can't read it. Tests run on MassCenter defaults.
+const MASS_CENTER_RADIUS_KM: float = 6371.0
 # Pool seed for tests that just need "enough energy to fire a shot"
 # — a single railgun shot draws ~1.67 TJ from the bus, so the fake's
 # pool has to comfortably exceed that. 40 TJ leaves headroom for many
@@ -25,7 +25,7 @@ const STARTING_ENERGY_J: float = 4.0e13
 # max_orbital_radius_km, railgun_enabled, is_surface). RefCounted so
 # we don't leak across tests.
 class FakeSat extends RefCounted:
-	var orbit: EarthOrbit
+	var orbit: MassCenterOrbit
 	var team: int = 0
 	var alive: bool = true
 	var orbit_alive: bool = true
@@ -70,11 +70,11 @@ class FakeSat extends RefCounted:
 # km, well clear of the 6 471 km floor. Refusal-case tests pass
 # `R+500` explicitly to deliberately set up the LEO geometry where
 # the same recoil tips the shooter's orbit unsafe.
-func _make_player(radius: float = EARTH_RADIUS_KM + 5000.0) -> FakeSat:
+func _make_player(radius: float = MASS_CENTER_RADIUS_KM + 5000.0) -> FakeSat:
 	var s := FakeSat.new()
 	s.team = 0
-	var v_circ := sqrt(EarthOrbit.MU / radius)
-	s.orbit = EarthOrbit.new(
+	var v_circ := sqrt(MassCenterOrbit.MU / radius)
+	s.orbit = MassCenterOrbit.new(
 		Vector3(radius, 0.0, 0.0), Vector3(0.0, v_circ, 0.0)
 	)
 	return s
@@ -87,9 +87,9 @@ func _make_enemy(pos: Vector3) -> FakeSat:
 	var s := FakeSat.new()
 	s.team = 1
 	var radius := pos.length()
-	var v_circ := sqrt(EarthOrbit.MU / radius)
+	var v_circ := sqrt(MassCenterOrbit.MU / radius)
 	# Tangent in the y-z plane.
-	s.orbit = EarthOrbit.new(pos, Vector3(0.0, 0.0, v_circ))
+	s.orbit = MassCenterOrbit.new(pos, Vector3(0.0, 0.0, v_circ))
 	return s
 
 
@@ -151,7 +151,7 @@ func test_fire_applies_damage_and_drains_energy_and_locks_cooldown() -> void:
 	# attacker energy drops by ENERGY_PER_SHOT_J (joules now, not a
 	# pool fraction), cooldown latch trips, and the magazine pops a
 	# round. Damage / energy units are physical — see the design
-	# discussion in CLAUDE.md and weapon.gd's J_PER_HP comment.
+	# discussion in AGENTS.md and weapon.gd's J_PER_HP comment.
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
 	# Place target ~3000 km away laterally, well clear of LOS and
@@ -161,7 +161,7 @@ func test_fire_applies_damage_and_drains_energy_and_locks_cooldown() -> void:
 	# default 100 HP is oneshotted by a default railgun round, and a
 	# 50 000-HP body is the smallest round number that survives a
 	# default-tier shot to leave a measurable residue.
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 3000.0, 0.0))
 	var starting_hp := RailgunWeapon.base_damage_per_shot() + 100.0
 	target.hp = starting_hp
 	var energy_before := attacker.energy
@@ -186,7 +186,7 @@ func test_cool_clears_overheat_when_heat_hits_zero() -> void:
 	# capacity and verify the lockout clears.
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 3000.0, 0.0))
 	w.fire(attacker, target, 1.0)
 	assert_true(w.overheated)
 	# Drain in one tick by applying the full capacity worth of cooling
@@ -205,7 +205,7 @@ func test_recoil_and_target_push_conserve_momentum() -> void:
 	# current SLUG_MOMENTUM constants.
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 3000.0, 0.0))
 	attacker.mass = 25000.0
 	target.mass = 12500.0
 	var v_a_before := attacker.orbit.v
@@ -231,9 +231,9 @@ func test_does_not_engage_same_team() -> void:
 	var attacker := _make_player()
 	var ally := FakeSat.new()
 	ally.team = 0
-	var radius: float = EARTH_RADIUS_KM + 500.0
-	var v_circ: float = sqrt(EarthOrbit.MU / radius)
-	ally.orbit = EarthOrbit.new(
+	var radius: float = MASS_CENTER_RADIUS_KM + 500.0
+	var v_circ: float = sqrt(MassCenterOrbit.MU / radius)
+	ally.orbit = MassCenterOrbit.new(
 		Vector3(radius, 3000.0, 0.0), Vector3(0.0, 0.0, v_circ)
 	)
 	assert_false(w.is_target_in_engagement_envelope(attacker, ally))
@@ -241,12 +241,12 @@ func test_does_not_engage_same_team() -> void:
 
 
 func test_does_not_engage_when_los_blocked() -> void:
-	# Target on the opposite side of Earth — segment from attacker to
+	# Target on the opposite side of MassCenter — segment from attacker to
 	# target intersects the planet, so LOS is blocked and the railgun
 	# should refuse fire.
 	var w := RailgunWeapon.new()
-	var attacker := _make_player(EARTH_RADIUS_KM + 500.0)
-	var enemy := _make_enemy(Vector3(-(EARTH_RADIUS_KM + 500.0), 0.0, 0.0))
+	var attacker := _make_player(MASS_CENTER_RADIUS_KM + 500.0)
+	var enemy := _make_enemy(Vector3(-(MASS_CENTER_RADIUS_KM + 500.0), 0.0, 0.0))
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
 
@@ -257,7 +257,7 @@ func test_does_not_engage_inert_asteroid() -> void:
 	# spend a slug on a target the atmosphere is already handling.
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
-	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 5000.0, 5000.0, 0.0))
+	var enemy := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 5000.0, 5000.0, 0.0))
 	enemy.inert = true
 	assert_false(w.is_target_in_engagement_envelope(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
@@ -269,7 +269,7 @@ func test_refuses_shot_that_exceeds_max_orbital_radius() -> void:
 	# any retrograde recoil would do here) must be refused; the
 	# attacker's orbit must remain unchanged.
 	var w := RailgunWeapon.new()
-	var attacker := _make_player(EARTH_RADIUS_KM + 500.0)
+	var attacker := _make_player(MASS_CENTER_RADIUS_KM + 500.0)
 	# Tighten cap to barely-above-current-radius so any recoil that
 	# raises apoapsis trips the safety check. Target placed prograde
 	# so the slug fires forward → recoil is retrograde → apoapsis
@@ -280,13 +280,13 @@ func test_refuses_shot_that_exceeds_max_orbital_radius() -> void:
 	# apoapsis on this circular orbit), target must be at -y (the
 	# slug fires in -y, recoil in +y). Place target so direction
 	# from attacker to target is -y.
-	attacker.max_orbital_radius_km = EARTH_RADIUS_KM + 510.0
+	attacker.max_orbital_radius_km = MASS_CENTER_RADIUS_KM + 510.0
 	var enemy := FakeSat.new()
 	enemy.team = 1
-	var ey := EARTH_RADIUS_KM + 500.0
-	enemy.orbit = EarthOrbit.new(
+	var ey := MASS_CENTER_RADIUS_KM + 500.0
+	enemy.orbit = MassCenterOrbit.new(
 		Vector3(ey, -3000.0, 0.0),
-		Vector3(0.0, 0.0, sqrt(EarthOrbit.MU / ey))
+		Vector3(0.0, 0.0, sqrt(MassCenterOrbit.MU / ey))
 	)
 	var v_before := attacker.orbit.v
 	assert_false(RailgunWeapon.is_shot_safe_for_attacker(attacker, enemy))
@@ -302,7 +302,7 @@ func test_refuses_shot_that_would_drop_periapsis_below_floor() -> void:
 	# momentum (small attacker mass), we can drive periapsis under
 	# the floor; the safety check must refuse.
 	var w := RailgunWeapon.new()
-	var attacker := _make_player(EARTH_RADIUS_KM + 500.0)
+	var attacker := _make_player(MASS_CENTER_RADIUS_KM + 500.0)
 	# Modest mass cut so the recoil produces a periapsis-crash without
 	# also exceeding escape velocity (which would hit the apoapsis-INF
 	# branch first and never test the periapsis floor). Sized against
@@ -314,10 +314,10 @@ func test_refuses_shot_that_would_drop_periapsis_below_floor() -> void:
 	# recoil is -y → orbital velocity drops → periapsis crashes.
 	var enemy := FakeSat.new()
 	enemy.team = 1
-	var ey := EARTH_RADIUS_KM + 500.0
-	enemy.orbit = EarthOrbit.new(
+	var ey := MASS_CENTER_RADIUS_KM + 500.0
+	enemy.orbit = MassCenterOrbit.new(
 		Vector3(ey, 3000.0, 0.0),
-		Vector3(0.0, 0.0, sqrt(EarthOrbit.MU / ey))
+		Vector3(0.0, 0.0, sqrt(MassCenterOrbit.MU / ey))
 	)
 	assert_false(RailgunWeapon.is_shot_safe_for_attacker(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
@@ -328,16 +328,16 @@ func test_refuses_shot_that_would_cause_escape_velocity() -> void:
 	# the only failure mode left is escape. Tiny attacker mass
 	# guarantees the prograde recoil exceeds escape velocity.
 	var w := RailgunWeapon.new()
-	var attacker := _make_player(EARTH_RADIUS_KM + 500.0)
+	var attacker := _make_player(MASS_CENTER_RADIUS_KM + 500.0)
 	attacker.mass = 1.0
 	attacker.max_orbital_radius_km = 1.0e12  # effectively no cap
 	# Target retrograde → slug fires -y → recoil is +y → speeds up.
 	var enemy := FakeSat.new()
 	enemy.team = 1
-	var ey := EARTH_RADIUS_KM + 500.0
-	enemy.orbit = EarthOrbit.new(
+	var ey := MASS_CENTER_RADIUS_KM + 500.0
+	enemy.orbit = MassCenterOrbit.new(
 		Vector3(ey, -3000.0, 0.0),
-		Vector3(0.0, 0.0, sqrt(EarthOrbit.MU / ey))
+		Vector3(0.0, 0.0, sqrt(MassCenterOrbit.MU / ey))
 	)
 	assert_false(RailgunWeapon.is_shot_safe_for_attacker(attacker, enemy))
 	assert_false(w.fire(attacker, enemy, 1.0))
@@ -351,7 +351,7 @@ func test_pick_target_does_not_gate_on_enabled_flag() -> void:
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
 	attacker.railgun_enabled = false
-	var enemy := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0))
+	var enemy := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 3000.0, 0.0))
 	var pick = w.pick_target(attacker, [attacker, enemy], 0.0)
 	assert_eq(pick, enemy)
 
@@ -361,7 +361,7 @@ func test_pick_target_skips_unsafe_shots() -> void:
 	# the shooter's periapsis below the 100 km altitude floor.
 	# pick_target should always return the safe one.
 	var w := RailgunWeapon.new()
-	var attacker := _make_player(EARTH_RADIUS_KM + 500.0)
+	var attacker := _make_player(MASS_CENTER_RADIUS_KM + 500.0)
 	# Generous cap so the apoapsis ceiling never trips — the test is
 	# specifically about the periapsis floor refusing the unsafe
 	# shot, not about the operator's max-radius slider.
@@ -370,12 +370,12 @@ func test_pick_target_skips_unsafe_shots() -> void:
 	# (+z direction). Recoil is purely perpendicular to the
 	# attacker's velocity, so the orbit barely changes and both
 	# r_p and r_a stay comfortably inside bounds.
-	var sr := EARTH_RADIUS_KM + 500.0
+	var sr := MASS_CENTER_RADIUS_KM + 500.0
 	var safe_enemy := FakeSat.new()
 	safe_enemy.team = 1
-	safe_enemy.orbit = EarthOrbit.new(
+	safe_enemy.orbit = MassCenterOrbit.new(
 		Vector3(sr, 0.0, 3000.0),
-		Vector3(0.0, sqrt(EarthOrbit.MU / sr), 0.0)
+		Vector3(0.0, sqrt(MassCenterOrbit.MU / sr), 0.0)
 	)
 	# Unsafe enemy: prograde of attacker (+y). Slug fires +y →
 	# recoil is -y (retrograde) → orbital velocity drops →
@@ -393,7 +393,7 @@ func test_pick_target_skips_unsafe_shots() -> void:
 func test_fire_ignores_zero_or_negative_delta() -> void:
 	var w := RailgunWeapon.new()
 	var attacker := _make_player()
-	var target := _make_enemy(Vector3(EARTH_RADIUS_KM + 500.0, 3000.0, 0.0))
+	var target := _make_enemy(Vector3(MASS_CENTER_RADIUS_KM + 500.0, 3000.0, 0.0))
 	assert_false(w.fire(attacker, target, 0.0))
 	assert_false(w.fire(attacker, target, -1.0))
 	assert_close(target.hp, 100.0)

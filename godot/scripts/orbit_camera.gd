@@ -1,6 +1,6 @@
 class_name OrbitCamera
 extends Camera3D
-## Camera that follows a default orbital path around Earth and lets the
+## Camera that follows a default orbital path around MassCenter and lets the
 ## player override it. Layout:
 ##
 ##   A / D            rotate clockwise / counterclockwise along the path
@@ -18,16 +18,16 @@ extends Camera3D
 ## Each modality has its own idle timer; after RETURN_DELAY seconds with
 ## no input on that modality, the offset eases back to the default
 ## (radius → DEFAULT_ORBIT_RADIUS, inclination → 0, look angles → look-at-
-## Earth). The phase keeps advancing on its own at AUTO_ORBIT_RATE
+## MassCenter). The phase keeps advancing on its own at AUTO_ORBIT_RATE
 ## whenever the player isn't pushing it, so the camera always drifts
-## around Earth when left alone. All rates use wall-clock delta — sim
+## around MassCenter when left alone. All rates use wall-clock delta — sim
 ## time_factor must not influence camera motion.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
-# Camera radius bands are pegged to Earth-scale so the camera distance
+# Camera radius bands are pegged to MassCenter-scale so the camera distance
 # feels consistent regardless of the active body — a Mars stage doesn't
-# halve the camera's standoff just because Mars is half Earth's radius.
+# halve the camera's standoff just because Mars is half MassCenter's radius.
 const REFERENCE_RADIUS_KM: float = 6371.0
 const SCENE_SCALE: float = 1.0 / 1000.0
 const DEFAULT_ORBIT_RADIUS: float = 7.8 * REFERENCE_RADIUS_KM * SCENE_SCALE
@@ -160,7 +160,7 @@ func process_movement(delta: float) -> void:
 
 	position = _orbit_position()
 
-	# Look angles: blend yaw/pitch back to look-at-Earth after the player
+	# Look angles: blend yaw/pitch back to look-at-MassCenter after the player
 	# has stopped moving the mouse for RETURN_DELAY seconds. Until then
 	# the user's free-look stays put.
 	_look_idle += delta
