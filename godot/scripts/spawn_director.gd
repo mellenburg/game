@@ -141,13 +141,16 @@ const ASTEROID_WAVE_DURATION_SEC: float = 600.0
 const DEFAULT_WAVE_WARNING_SEC: float = 3600.0
 
 # Decaying-orbit enemy: spawned just past apogee on a highly
-# eccentric ellipse — perigee 500 km, apogee 50000 km, e ≈ 0.78.
-# Body falls toward perigee, where each crossing fires a retrograde
-# burn that halves r_a. The orbit progressively shrinks (spirals
-# in) until the burn drives the OTHER apsis below Earth's surface,
-# at which point the body impacts on its next descending leg.
+# eccentric ellipse, with perigee sampled randomly inside the
+# atmospheric zone (ablation floor → safe orbit altitude).
+# For Earth that is 60–150 km; for other bodies it scales with
+# EarthOrbit.SAFE_ORBIT_ALT_KM set at boot from CelestialBody.
+# Perigee sits in the atmosphere from the very first pass, so
+# atmospheric drag fires every cycle on top of the perigee burn
+# that halves r_a — bodies with low periapsis decay much faster
+# than those near the top of the zone, adding spread to arrival
+# timing without any change to the wave structure.
 const DECAYING_APOGEE_ALT_KM: float = 50000.0
-const DECAYING_PERIGEE_ALT_KM: float = 500.0
 # True anomaly at spawn, measured past apogee on the descending
 # leg (180° + 15° → orbit.nu wraps to ~-165° in (-π, π]). Body is
 # already heading inbound, so the very first observed motion is
@@ -177,6 +180,10 @@ const MISSION_NEXUS_CONE_HALF_ANGLE_DEG: float = 20.0
 # array directly, so any new wave appended here is visible without an
 # extra wiring step.
 var asteroid_waves: Array[AsteroidWave] = []
+# Mirrors ReconSettings.perigee_burn_enabled; set from EarthSystem after
+# the mission settings snapshot so every subsequent decaying-orbit spawn
+# respects the player's toggle. False by default (atmospheric drag only).
+var perigee_burn_enabled: bool = false
 
 var _rng := RandomNumberGenerator.new()
 var _satellite_container: Node3D = null
@@ -943,8 +950,17 @@ func _make_decaying_enemy(mass: float, density: float = -1.0, composition: int =
 	sat.composition = composition
 	sat.max_hp = AsteroidPhysics.hp_for(mass, density)
 	sat.hp = sat.max_hp
+	sat.perigee_burn_enabled = perigee_burn_enabled
 
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + DECAYING_PERIGEE_ALT_KM
+	# Sample perigee uniformly across the atmospheric zone: ablation floor
+	# (safe_alt − 90 km) to safe orbit altitude. For Earth: 60–150 km.
+	# Low periapsis → strong drag every pass → faster decay; high periapsis
+	# → lighter drag → slower, more survivable spiral-in.
+	var perigee_alt_km: float = _rng.randf_range(
+		maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0),
+		EarthOrbit.SAFE_ORBIT_ALT_KM
+	)
+	var r_p := EarthOrbit.EARTH_RADIUS_KM + perigee_alt_km
 	var r_a := EarthOrbit.EARTH_RADIUS_KM + DECAYING_APOGEE_ALT_KM
 	var a := 0.5 * (r_p + r_a)
 	var e := (r_a - r_p) / (r_a + r_p)

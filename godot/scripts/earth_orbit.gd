@@ -12,6 +12,11 @@ extends RefCounted
 # with the existing call sites.
 static var MU: float = 398600.4415       # Earth gravitational parameter (km^3/s^2)
 static var EARTH_RADIUS_KM: float = 6371.0
+# Altitude above which orbits are stable against atmospheric drag (km).
+# Set by CelestialBody.apply_to_propagator() at scene boot. Earth default
+# is 150 km; the atmosphere impact floor (ablation termination) is derived
+# as SAFE_ORBIT_ALT_KM - 90 (60 km for Earth).
+static var SAFE_ORBIT_ALT_KM: float = 150.0
 const NUM_ITER: int = 50
 const RTOL: float = 1.0e-10
 # Cap how long a single propagate() step is allowed to be. Larger steps are

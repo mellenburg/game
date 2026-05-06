@@ -122,16 +122,19 @@ func test_repeated_burns_eventually_drive_orbit_into_surface() -> void:
 			break
 		var k := sqrt((o.r_p + o.r_a) / (2.0 * o.r_p + o.r_a))
 		assert_true(o.maneuver(o.v * (k - 1.0), 0.0))
-		# Either apsis dipping below the surface counts as terminal —
-		# update_trajectory in OrbitalPath kicks in for the inbound
-		# leg, and Satellite.advance_time kills the body on the
-		# surface crossing.
+		# Either apsis dipping below the impact-altitude radius counts as
+		# terminal — advance_time kills the body at the ablation floor
+		# (safe_alt - 90 km), not the bare surface.
+		var impact_r: float = (
+			EarthOrbit.EARTH_RADIUS_KM
+			+ maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+		)
 		if (
-			(is_finite(o.r_p) and o.r_p < EarthOrbit.EARTH_RADIUS_KM)
-			or (is_finite(o.r_a) and o.r_a < EarthOrbit.EARTH_RADIUS_KM)
+			(is_finite(o.r_p) and o.r_p < impact_r)
+			or (is_finite(o.r_a) and o.r_a < impact_r)
 		):
 			return
-	fail("orbit never spiraled below the surface after 6 perigee burns")
+	fail("orbit never spiraled below the impact altitude after 6 perigee burns")
 
 
 func test_spiral_segment_count_for_default_orbit() -> void:
@@ -167,16 +170,20 @@ func test_spiral_middle_segments_are_full_revolutions() -> void:
 		assert_close(sweep, TAU, 1.0e-9)
 
 
-func test_spiral_final_segment_meets_earth_surface() -> void:
-	# r evaluated at the final segment's end nu must equal Earth's
-	# radius — that's the impact point the renderer truncates at.
+func test_spiral_final_segment_meets_impact_altitude() -> void:
+	# r evaluated at the final segment's end nu must equal the impact-altitude
+	# radius (EARTH_RADIUS + 60 km for Earth defaults) — that is where the
+	# renderer truncates the arc and where advance_time terminates the body.
 	var o := _make_decaying()
 	var segs: Array = OrbitalPath._build_decaying_segments(o)
 	var last: Dictionary = segs[-1]
 	var e: float = last["e"]
 	var p_slr: float = last["p_slr"]
 	var r_at_end: float = p_slr / (1.0 + e * cos(last["nu_end"]))
-	assert_close(r_at_end, EarthOrbit.EARTH_RADIUS_KM, 1.0e-3)
+	var expected_impact_r: float = (
+		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+	)
+	assert_close(r_at_end, expected_impact_r, 1.0e-3)
 
 
 func test_spiral_segments_nest_inward() -> void:
@@ -263,13 +270,17 @@ func test_decaying_eta_matches_brute_force_propagation() -> void:
 			if not sim.maneuver(sim.v * (k - 1.0), 0.0):
 				fail("brute-force perigee burn failed at t=%f" % elapsed)
 				return
-		if sim.norm_r <= EarthOrbit.EARTH_RADIUS_KM:
+		var impact_r: float = (
+			EarthOrbit.EARTH_RADIUS_KM
+			+ maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+		)
+		if sim.norm_r <= impact_r:
 			break
 		var crossed := rdv_before < 0.0 and sim.r.dot(sim.v) > 0.0
-		var sub_surface := (
-			is_finite(sim.r_p) and sim.r_p <= EarthOrbit.EARTH_RADIUS_KM
+		var sub_impact := (
+			is_finite(sim.r_p) and sim.r_p <= impact_r
 		)
-		if crossed and sub_surface:
+		if crossed and sub_impact:
 			break
 	# 2% relative tolerance (with a 60 s floor for short ETAs) covers
 	# the compounded geometric drift across the spiral's perigee burns

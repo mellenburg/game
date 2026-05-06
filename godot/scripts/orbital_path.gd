@@ -132,11 +132,14 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	if not is_finite(e) or not is_finite(p_slr) or p_slr <= 0.0 or e <= 0.0:
 		_clear_surfaces()
 		return
-	# Surface-crossing true anomaly: r(nu) = p_slr / (1 + e*cos(nu)) = R.
-	# Two solutions ±nu_surf bracket the inbound and outbound crossings;
-	# we want the one ahead of the body in its current direction of
-	# motion.
-	var cos_nu_surf := (p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / e
+	# Impact-crossing true anomaly: r(nu) = p_slr / (1 + e·cos(nu)) = R_impact.
+	# Asteroid bodies are terminated at the ablation floor (safe_alt − 90 km,
+	# 60 km for Earth) rather than the physical surface, so the trajectory arc
+	# ends there instead of tunnelling through the planet.
+	var impact_r: float = (
+		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+	)
+	var cos_nu_surf := (p_slr / impact_r - 1.0) / e
 	if cos_nu_surf > 1.0 or cos_nu_surf < -1.0:
 		# Periapsis is above the surface — not an asteroid trajectory.
 		# Fall through to the regular orbit renderer.
@@ -309,11 +312,14 @@ static func _build_decaying_segments(orbit: EarthOrbit) -> Array:
 	var nu0: float = orbit.nu
 
 	# Final-descent shortcut: after the over-shooting burn the orbit's
-	# perigee already sits below ground, so the body won't reach a
-	# next "perigee" — it impacts first. Render only the inbound arc
-	# from the current nu to the surface crossing, no further burns.
-	if cur_r_p < EarthOrbit.EARTH_RADIUS_KM:
-		var nu_end_impact := _next_surface_crossing(cur_p, cur_e, nu0)
+	# perigee already sits below the impact threshold, so the body won't
+	# reach a next "perigee" — it impacts first. Render only the inbound arc
+	# from the current nu to the impact crossing, no further burns.
+	var impact_r: float = (
+		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+	)
+	if cur_r_p < impact_r:
+		var nu_end_impact := _next_surface_crossing(cur_p, cur_e, nu0, impact_r)
 		if is_finite(nu_end_impact) and nu_end_impact > nu0:
 			segs.append({
 				"e": cur_e, "p_slr": cur_p, "argp": cur_argp,
@@ -357,13 +363,13 @@ static func _build_decaying_segments(orbit: EarthOrbit) -> Array:
 		# forward from there.
 		var seg_nu_start: float = PI if flipped else 0.0
 
-		if new_r_p < EarthOrbit.EARTH_RADIUS_KM:
-			# Final segment: arc from start nu forward to the surface
+		if new_r_p < impact_r:
+			# Final segment: arc from start nu forward to the impact-altitude
 			# crossing on the descending leg. r(ν) = p / (1 + e cos ν)
-			# = R_earth → cos(ν) = (p/R − 1)/e, taking the descending
+			# = R_impact → cos(ν) = (p/R_impact − 1)/e, taking the descending
 			# solution at nu = TAU − acos(...).
 			var cos_surf: float = (
-				new_p / EarthOrbit.EARTH_RADIUS_KM - 1.0
+				new_p / impact_r - 1.0
 			) / new_e
 			if cos_surf > 1.0 or cos_surf < -1.0:
 				break
@@ -399,15 +405,22 @@ static func _build_decaying_segments(orbit: EarthOrbit) -> Array:
 
 
 # Smallest unwrapped nu strictly greater than `nu_start` at which the
-# orbit's radius equals EARTH_RADIUS. Returns NAN if the orbit's
-# r_p is above the surface (no real crossing). Used to truncate the
-# spiral's final inbound arc at the impact point.
+# orbit's radius equals `target_r` (defaults to the impact-altitude radius
+# for the current body). Returns NAN if the orbit's r_p is above that
+# radius (no real crossing). Used to truncate the spiral's final inbound
+# arc at the impact point.
 static func _next_surface_crossing(
-	p_slr: float, e: float, nu_start: float
+	p_slr: float, e: float, nu_start: float,
+	target_r: float = -1.0
 ) -> float:
 	if e <= 0.0 or p_slr <= 0.0:
 		return NAN
-	var cos_surf := (p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / e
+	if target_r < 0.0:
+		target_r = (
+			EarthOrbit.EARTH_RADIUS_KM
+			+ maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+		)
+	var cos_surf := (p_slr / target_r - 1.0) / e
 	if cos_surf > 1.0 or cos_surf < -1.0:
 		return NAN
 	var nu_surf := acos(clampf(cos_surf, -1.0, 1.0))
@@ -435,15 +448,17 @@ static func decaying_time_to_impact(orbit: EarthOrbit) -> float:
 	var segs := _build_decaying_segments(orbit)
 	if segs.is_empty():
 		return INF
-	# The last segment must end at the surface; if the segmenter ran out
-	# of cycles without resolving an impact, treat the prediction as
-	# "beyond horizon" rather than understating the ETA with a partial
-	# walk.
+	# The last segment must end at the impact-altitude radius; if the
+	# segmenter ran out of cycles without resolving an impact, treat the
+	# prediction as "beyond horizon" rather than understating the ETA.
+	var impact_r: float = (
+		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+	)
 	var last: Dictionary = segs[-1]
 	var last_e: float = last["e"]
 	var last_p: float = last["p_slr"]
 	var r_at_end: float = last_p / (1.0 + last_e * cos(last["nu_end"]))
-	if absf(r_at_end - EarthOrbit.EARTH_RADIUS_KM) > 1.0:
+	if absf(r_at_end - impact_r) > 1.0:
 		return INF
 	var total := 0.0
 	for seg: Dictionary in segs:
