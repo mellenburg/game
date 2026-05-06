@@ -1220,6 +1220,15 @@ func _build_orbital_ops_tab() -> Control:
 	_orbit_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	center[1].add_child(_orbit_preview)
 
+	var coverage_btn := CheckButton.new()
+	coverage_btn.text = "Coverage Analysis"
+	coverage_btn.add_theme_color_override("font_color", COLOR_FG_DIM)
+	coverage_btn.add_theme_font_size_override("font_size", 12)
+	coverage_btn.toggled.connect(
+		func(pressed: bool) -> void: _orbit_preview.set_coverage_mode(pressed)
+	)
+	center[1].add_child(coverage_btn)
+
 	_rebuild_launch_rows()
 	return pad
 
