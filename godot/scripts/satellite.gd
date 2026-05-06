@@ -342,8 +342,8 @@ var railgun_enabled: bool = true
 #   velocity direction can deviate from the parent's.
 var breakup_threshold: float = 0.65
 var breakup_chance: float = 0.5
-var breakup_children_min: int = 1
-var breakup_children_max: int = 3
+var breakup_children_min: int = 2
+var breakup_children_max: int = 4
 var breakup_deflection_deg: float = 20.0
 # Set by CombatController when a breakup is triggered on this body.
 # EarthSystem's _remove_dead_satellites checks this to skip the normal
