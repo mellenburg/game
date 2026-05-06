@@ -155,7 +155,9 @@ func process_combat(
 					)
 					_beam_renderer.register_fire(sat, w_idx, target, style)
 					if w is RailgunWeapon:
-						_check_breakup(target, hp_before)
+						_check_breakup(target, hp_before, BREAKUP_TRIGGER_RAILGUN)
+					elif w is LaserWeapon:
+						_check_breakup(target, hp_before, BREAKUP_TRIGGER_LASER)
 
 
 func _distribute_cooling(sat: Satellite, sim_delta: float) -> void:
@@ -283,14 +285,30 @@ func drain_pending_breakups() -> Array[Dictionary]:
 	return out
 
 
-# Check whether a railgun hit on `target` triggered a breakup. Called
-# immediately after apply_impact so `target.hp` and `target.orbit.v`
-# already reflect the post-damage, post-impulse state.
+const BREAKUP_TRIGGER_RAILGUN: int = 0
+const BREAKUP_TRIGGER_LASER: int = 1
+# Laser breakup requires the laser to deal more than this fraction of
+# the target's pre-tick HP in a single firing tick.
+const BREAKUP_LASER_MIN_DAMAGE_FRACTION: float = 0.01
+
+
+# Check whether a hit on `target` triggered a breakup. Called
+# immediately after damage is applied so `target.hp` reflects the
+# post-damage state.
 #
-# hp_before  HP the target had before this hit. Used to confirm the
-#            hit actually crossed the threshold (prevents re-triggering
-#            if the body was already below threshold from a prior hit).
-func _check_breakup(target: Satellite, hp_before: float) -> void:
+# hp_before  HP the target had before this hit.
+# trigger    BREAKUP_TRIGGER_RAILGUN or BREAKUP_TRIGGER_LASER.
+#
+# Railgun path: triggers when the hit is the one that crosses the
+#   breakup_threshold (hp_before >= threshold > target.hp).
+# Laser path: triggers when the target is already below the threshold
+#   AND the laser dealt > BREAKUP_LASER_MIN_DAMAGE_FRACTION of hp_before
+#   in this tick (sustained damage on a fragile body).
+func _check_breakup(
+	target: Satellite,
+	hp_before: float,
+	trigger: int = BREAKUP_TRIGGER_RAILGUN,
+) -> void:
 	if target == null or not is_instance_valid(target):
 		return
 	if not (target.is_asteroid or target.is_decaying):
@@ -299,11 +317,20 @@ func _check_breakup(target: Satellite, hp_before: float) -> void:
 		return  # Already flagged by a concurrent hit this tick.
 
 	var threshold_hp: float = target.breakup_threshold * target.max_hp
-	# Only trigger when this hit is the one that crosses the threshold.
-	if hp_before < threshold_hp:
-		return  # Target was already below threshold before this hit.
-	if target.hp >= threshold_hp:
-		return  # Hit didn't push HP below threshold.
+	if trigger == BREAKUP_TRIGGER_LASER:
+		# Laser condition: target already below threshold AND damage this
+		# tick exceeded 1% of hp_before.
+		if hp_before >= threshold_hp:
+			return  # Not yet fragile; railgun must do the threshold cross.
+		var damage: float = hp_before - target.hp
+		if damage <= BREAKUP_LASER_MIN_DAMAGE_FRACTION * hp_before:
+			return
+	else:
+		# Railgun condition: this hit must be the one that crosses the threshold.
+		if hp_before < threshold_hp:
+			return  # Target was already below threshold before this hit.
+		if target.hp >= threshold_hp:
+			return  # Hit didn't push HP below threshold.
 
 	# Threshold crossed — roll chance.
 	if _breakup_rng.randf() >= target.breakup_chance:
