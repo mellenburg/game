@@ -51,6 +51,7 @@ const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_ASTEROID := Color(1.0, 0.85, 0.4)
 const COLOR_DECAYING := Color(0.95, 0.45, 0.95)
+const COLOR_DEFLECTED := Color(0.2, 1.0, 0.3)
 const COLOR_HIT := Color(1.0, 0.25, 0.05)
 # Enemy orbit-line gradient endpoints. Yellow when the body is far from
 # (or never going to make) ground impact; red when impact is imminent.
@@ -348,6 +349,10 @@ var breakup_deflection_deg: float = 20.0
 # EarthSystem's _remove_dead_satellites checks this to skip the normal
 # impact-accounting path (the body didn't reach Earth — it broke apart).
 var pending_breakup: bool = false
+# Fragment on an unbound (hyperbolic) trajectory escaping the system.
+# Not a weapon target; path rendered in green; removed and tallied as
+# "deflected" once it crosses 50 000 km from the system origin.
+var is_deflected: bool = false
 
 # Cached absolute simulated time at which this body's current
 # trajectory crosses Earth's surface. NAN means "unknown — compute on
@@ -807,7 +812,7 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 	# OrbitalPath color setter short-circuits when the value is
 	# unchanged. Player paths keep their constant COLOR_PLAYER tint set
 	# once in _apply_path_style.
-	if team == TEAM_ENEMY:
+	if team == TEAM_ENEMY and not is_deflected:
 		var live: Color = enemy_path_gradient_color(current_sim_time)
 		if live != _path_color_base:
 			_path_color_base = live
@@ -815,7 +820,9 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 	# Asteroids get the truncated-trajectory renderer: the same line
 	# style as a regular orbit, but cut off at the surface so the part
 	# that would tunnel through Earth isn't drawn.
-	if is_decaying:
+	if is_deflected:
+		path_visual.update_escape_trajectory(orbit)
+	elif is_decaying:
 		# Render the body's entire predicted future trajectory as a
 		# multi-segment spiral: current arc to next perigee, then a
 		# full ellipse for each remaining post-burn orbit, then the
@@ -998,6 +1005,7 @@ func clone_orbit_from(other: Satellite) -> void:
 	breakup_children_min = other.breakup_children_min
 	breakup_children_max = other.breakup_children_max
 	breakup_deflection_deg = other.breakup_deflection_deg
+	is_deflected = other.is_deflected
 	# Mirror the cache so the planning preview's HUD ranking matches
 	# the real fleet's. The stored value is an absolute sim-time, so
 	# the planning sat — which lives on the same sim clock as reality
@@ -1165,6 +1173,12 @@ func _apply_path_style() -> void:
 		return
 	var width: float
 	var alpha: float
+	if is_deflected:
+		_path_color_base = COLOR_DEFLECTED
+		path_visual.line_width_px = ENEMY_PATH_WIDTH_MIN_PX
+		_path_alpha = 0.85
+		_apply_path_color()
+		return
 	if team == TEAM_ENEMY:
 		# log(hp / HP_REF_MIN) / log(10^DECADES) maps the smallest
 		# asteroid (HP == HP_REF_MIN) to 0.0 (full floor) and the

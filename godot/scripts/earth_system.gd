@@ -88,6 +88,8 @@ var total_impact_hp: float = 0.0
 # damage Earth actually absorbed.
 var atmosphere_burnup_count: int = 0
 var atmosphere_burnup_hp: float = 0.0
+# Breakup fragments that escaped the system on a hyperbolic trajectory.
+var asteroids_deflected: int = 0
 # Snapshots of player satellites that died during the run. Each entry
 # is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
 # the moment of death so the end-of-run summary can credit a unit
@@ -486,9 +488,19 @@ func _render_orbits(delta: float) -> void:
 
 
 func _remove_dead_satellites() -> void:
+	const DEFLECT_BOUNDARY_KM: float = 50000.0
 	var i := 0
 	while i < real_satellites.size():
 		var sat := real_satellites[i]
+		# Deflected fragments (hyperbolic escape trajectory) exit play
+		# once they clear the 50 000 km system boundary.
+		if (
+			sat.is_deflected
+			and sat.alive
+			and sat.orbit_alive
+			and sat.orbit.norm_r >= DEFLECT_BOUNDARY_KM
+		):
+			sat.alive = false
 		if sat.alive and sat.orbit_alive:
 			i += 1
 			continue
@@ -496,6 +508,8 @@ func _remove_dead_satellites() -> void:
 		# fragmented into children which are tracked separately.
 		if sat.pending_breakup:
 			pass
+		elif sat.is_deflected:
+			asteroids_deflected += 1
 		# Tally enemy terminations by cause: HP gone -> shot down by a
 		# weapon; sub-orbital body (asteroid or post-burn decaying
 		# enemy) still has HP -> ground impact (advance_time kills it
@@ -588,10 +602,20 @@ func _spawn_breakup_children() -> void:
 			var child_orbit := EarthOrbit.new(pos, velocity)
 			if not child_orbit.is_state_valid():
 				continue
+			# A fragment with ecc >= 1.0 and periapsis above Earth's
+			# surface is on an escape trajectory — it will never return.
+			# Mark it deflected so weapons don't target it and it gets
+			# removed once it crosses the 50 000 km system boundary.
+			var deflected: bool = (
+				child_orbit.ecc >= 1.0
+				and is_finite(child_orbit.r_p)
+				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
+			)
 			var sat := Satellite.new()
 			sat.team = Satellite.TEAM_ENEMY
 			sat.weapons.clear()
 			sat.is_asteroid = true
+			sat.is_deflected = deflected
 			sat.mass = mass
 			sat.density_g_cm3 = density
 			sat.composition = composition
@@ -635,6 +659,7 @@ func end_game_summary() -> Dictionary:
 		"total_impact_hp": total_impact_hp,
 		"atmosphere_burnup_count": atmosphere_burnup_count,
 		"atmosphere_burnup_hp": atmosphere_burnup_hp,
+		"asteroids_deflected": asteroids_deflected,
 	}
 
 

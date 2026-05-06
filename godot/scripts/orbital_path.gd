@@ -191,6 +191,63 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	_last_signature = Vector4(NAN, NAN, NAN, NAN)
 
 
+## Render a hyperbolic escape trajectory from the body's current position
+## out to DEFLECT_BOUNDARY_KM (50 000 km). Used for deflected asteroid
+## fragments — bodies on unbound orbits that won't return to Earth.
+## The arc sweeps from the current true anomaly forward to the angle
+## corresponding to the boundary distance, stopping just short of the
+## hyperbolic asymptote if the boundary exceeds that limit.
+## Caller must keep `color` in sync (set once via the line_color setter).
+const DEFLECT_BOUNDARY_KM: float = 50000.0
+
+func update_escape_trajectory(orbit: EarthOrbit) -> void:
+	if not orbit.is_state_valid():
+		_clear_surfaces()
+		return
+	var e := orbit.ecc
+	var p_slr := orbit.p_slr
+	if not is_finite(e) or not is_finite(p_slr) or p_slr <= 0.0 or e < 1.0:
+		_clear_surfaces()
+		return
+
+	# Asymptotic limit: r → ∞ as nu → ±nu_max = acos(-1/e).
+	var nu_max: float = acos(clampf(-1.0 / e, -1.0, 1.0))
+
+	# Angle at which r reaches the deflection boundary.
+	# r(nu) = p / (1 + e·cos(nu)) = DEFLECT_BOUNDARY_KM
+	# cos(nu_end) = (p/R - 1) / e
+	var cos_nu_end: float = (p_slr / DEFLECT_BOUNDARY_KM - 1.0) / e
+	var nu_end: float
+	if cos_nu_end <= -1.0:
+		# Boundary beyond the asymptote — stop 2% short of it.
+		nu_end = nu_max * 0.98
+	else:
+		nu_end = acos(clampf(cos_nu_end, -1.0, 1.0))
+
+	# Clamp current nu to the valid open interval (-nu_max, nu_max).
+	var nu0: float = clampf(orbit.nu, -nu_max * 0.9999, nu_max * 0.9999)
+	if nu0 >= nu_end:
+		_clear_surfaces()
+		return
+
+	var co := cos(orbit.raan); var so := sin(orbit.raan)
+	var ci := cos(orbit.inc);  var si := sin(orbit.inc)
+	var cw := cos(orbit.argp); var sw := sin(orbit.argp)
+	var pqw_x := Vector3(co * cw - so * sw * ci,  so * cw + co * sw * ci,  sw * si)
+	var pqw_y := Vector3(-co * sw - so * cw * ci, -so * sw + co * cw * ci, cw * si)
+
+	if _points.size() != POINTS + 1:
+		_points.resize(POINTS + 1)
+	for i in range(POINTS + 1):
+		var t := float(i) / float(POINTS)
+		var nu := lerpf(nu0, nu_end, t)
+		var r_at := p_slr / (1.0 + e * cos(nu))
+		_points[i] = (pqw_x * r_at * cos(nu) + pqw_y * r_at * sin(nu)) * SCENE_SCALE
+
+	_upload_surface()
+	_last_signature = Vector4(NAN, NAN, NAN, NAN)
+
+
 # Maximum number of perigee-burn segments to walk before giving up. Real
 # spirals settle in ~4 cycles before an apsis falls below the surface;
 # the bound is a safety net against numerical pathologies.
