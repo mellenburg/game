@@ -729,19 +729,33 @@ func advance_time(delta_time: float) -> void:
 		and orbit.r.dot(orbit.v) > 0.0
 	):
 		_perigee_decay_burn()
-	# Any satellite whose trajectory crosses the surface exits play. The
-	# Keplerian propagator is happy to push a body straight through the
-	# planet and out the other side, so we kill on either (a) the post-
-	# step radius being inside the surface, or (b) an inbound→outbound
-	# transition during the step combined with a sub-surface periapsis
-	# (the body just tunneled through ground inside one tick).
+	# Atmospheric drag for asteroids and decaying threats. Applied after
+	# any perigee burn so the two effects are additive within the same tick.
+	if is_asteroid or is_decaying:
+		_apply_atmospheric_decay(delta_time)
+		if not alive:
+			return  # Atmospheric ablation burned the body up
+	# Any satellite whose trajectory crosses the impact threshold exits play.
+	# Keplerian propagator happily pushes bodies through the planet, so we
+	# kill on either (a) post-step radius inside the threshold, or (b) an
+	# inbound→outbound transition with a sub-threshold periapsis (tunneled
+	# through in one tick). Atmospheric bodies (asteroids, decaying threats)
+	# are considered impacted at 60 km altitude (safe_alt − 90 km); all
+	# others terminate at the actual surface.
 	var crossed_periapsis := r_dot_v_before < 0.0 and orbit.r.dot(orbit.v) > 0.0
-	var sub_surface_periapsis := (
-		is_finite(orbit.r_p) and orbit.r_p <= EarthOrbit.EARTH_RADIUS_KM
+	var impact_r: float
+	if is_asteroid or is_decaying:
+		impact_r = EarthOrbit.EARTH_RADIUS_KM + maxf(
+			EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0
+		)
+	else:
+		impact_r = EarthOrbit.EARTH_RADIUS_KM
+	var sub_impact_periapsis := (
+		is_finite(orbit.r_p) and orbit.r_p <= impact_r
 	)
 	if (
-		orbit.norm_r <= EarthOrbit.EARTH_RADIUS_KM
-		or (crossed_periapsis and sub_surface_periapsis)
+		orbit.norm_r <= impact_r
+		or (crossed_periapsis and sub_impact_periapsis)
 	):
 		alive = false
 		_hide_visuals()
@@ -814,6 +828,86 @@ func _perigee_decay_burn() -> void:
 	var dv := orbit.v * (k - 1.0)
 	# Burn changes the orbit shape; the cached impact ETA was computed
 	# against the pre-burn trajectory, so it's stale now.
+	invalidate_impact_cache()
+	if not orbit.maneuver(dv, 0.0):
+		orbit_alive = false
+		_hide_visuals()
+
+
+# Continuously lower the apoapsis by atmospheric drag while the body is
+# inside the atmosphere. Called every physics tick from advance_time.
+#
+# Zone structure (relative to EarthOrbit.SAFE_ORBIT_ALT_KM, 150 km for Earth):
+#   Air brake   (safe - 30 … safe km):  drag 0→20 km/kg/s, no HP loss
+#   Reentry     (safe - 50 … safe - 30): drag 20→40 km/kg/s, 0.001 %/s HP
+#   Ablation    (safe - 90 … safe - 50): drag 40→100 km/kg/s, 0.01 %/s HP
+#   ≤ safe - 90 km: body already past impact threshold, handled by advance_time
+func _apply_atmospheric_decay(sim_delta: float) -> void:
+	if not is_finite(mass) or mass <= 0.0:
+		return
+	var safe_alt: float = EarthOrbit.SAFE_ORBIT_ALT_KM
+	var alt_km: float = orbit.norm_r - EarthOrbit.EARTH_RADIUS_KM
+	if alt_km >= safe_alt:
+		return
+	var air_brake_bot: float = safe_alt - 30.0
+	var reentry_bot: float = safe_alt - 50.0
+	var ablation_bot: float = safe_alt - 90.0
+	if alt_km < ablation_bot:
+		return  # Below impact threshold — advance_time kills the body next
+	var drag_rate_km_per_kg_s: float
+	var hp_frac_per_s: float
+	if alt_km >= air_brake_bot:
+		# Air brake zone: 0 km/kg/s at safe_alt, 20 km/kg/s at air_brake_bot
+		var t: float = (alt_km - air_brake_bot) / (safe_alt - air_brake_bot)
+		drag_rate_km_per_kg_s = lerpf(20.0, 0.0, t)
+		hp_frac_per_s = 0.0
+	elif alt_km >= reentry_bot:
+		# Reentry interface: 20 km/kg/s at air_brake_bot, 40 km/kg/s at reentry_bot
+		var t: float = (alt_km - reentry_bot) / (air_brake_bot - reentry_bot)
+		drag_rate_km_per_kg_s = lerpf(40.0, 20.0, t)
+		hp_frac_per_s = 0.001 / 100.0
+	else:
+		# Ablation zone: 40 km/kg/s at reentry_bot, 100 km/kg/s at ablation_bot
+		var t: float = (alt_km - ablation_bot) / (reentry_bot - ablation_bot)
+		drag_rate_km_per_kg_s = lerpf(100.0, 40.0, t)
+		hp_frac_per_s = 0.01 / 100.0
+	if hp_frac_per_s > 0.0 and hp > 0.0:
+		# Atmospheric ablation erodes mass in lockstep with HP (same path as
+		# weapon damage for asteroids), so the impact radius and deflection
+		# math keep working without special-casing.
+		var atmo_damage: float = hp * hp_frac_per_s * sim_delta
+		take_damage(atmo_damage)
+	var delta_r_a: float = drag_rate_km_per_kg_s * mass * sim_delta
+	_reduce_apoapsis(delta_r_a)
+
+
+# Lower the apoapsis by `delta_r_a` km while approximately preserving the
+# periapsis. Uses vis-viva to compute the velocity magnitude consistent with
+# a new semi-major axis a_new = (r_p + r_a - delta_r_a) / 2, then scales
+# the current velocity vector to that magnitude — equivalent to a retrograde
+# burn that keeps the orbital plane and direction intact. Accurate at
+# periapsis; a useful game approximation elsewhere.
+func _reduce_apoapsis(delta_r_a: float) -> void:
+	if delta_r_a <= 0.0:
+		return
+	var r_a := orbit.r_a
+	var r_p := orbit.r_p
+	if not is_finite(r_a) or not is_finite(r_p) or r_a <= 0.0 or r_p <= 0.0:
+		return
+	var r_a_new := maxf(r_a - delta_r_a, r_p)
+	if r_a_new >= r_a:
+		return
+	var a_new := 0.5 * (r_p + r_a_new)
+	var r := orbit.norm_r
+	var v_sq_new := EarthOrbit.MU * (2.0 / r - 1.0 / a_new)
+	if v_sq_new <= 0.0:
+		orbit_alive = false
+		_hide_visuals()
+		return
+	var v_old := orbit.norm_v
+	if v_old <= 0.0:
+		return
+	var dv := orbit.v * (sqrt(v_sq_new) / v_old - 1.0)
 	invalidate_impact_cache()
 	if not orbit.maneuver(dv, 0.0):
 		orbit_alive = false

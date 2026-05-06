@@ -51,6 +51,11 @@ var surface_gravity_g: float
 var sidereal_day_s: float
 # Obliquity of the body's spin axis relative to its orbital plane.
 var axial_tilt_rad: float
+# Altitude (km above surface) below which the atmosphere meaningfully
+# affects an orbiting body. Asteroid/decaying threats entering this zone
+# begin losing apoapsis continuously; the ablation floor (impact
+# threshold) is derived as safe_orbit_altitude_km - 90 km.
+var safe_orbit_altitude_km: float
 
 # Rendering ----------------------------------------------------------
 # Hint colour the system map / orbit preview / fallback material can
@@ -77,6 +82,7 @@ static func make_earth() -> CelestialBody:
 	body.surface_gravity_g = 1.0
 	body.sidereal_day_s = 86164.0
 	body.axial_tilt_rad = 23.5 * PI / 180.0
+	body.safe_orbit_altitude_km = 150.0
 	body.fallback_color = Color(0.36, 0.58, 0.92)
 	body.albedo_path = "res://resources/3D/earth/4096_earth.jpg"
 	body.night_path = "res://resources/3D/earth/4096_night_lights.jpg"
@@ -102,6 +108,7 @@ static func make_mars() -> CelestialBody:
 	body.surface_gravity_g = 0.3794
 	body.sidereal_day_s = 88642.66
 	body.axial_tilt_rad = 25.19 * PI / 180.0
+	body.safe_orbit_altitude_km = 100.0
 	body.fallback_color = Color(0.82, 0.40, 0.28)
 	# NASA PIA02066 cylindrical mosaic, south pole filled in via mirror —
 	# see resources/3D/mars/CREDITS.md.
@@ -145,6 +152,7 @@ static func active(tree: SceneTree) -> CelestialBody:
 func apply_to_propagator() -> void:
 	EarthOrbit.MU = mu_km3_s2
 	EarthOrbit.EARTH_RADIUS_KM = radius_km
+	EarthOrbit.SAFE_ORBIT_ALT_KM = safe_orbit_altitude_km
 
 
 # Convenience for the impact-map / surface-placement-map basemaps:
