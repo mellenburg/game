@@ -51,6 +51,8 @@ const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_ASTEROID := Color(1.0, 0.85, 0.4)
 const COLOR_DECAYING := Color(0.95, 0.45, 0.95)
+const COLOR_DEFLECTED := Color(0.2, 1.0, 0.3)
+const COLOR_STABLE := Color(0.55, 0.25, 0.9)
 const COLOR_HIT := Color(1.0, 0.25, 0.05)
 # Enemy orbit-line gradient endpoints. Yellow when the body is far from
 # (or never going to make) ground impact; red when impact is imminent.
@@ -330,6 +332,32 @@ var max_orbital_radius_km: float = DEFAULT_MAX_ORBITAL_RADIUS_KM
 # across player units.
 var railgun_enabled: bool = true
 
+# Asteroid-breakup parameters. Only meaningful on is_asteroid / is_decaying
+# bodies; player ships and unarmed enemies never enter the breakup path.
+# breakup_threshold  HP fraction at which a railgun hit can trigger breakup.
+#   Hit must take HP from ≥ threshold down to < threshold.
+# breakup_chance     Probability (0–1) of breakup actually occurring once the
+#   threshold crossing is confirmed.
+# breakup_children_min/max  Range for the number of fragment satellites.
+# breakup_deflection_deg    Half-angle cone within which each fragment's
+#   velocity direction can deviate from the parent's.
+var breakup_threshold: float = 0.65
+var breakup_chance: float = 0.5
+var breakup_children_min: int = 2
+var breakup_children_max: int = 4
+var breakup_deflection_deg: float = 20.0
+# Set by CombatController when a breakup is triggered on this body.
+# EarthSystem's _remove_dead_satellites checks this to skip the normal
+# impact-accounting path (the body didn't reach Earth — it broke apart).
+var pending_breakup: bool = false
+# Fragment on an unbound (hyperbolic) trajectory escaping the system.
+# Not a weapon target; path rendered in green; removed and tallied as
+# "deflected" once it crosses 50 000 km from the system origin.
+var is_deflected: bool = false
+# Fragment in a stable bound orbit (ecc < 1, r_p above surface) with no
+# Earth impact. Not targeted; path rendered via update_orbit in purple.
+var is_stable_orbit: bool = false
+
 # Cached absolute simulated time at which this body's current
 # trajectory crosses Earth's surface. NAN means "unknown — compute on
 # next access"; INF means "no impact within the propagator's horizon"
@@ -484,6 +512,8 @@ func toggle_fire_control() -> void:
 ## (and stored) for orbits whose periapsis stays above the surface or
 ## whose impact is past the propagator's horizon.
 func predict_impact_sim_time(current_sim_time: float) -> float:
+	if is_deflected or is_stable_orbit:
+		return INF
 	if is_nan(impact_sim_time):
 		var eta: float
 		if is_decaying:
@@ -788,7 +818,7 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 	# OrbitalPath color setter short-circuits when the value is
 	# unchanged. Player paths keep their constant COLOR_PLAYER tint set
 	# once in _apply_path_style.
-	if team == TEAM_ENEMY:
+	if team == TEAM_ENEMY and not is_deflected and not is_stable_orbit:
 		var live: Color = enemy_path_gradient_color(current_sim_time)
 		if live != _path_color_base:
 			_path_color_base = live
@@ -796,13 +826,21 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 	# Asteroids get the truncated-trajectory renderer: the same line
 	# style as a regular orbit, but cut off at the surface so the part
 	# that would tunnel through Earth isn't drawn.
-	if is_decaying:
+	if is_deflected:
+		path_visual.update_escape_trajectory(orbit)
+	elif is_decaying:
 		# Render the body's entire predicted future trajectory as a
 		# multi-segment spiral: current arc to next perigee, then a
 		# full ellipse for each remaining post-burn orbit, then the
 		# truncated final inbound leg to the surface. The spiral
 		# tells the player how many cycles are left before impact.
 		path_visual.update_decaying_spiral(orbit)
+	elif is_stable_orbit:
+		# Stable-orbit fragment: bound elliptic orbit with periapsis
+		# above the surface — draw the full ellipse, same as a player
+		# ship, since update_trajectory would clear the mesh (it only
+		# draws the inbound arc down to the surface crossing).
+		path_visual.update_orbit(orbit)
 	elif is_asteroid:
 		path_visual.update_trajectory(orbit)
 	else:
@@ -974,6 +1012,13 @@ func clone_orbit_from(other: Satellite) -> void:
 	thrust_n = other.thrust_n
 	max_orbital_radius_km = other.max_orbital_radius_km
 	railgun_enabled = other.railgun_enabled
+	breakup_threshold = other.breakup_threshold
+	breakup_chance = other.breakup_chance
+	breakup_children_min = other.breakup_children_min
+	breakup_children_max = other.breakup_children_max
+	breakup_deflection_deg = other.breakup_deflection_deg
+	is_deflected = other.is_deflected
+	is_stable_orbit = other.is_stable_orbit
 	# Mirror the cache so the planning preview's HUD ranking matches
 	# the real fleet's. The stored value is an absolute sim-time, so
 	# the planning sat — which lives on the same sim clock as reality
@@ -1034,6 +1079,10 @@ func _apply_marker_size() -> void:
 
 
 func _base_color() -> Color:
+	if is_deflected:
+		return COLOR_DEFLECTED
+	if is_stable_orbit:
+		return COLOR_STABLE
 	if is_asteroid:
 		return COLOR_ASTEROID
 	if is_decaying:
@@ -1110,6 +1159,10 @@ func _apply_path_color() -> void:
 ## the same gradient to its status boxes — keeping the 3D path and the
 ## roster's color cue in lockstep.
 func enemy_path_gradient_color(current_sim_time: float) -> Color:
+	if is_deflected:
+		return COLOR_DEFLECTED
+	if is_stable_orbit:
+		return COLOR_STABLE
 	var eta := predict_impact_sim_time(current_sim_time) - current_sim_time
 	if not is_finite(eta) or eta <= 0.0:
 		# Past-impact (eta <= 0) shouldn't normally render — the body
@@ -1141,6 +1194,18 @@ func _apply_path_style() -> void:
 		return
 	var width: float
 	var alpha: float
+	if is_deflected:
+		_path_color_base = COLOR_DEFLECTED
+		path_visual.line_width_px = ENEMY_PATH_WIDTH_MIN_PX
+		_path_alpha = 0.85
+		_apply_path_color()
+		return
+	if is_stable_orbit:
+		_path_color_base = COLOR_STABLE
+		path_visual.line_width_px = ENEMY_PATH_WIDTH_MIN_PX
+		_path_alpha = 0.85
+		_apply_path_color()
+		return
 	if team == TEAM_ENEMY:
 		# log(hp / HP_REF_MIN) / log(10^DECADES) maps the smallest
 		# asteroid (HP == HP_REF_MIN) to 0.0 (full floor) and the
@@ -1165,6 +1230,16 @@ func _apply_path_style() -> void:
 	path_visual.line_width_px = width
 	_path_alpha = alpha
 	_apply_path_color()
+
+
+## Mark this body as broken into fragments. Sets alive = false so the
+## removal loop catches it, sets pending_breakup = true so the removal
+## loop skips impact accounting (the body never reached the surface),
+## and hides the 3D marker + path immediately.
+func mark_broken_up() -> void:
+	alive = false
+	pending_breakup = true
+	_hide_visuals()
 
 
 func _hide_visuals() -> void:

@@ -16,6 +16,7 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const HUD = preload("res://scripts/hud.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const SlugRenderer = preload("res://scripts/slug_renderer.gd")
+const AsteroidBreakup = preload("res://scripts/asteroid_breakup.gd")
 
 var _hud: HUD = null
 var _beam_renderer: BeamRenderer = null
@@ -38,6 +39,18 @@ var _slug_render_enabled: bool = true
 # already sees the dead body. Stored as a Dictionary because
 # GDScript lacks a Set primitive — values are unused.
 var _reserved_target_iids: Dictionary = {}
+# Breakup events queued this tick. Each entry is a Dictionary:
+#   { "position": Vector3, "density": float, "composition": int,
+#     "is_decaying": bool, "children": Array[Dictionary] }
+# where each child entry is { "mass": float, "velocity": Vector3 }.
+# EarthSystem drains this after slug_renderer.tick() and before
+# _remove_dead_satellites() so children are alive in the array before
+# the broken-up parent is swept out.
+var _pending_breakups: Array[Dictionary] = []
+# Per-instance RNG for breakup chance rolls and child mass sampling.
+# Seeded once in setup(); isolated so breakup rolls don't perturb the
+# railgun's own randi() call (which goes through GDScript's global RNG).
+var _breakup_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 
 func setup(
@@ -48,6 +61,7 @@ func setup(
 	_hud = hud
 	_beam_renderer = beam_renderer
 	_slug_renderer = slug_renderer
+	_breakup_rng.randomize()
 
 
 ## Operator toggle: route railgun fires through SlugRenderer (true) or
@@ -127,14 +141,23 @@ func process_combat(
 			# synchronous — the legacy fire() applies everything at once.
 			if w is RailgunWeapon and _slug_render_enabled:
 				_fire_railgun_with_slug(sat, w as RailgunWeapon, target, sim_delta)
-			elif w.fire(sat, target, sim_delta):
-				_hud.register_hit(sat, target)
-				var style: String = (
-					BeamRenderer.STYLE_LASER
-					if w is LaserWeapon
-					else BeamRenderer.STYLE_KINETIC
-				)
-				_beam_renderer.register_fire(sat, w_idx, target, style)
+			else:
+				# Beam-mode (lasers or beam railguns): damage applies
+				# synchronously. Capture HP before firing so the breakup
+				# check can tell whether this hit crossed the threshold.
+				var hp_before: float = target.hp
+				if w.fire(sat, target, sim_delta):
+					_hud.register_hit(sat, target)
+					var style: String = (
+						BeamRenderer.STYLE_LASER
+						if w is LaserWeapon
+						else BeamRenderer.STYLE_KINETIC
+					)
+					_beam_renderer.register_fire(sat, w_idx, target, style)
+					if w is RailgunWeapon:
+						_check_breakup(target, hp_before, BREAKUP_TRIGGER_RAILGUN)
+					elif w is LaserWeapon:
+						_check_breakup(target, hp_before, BREAKUP_TRIGGER_LASER)
 
 
 func _distribute_cooling(sat: Satellite, sim_delta: float) -> void:
@@ -194,7 +217,9 @@ func _fire_railgun_with_slug(
 			return
 		var a = instance_from_id(attacker_iid)
 		var attacker_for_credit = a if a != null and is_instance_valid(a) else null
+		var hp_before: float = t.hp
 		weapon.apply_impact(attacker_for_credit, t, pending)
+		_check_breakup(t, hp_before)
 		# HUD flash fires on arrival (not at trigger pull) so the
 		# roster red flash lines up with the slug visually striking
 		# the box. Drop the flash if the impact actually killed the
@@ -221,7 +246,7 @@ func _fire_railgun_with_slug(
 func _collect_targetable(satellites: Array[Satellite]) -> Array[Satellite]:
 	var out: Array[Satellite] = []
 	for sat in satellites:
-		if sat.alive and sat.orbit_alive:
+		if sat.alive and sat.orbit_alive and not sat.is_deflected:
 			out.append(sat)
 	return out
 
@@ -249,4 +274,89 @@ func _exclude_reserved(cands: Array[Satellite]) -> Array[Satellite]:
 func reserved_target_count() -> int:
 	return _reserved_target_iids.size()
 
+
+## Hand off all breakup events queued since the last call. EarthSystem
+## calls this once per physics tick between slug_renderer.tick() (which
+## fires on_arrival callbacks that may queue breakups) and
+## _remove_dead_satellites() (which sweeps the broken-up parents).
+func drain_pending_breakups() -> Array[Dictionary]:
+	var out: Array[Dictionary] = _pending_breakups.duplicate()
+	_pending_breakups.clear()
+	return out
+
+
+const BREAKUP_TRIGGER_RAILGUN: int = 0
+const BREAKUP_TRIGGER_LASER: int = 1
+# Laser breakup requires the laser to deal more than this fraction of
+# the target's pre-tick HP in a single firing tick.
+const BREAKUP_LASER_MIN_DAMAGE_FRACTION: float = 0.01
+
+
+# Check whether a hit on `target` triggered a breakup. Called
+# immediately after damage is applied so `target.hp` reflects the
+# post-damage state.
+#
+# hp_before  HP the target had before this hit.
+# trigger    BREAKUP_TRIGGER_RAILGUN or BREAKUP_TRIGGER_LASER.
+#
+# Railgun path: triggers when the hit is the one that crosses the
+#   breakup_threshold (hp_before >= threshold > target.hp).
+# Laser path: triggers when the target is already below the threshold
+#   AND the laser dealt > BREAKUP_LASER_MIN_DAMAGE_FRACTION of hp_before
+#   in this tick (sustained damage on a fragile body).
+func _check_breakup(
+	target: Satellite,
+	hp_before: float,
+	trigger: int = BREAKUP_TRIGGER_RAILGUN,
+) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	if not (target.is_asteroid or target.is_decaying):
+		return
+	if target.pending_breakup:
+		return  # Already flagged by a concurrent hit this tick.
+
+	var threshold_hp: float = target.breakup_threshold * target.max_hp
+	if trigger == BREAKUP_TRIGGER_LASER:
+		# Laser condition: target already below threshold AND damage this
+		# tick exceeded 1% of hp_before.
+		if hp_before >= threshold_hp:
+			return  # Not yet fragile; railgun must do the threshold cross.
+		var damage: float = hp_before - target.hp
+		if damage <= BREAKUP_LASER_MIN_DAMAGE_FRACTION * hp_before:
+			return
+	else:
+		# Railgun condition: this hit must be the one that crosses the threshold.
+		if hp_before < threshold_hp:
+			return  # Target was already below threshold before this hit.
+		if target.hp >= threshold_hp:
+			return  # Hit didn't push HP below threshold.
+
+	# Threshold crossed — roll chance.
+	if _breakup_rng.randf() >= target.breakup_chance:
+		return
+
+	# Determine fragment count.
+	var n: int = _breakup_rng.randi_range(
+		target.breakup_children_min, target.breakup_children_max
+	)
+	if n <= 0:
+		return
+
+	var deflection_rad: float = deg_to_rad(target.breakup_deflection_deg)
+	var children: Array[Dictionary] = AsteroidBreakup.compute_children(
+		n, target.mass, target.orbit.v, deflection_rad, _breakup_rng
+	)
+
+	_pending_breakups.append({
+		"position": target.orbit.r,
+		"density": target.density_g_cm3,
+		"composition": target.composition,
+		"is_decaying": target.is_decaying,
+		"children": children,
+	})
+
+	# Mark the parent done. alive = false triggers the removal sweep;
+	# pending_breakup = true tells the sweep to skip impact accounting.
+	target.mark_broken_up()
 

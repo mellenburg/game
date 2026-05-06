@@ -189,6 +189,15 @@ func _render_summary(summary: Dictionary) -> void:
 		"HP lost to atmospheric entry", "%.0f" % atmo_hp,
 	))
 
+	var deflected_count := int(summary.get("asteroids_deflected", 0))
+	var deflected_hp := float(summary.get("deflected_hp", 0.0))
+	_content_root.add_child(_kv_row(
+		"Deflected (escaped system)", "%d" % deflected_count,
+	))
+	_content_root.add_child(_kv_row(
+		"HP deflected", "%.0f" % deflected_hp,
+	))
+
 	_content_root.add_child(_hr())
 
 	var ack := Button.new()

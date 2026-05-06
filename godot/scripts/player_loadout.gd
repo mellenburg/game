@@ -219,6 +219,14 @@ var hp_per_kg_per_density: float = AsteroidPhysics.DEFAULT_HP_PER_KG_PER_DENSITY
 		hp_per_kg_per_density = maxf(value, 0.0)
 		AsteroidPhysics.HP_PER_KG_PER_DENSITY = hp_per_kg_per_density
 
+# Breakup mechanic tuning. Applied by SpawnDirector to every spawned
+# asteroid so the settings menu knobs affect the full storm/wave.
+var asteroid_breakup_threshold: float = 0.65
+var asteroid_breakup_chance: float = 0.5
+var asteroid_breakup_children_min: int = 2
+var asteroid_breakup_children_max: int = 4
+var asteroid_breakup_deflection_deg: float = 20.0
+
 # Monotonic id counters — used to produce stable per-unit ids so a
 # launch's unit_id reference survives the operator reordering /
 # renaming the pool. The ints are private state; callers don't need to

@@ -2117,10 +2117,81 @@ func _build_settings_tab() -> Control:
 			sb.value = PlayerLoadout.hp_per_kg_per_density
 	)
 
+	# ---- Breakup mechanic section ----------------------------------------
+
+	var bsection := _section("ASTEROID BREAKUP", 0.0)
+	hbox.add_child(bsection[0])
+	var bcol: VBoxContainer = bsection[1]
+
+	var bblurb := Label.new()
+	bblurb.text = (
+		"Controls how asteroids fragment when hit below the HP threshold. "
+		+ "Threshold: fraction of max HP at which a railgun hit can trigger "
+		+ "a split. Chance: probability it actually happens. Children: "
+		+ "how many pieces. Deflection: max angular spread (degrees) each "
+		+ "fragment's velocity can deviate from the parent's."
+	)
+	bblurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	bblurb.add_theme_color_override("font_color", COLOR_FG_DIM)
+	bblurb.add_theme_font_size_override("font_size", 11)
+	bcol.add_child(bblurb)
+
+	var _breakup_row := func(
+		label: String,
+		value: float,
+		min_v: float,
+		max_v: float,
+		step: float,
+		on_change: Callable,
+	) -> void:
+		var r := HBoxContainer.new()
+		r.add_theme_constant_override("separation", 12)
+		bcol.add_child(r)
+		var lbl2 := Label.new()
+		lbl2.text = label
+		lbl2.add_theme_color_override("font_color", COLOR_FG)
+		lbl2.add_theme_font_size_override("font_size", 12)
+		lbl2.custom_minimum_size = Vector2(220, 0)
+		r.add_child(lbl2)
+		var sb2 := SpinBox.new()
+		sb2.min_value = min_v
+		sb2.max_value = max_v
+		sb2.step = step
+		sb2.value = value
+		sb2.custom_minimum_size = Vector2(120, 0)
+		r.add_child(sb2)
+		sb2.value_changed.connect(on_change)
+
+	_breakup_row.call(
+		"Threshold (HP fraction)",
+		PlayerLoadout.asteroid_breakup_threshold, 0.0, 1.0, 0.01,
+		func(v: float) -> void: PlayerLoadout.asteroid_breakup_threshold = v,
+	)
+	_breakup_row.call(
+		"Chance (0–1)",
+		PlayerLoadout.asteroid_breakup_chance, 0.0, 1.0, 0.01,
+		func(v: float) -> void: PlayerLoadout.asteroid_breakup_chance = v,
+	)
+	_breakup_row.call(
+		"Min children",
+		float(PlayerLoadout.asteroid_breakup_children_min), 1.0, 10.0, 1.0,
+		func(v: float) -> void: PlayerLoadout.asteroid_breakup_children_min = int(v),
+	)
+	_breakup_row.call(
+		"Max children",
+		float(PlayerLoadout.asteroid_breakup_children_max), 1.0, 10.0, 1.0,
+		func(v: float) -> void: PlayerLoadout.asteroid_breakup_children_max = int(v),
+	)
+	_breakup_row.call(
+		"Deflection (°)",
+		PlayerLoadout.asteroid_breakup_deflection_deg, 0.0, 90.0, 1.0,
+		func(v: float) -> void: PlayerLoadout.asteroid_breakup_deflection_deg = v,
+	)
+
 	# Spacer so the controls hug the top of the section.
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_child(spacer)
+	bcol.add_child(spacer)
 	return pad
 
 

@@ -91,24 +91,30 @@ func update_enemies(satellites: Array, sim_time: float) -> void:
 			highlighted_sat = null
 			
 	enemies.sort_custom(func(a, b):
+		# 0. Sort order right-to-left: impacting → stable-orbit (purple) → deflected (green).
+		if a.is_deflected != b.is_deflected:
+			return not a.is_deflected
+		if a.is_stable_orbit != b.is_stable_orbit:
+			return not a.is_stable_orbit
+
 		var get_mass_class = func(mass: float) -> int:
 			if mass >= 99000000000.0: return 3
 			if mass >= 9900000000.0: return 2
 			if mass >= 10000000.0: return 1
 			return 0
-			
+
 		var class_a = get_mass_class.call(a.mass)
 		var class_b = get_mass_class.call(b.mass)
-		
+
 		# 1. Strict priority to larger shape classes so they don't get fragmented
 		if class_a != class_b:
 			return class_a > class_b
-			
+
 		var eta_a = a.predict_impact_sim_time(sim_time) - sim_time
 		var eta_b = b.predict_impact_sim_time(sim_time) - sim_time
 		if not is_finite(eta_a) or eta_a <= 0: eta_a = 99999999.0
 		if not is_finite(eta_b) or eta_b <= 0: eta_b = 99999999.0
-		
+
 		# 2. Within a shape class, put closest (red) on the left, farthest (yellow) on the right
 		return eta_a < eta_b
 	)

@@ -88,6 +88,9 @@ var total_impact_hp: float = 0.0
 # damage Earth actually absorbed.
 var atmosphere_burnup_count: int = 0
 var atmosphere_burnup_hp: float = 0.0
+# Breakup fragments that escaped the system on a hyperbolic trajectory.
+var asteroids_deflected: int = 0
+var deflected_hp: float = 0.0
 # Snapshots of player satellites that died during the run. Each entry
 # is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
 # the moment of death so the end-of-run summary can credit a unit
@@ -437,6 +440,7 @@ func _physics_process(delta: float) -> void:
 	# position each frame — non-physical but the tracer stays pointed
 	# at something the operator can recognise.
 	slug_renderer.tick(sim_delta)
+	_spawn_breakup_children()
 	_remove_dead_satellites()
 
 	if planning_mode:
@@ -485,17 +489,34 @@ func _render_orbits(delta: float) -> void:
 
 
 func _remove_dead_satellites() -> void:
+	const DEFLECT_BOUNDARY_KM: float = 50000.0
 	var i := 0
 	while i < real_satellites.size():
 		var sat := real_satellites[i]
+		# Deflected fragments (hyperbolic escape trajectory) exit play
+		# once they clear the 50 000 km system boundary.
+		if (
+			sat.is_deflected
+			and sat.alive
+			and sat.orbit_alive
+			and sat.orbit.norm_r >= DEFLECT_BOUNDARY_KM
+		):
+			sat.alive = false
 		if sat.alive and sat.orbit_alive:
 			i += 1
 			continue
+		# Broken-up bodies were neither shot down nor impacted — they
+		# fragmented into children which are tracked separately.
+		if sat.pending_breakup:
+			pass
+		elif sat.is_deflected:
+			asteroids_deflected += 1
+			deflected_hp += sat.hp
 		# Tally enemy terminations by cause: HP gone -> shot down by a
 		# weapon; sub-orbital body (asteroid or post-burn decaying
 		# enemy) still has HP -> ground impact (advance_time kills it
 		# on surface crossing without touching hp).
-		if sat.team == Satellite.TEAM_ENEMY:
+		elif sat.team == Satellite.TEAM_ENEMY:
 			if sat.hp <= 0.0:
 				enemies_shot_down += 1
 			elif sat.is_asteroid or sat.is_decaying:
@@ -548,6 +569,72 @@ func _remove_dead_satellites() -> void:
 		real_satellites[selected_ship].select()
 
 
+# Drain breakup events from the combat controller and materialise each
+# fragment as a new asteroid satellite. Called between slug_renderer.tick()
+# (which fires on_arrival callbacks that may queue breakups) and
+# _remove_dead_satellites() so the children are in real_satellites before
+# the broken-up parent is swept out, keeping the array contiguous.
+#
+# Children inherit the parent's position (orbit.r at breakup time), density,
+# and composition. Each gets its own EarthOrbit from the momentum-conserving
+# velocity vector computed by AsteroidBreakup.compute_children. Their HP is
+# derived from mass × density via AsteroidPhysics.hp_for so the damage
+# model stays consistent with how the parent was scaled.
+func _spawn_breakup_children() -> void:
+	var pending: Array[Dictionary] = combat_controller.drain_pending_breakups()
+	if pending.is_empty():
+		return
+	for breakup: Dictionary in pending:
+		var pos: Vector3 = breakup["position"]
+		var density: float = float(breakup["density"])
+		var composition: int = int(breakup["composition"])
+		var children: Array[Dictionary] = breakup["children"]
+		for child: Dictionary in children:
+			var mass: float = float(child["mass"])
+			var velocity: Vector3 = child["velocity"]
+			# Skip degenerate fragments. Mass < 1 kg guards against floating-
+			# point residuals. An invalid orbit (near-zero velocity → h = r×v
+			# = 0 → NaN elements in _recompute_elements) means the fragment
+			# is effectively stationary and would fall through Earth in the
+			# same physics tick — safe to drop rather than creating a
+			# short-lived satellite that scores a spurious impact at the
+			# breakup position instead of at the surface.
+			if mass < 1.0:
+				continue
+			var child_orbit := EarthOrbit.new(pos, velocity)
+			if not child_orbit.is_state_valid():
+				continue
+			# A fragment with ecc >= 1.0 and periapsis above Earth's
+			# surface is on an escape trajectory — it will never return.
+			# Mark it deflected so weapons don't target it and it gets
+			# removed once it crosses the 50 000 km system boundary.
+			var deflected: bool = (
+				child_orbit.ecc >= 1.0
+				and is_finite(child_orbit.r_p)
+				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
+			)
+			var stable: bool = (
+				not deflected
+				and child_orbit.ecc < 1.0
+				and is_finite(child_orbit.r_p)
+				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
+			)
+			var sat := Satellite.new()
+			sat.team = Satellite.TEAM_ENEMY
+			sat.weapons.clear()
+			sat.is_asteroid = true
+			sat.is_deflected = deflected
+			sat.is_stable_orbit = stable
+			sat.mass = mass
+			sat.density_g_cm3 = density
+			sat.composition = composition
+			sat.max_hp = AsteroidPhysics.hp_for(mass, density)
+			sat.hp = sat.max_hp
+			sat.orbit = child_orbit
+			satellite_container.add_child(sat)
+			real_satellites.append(sat)
+
+
 # Build the end-of-run report. Combines live player-satellite tallies
 # (read directly from each Satellite) with the dead_player_stats
 # snapshots captured in _remove_dead_satellites, so a unit whose ship
@@ -581,6 +668,8 @@ func end_game_summary() -> Dictionary:
 		"total_impact_hp": total_impact_hp,
 		"atmosphere_burnup_count": atmosphere_burnup_count,
 		"atmosphere_burnup_hp": atmosphere_burnup_hp,
+		"asteroids_deflected": asteroids_deflected,
+		"deflected_hp": deflected_hp,
 	}
 
 
