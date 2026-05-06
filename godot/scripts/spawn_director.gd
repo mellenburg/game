@@ -1012,18 +1012,34 @@ func _make_enemy_in_random_orbit() -> Satellite:
 # Copy PlayerLoadout's breakup knobs onto a freshly created asteroid /
 # decaying-enemy satellite. Falls back to the satellite defaults when
 # the autoload isn't present (standalone scene launch without the menu).
+# Copy PlayerLoadout's breakup knobs onto a freshly created asteroid /
+# decaying-enemy satellite. Falls back to the satellite defaults when
+# the autoload isn't present (standalone scene launch without the menu).
 func _apply_breakup_settings(sat: Satellite) -> void:
 	var tree := get_tree()
 	if tree == null:
 		return
-	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	var loadout: Node = tree.root.get_node_or_null("PlayerLoadout")
 	if loadout == null:
 		return
-	sat.breakup_threshold = float(loadout.get("asteroid_breakup_threshold", sat.breakup_threshold))
-	sat.breakup_chance = float(loadout.get("asteroid_breakup_chance", sat.breakup_chance))
-	sat.breakup_children_min = int(loadout.get("asteroid_breakup_children_min", sat.breakup_children_min))
-	sat.breakup_children_max = int(loadout.get("asteroid_breakup_children_max", sat.breakup_children_max))
-	sat.breakup_deflection_deg = float(loadout.get("asteroid_breakup_deflection_deg", sat.breakup_deflection_deg))
+	# Access properties via Object.get() (single-argument form) and
+	# fall back to the satellite's own default when the property returns
+	# null (e.g. older save / standalone launch without the autoload).
+	var threshold = loadout.get("asteroid_breakup_threshold")
+	if threshold != null:
+		sat.breakup_threshold = float(threshold)
+	var chance = loadout.get("asteroid_breakup_chance")
+	if chance != null:
+		sat.breakup_chance = float(chance)
+	var cmin = loadout.get("asteroid_breakup_children_min")
+	if cmin != null:
+		sat.breakup_children_min = int(cmin)
+	var cmax = loadout.get("asteroid_breakup_children_max")
+	if cmax != null:
+		sat.breakup_children_max = int(cmax)
+	var defl = loadout.get("asteroid_breakup_deflection_deg")
+	if defl != null:
+		sat.breakup_deflection_deg = float(defl)
 
 
 func _random_unit_vector() -> Vector3:
