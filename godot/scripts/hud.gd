@@ -18,6 +18,7 @@ const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SimClock = preload("res://scripts/sim_clock.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const HPBar = preload("res://scripts/hp_bar.gd")
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
@@ -105,7 +106,10 @@ const HIT_DURATION: float = 0.25
 # clicks in the bottom-left tessellation grid. Renders a "no selection"
 # placeholder when nothing is highlighted.
 @onready var asteroid_status: RichTextLabel = (
-	$AsteroidPanel/HelpLabel as RichTextLabel
+	$AsteroidPanel/VBox/HelpLabel as RichTextLabel
+)
+@onready var asteroid_hp_bar: HPBar = (
+	$AsteroidPanel/VBox/HPBar as HPBar
 )
 
 var _camera: Camera3D
@@ -209,8 +213,15 @@ func _update_asteroid_status(grid_node: Node, sim_time: float) -> void:
 			+ "Click a tile in the lower-left grid."
 			+ "[/color][/font_size]"
 		)
+		if asteroid_hp_bar != null:
+			asteroid_hp_bar.visible = false
 		return
 	asteroid_status.text = _format_asteroid_status(sat, sim_time)
+	if asteroid_hp_bar != null:
+		asteroid_hp_bar.visible = true
+		asteroid_hp_bar.hp_ratio = (
+			sat.hp / sat.max_hp if sat.max_hp > 0.0 else 0.0
+		)
 
 
 # BBCode card for the upper-right asteroid inspector panel. Kept small
@@ -236,12 +247,6 @@ func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 			"[color=#5a6470]comp[/color]    %s"
 			% AsteroidPhysics.composition_name(sat.composition)
 		)
-	lines.append(
-		"[color=#5a6470]hp[/color]      %s / %s" % [
-			_format_scientific(maxf(sat.hp, 0.0)),
-			_format_scientific(maxf(sat.max_hp, 0.0)),
-		]
-	)
 	if AsteroidPhysics.is_burn_up(sat.mass):
 		lines.append("[color=#6fa07f]burn-up on entry[/color]")
 	else:

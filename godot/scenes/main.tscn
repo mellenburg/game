@@ -15,6 +15,7 @@
 [ext_resource type="Script" path="res://scripts/end_game_overlay.gd" id="13_end_game"]
 [ext_resource type="Script" path="res://scripts/slug_renderer.gd" id="14_slugs"]
 [ext_resource type="Script" path="res://scripts/tessellation_grid.gd" id="15_tess"]
+[ext_resource type="Script" path="res://scripts/hp_bar.gd" id="16_hp_bar"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_asteroid_panel"]
 bg_color = Color(0.04, 0.05, 0.08, 0.78)
@@ -163,12 +164,24 @@ offset_bottom = 240.0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_asteroid_panel")
 
-[node name="HelpLabel" type="RichTextLabel" parent="CanvasLayer/HUD/AsteroidPanel"]
+[node name="VBox" type="VBoxContainer" parent="CanvasLayer/HUD/AsteroidPanel"]
 layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="HelpLabel" type="RichTextLabel" parent="CanvasLayer/HUD/AsteroidPanel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
 mouse_filter = 2
 bbcode_enabled = true
 scroll_active = false
 fit_content = true
+
+[node name="HPBar" type="Control" parent="CanvasLayer/HUD/AsteroidPanel/VBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+script = ExtResource("16_hp_bar")
 
 [node name="KillStats" type="RichTextLabel" parent="CanvasLayer/HUD"]
 layout_mode = 1
