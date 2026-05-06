@@ -246,7 +246,7 @@ func _fire_railgun_with_slug(
 func _collect_targetable(satellites: Array[Satellite]) -> Array[Satellite]:
 	var out: Array[Satellite] = []
 	for sat in satellites:
-		if sat.alive and sat.orbit_alive and not sat.is_deflected:
+		if sat.alive and sat.orbit_alive and not sat.is_deflected and not sat.is_stable_orbit:
 			out.append(sat)
 	return out
 
