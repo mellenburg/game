@@ -611,11 +611,18 @@ func _spawn_breakup_children() -> void:
 				and is_finite(child_orbit.r_p)
 				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
 			)
+			var stable: bool = (
+				not deflected
+				and child_orbit.ecc < 1.0
+				and is_finite(child_orbit.r_p)
+				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
+			)
 			var sat := Satellite.new()
 			sat.team = Satellite.TEAM_ENEMY
 			sat.weapons.clear()
 			sat.is_asteroid = true
 			sat.is_deflected = deflected
+			sat.is_stable_orbit = stable
 			sat.mass = mass
 			sat.density_g_cm3 = density
 			sat.composition = composition

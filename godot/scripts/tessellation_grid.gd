@@ -91,9 +91,11 @@ func update_enemies(satellites: Array, sim_time: float) -> void:
 			highlighted_sat = null
 			
 	enemies.sort_custom(func(a, b):
-		# 0. Deflected (escaping) fragments always appear rightmost.
+		# 0. Sort order right-to-left: impacting → stable-orbit (purple) → deflected (green).
 		if a.is_deflected != b.is_deflected:
 			return not a.is_deflected
+		if a.is_stable_orbit != b.is_stable_orbit:
+			return not a.is_stable_orbit
 
 		var get_mass_class = func(mass: float) -> int:
 			if mass >= 99000000000.0: return 3
