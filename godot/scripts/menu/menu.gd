@@ -1215,6 +1215,21 @@ func _build_orbital_ops_tab() -> Control:
 	# Centre: 2D top-down preview that redraws when sliders change.
 	var center := _section("Equatorial Preview", 0)
 	hbox.add_child(center[0])
+
+	# Coverage-analysis toggle sits above the preview so the operator
+	# can flip into the heatmap view without leaving the tab. Toggle-
+	# style button so the depressed state mirrors the preview's mode.
+	var coverage_btn := Button.new()
+	coverage_btn.text = "Coverage Analysis"
+	coverage_btn.toggle_mode = true
+	coverage_btn.tooltip_text = (
+		"Show a heat map of potential laser DPS over one full orbit, "
+		+ "summed across every assigned laser unit and scaled to the "
+		+ "current peak."
+	)
+	coverage_btn.toggled.connect(_on_coverage_toggled)
+	center[1].add_child(coverage_btn)
+
 	_orbit_preview = OrbitPreview.new()
 	_orbit_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_orbit_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1376,6 +1391,11 @@ func _refresh_launch_budget() -> void:
 	else:
 		_budget_bar_fill.color = COLOR_OK
 		_budget_label.add_theme_color_override("font_color", COLOR_FG)
+
+
+func _on_coverage_toggled(pressed: bool) -> void:
+	if _orbit_preview != null:
+		_orbit_preview.set_coverage_mode(pressed)
 
 
 func _on_add_launch_pressed() -> void:
