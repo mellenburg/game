@@ -1205,6 +1205,18 @@ func _build_orbital_ops_tab() -> Control:
 	_launch_capacity_label.add_theme_font_size_override("font_size", 11)
 	actions.add_child(_launch_capacity_label)
 
+	var coverage_btn := CheckButton.new()
+	coverage_btn.text = "Coverage analysis"
+	coverage_btn.add_theme_color_override("font_color", COLOR_FG_DIM)
+	coverage_btn.add_theme_font_size_override("font_size", 11)
+	coverage_btn.toggled.connect(
+		func(toggled_on: bool) -> void:
+			if _orbit_preview != null:
+				_orbit_preview.coverage_analysis_enabled = toggled_on
+				_orbit_preview.refresh()
+	)
+	actions.add_child(coverage_btn)
+
 	# Budget panel sits below the actions row so the running total of
 	# propellant draw across every assigned launch is always visible
 	# while the operator drags sliders. Pre-built once; the bar fill
