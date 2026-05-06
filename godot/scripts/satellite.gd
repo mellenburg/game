@@ -1066,6 +1066,8 @@ func _apply_marker_size() -> void:
 
 
 func _base_color() -> Color:
+	if is_deflected:
+		return COLOR_DEFLECTED
 	if is_asteroid:
 		return COLOR_ASTEROID
 	if is_decaying:
@@ -1142,6 +1144,8 @@ func _apply_path_color() -> void:
 ## the same gradient to its status boxes — keeping the 3D path and the
 ## roster's color cue in lockstep.
 func enemy_path_gradient_color(current_sim_time: float) -> Color:
+	if is_deflected:
+		return COLOR_DEFLECTED
 	var eta := predict_impact_sim_time(current_sim_time) - current_sim_time
 	if not is_finite(eta) or eta <= 0.0:
 		# Past-impact (eta <= 0) shouldn't normally render — the body

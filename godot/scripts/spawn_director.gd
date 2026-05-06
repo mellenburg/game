@@ -877,6 +877,7 @@ func _make_asteroid(
 	sat.composition = int(spec.get("composition", AsteroidPhysics.COMP_S_TYPE))
 	sat.max_hp = AsteroidPhysics.hp_for(mass, density)
 	sat.hp = sat.max_hp
+	_apply_breakup_settings(sat)
 
 	# Lateral offset uses the in-plane basis (tangent + bitangent); the
 	# bitangent is just r_hat × tangent so the offset stays in the plane
@@ -951,6 +952,7 @@ func _make_decaying_enemy(mass: float, density: float = -1.0, composition: int =
 	sat.max_hp = AsteroidPhysics.hp_for(mass, density)
 	sat.hp = sat.max_hp
 	sat.perigee_burn_enabled = perigee_burn_enabled
+	_apply_breakup_settings(sat)
 
 	# Sample perigee uniformly across the atmospheric zone: ablation floor
 	# (safe_alt − 90 km) to safe orbit altitude. For Earth: 60–150 km.
@@ -1005,6 +1007,23 @@ func _make_enemy_in_random_orbit() -> Satellite:
 
 	sat.orbit = EarthOrbit.new(r_hat * radius, v_hat * v_mag)
 	return sat
+
+
+# Copy PlayerLoadout's breakup knobs onto a freshly created asteroid /
+# decaying-enemy satellite. Falls back to the satellite defaults when
+# the autoload isn't present (standalone scene launch without the menu).
+func _apply_breakup_settings(sat: Satellite) -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var loadout := tree.root.get_node_or_null("PlayerLoadout")
+	if loadout == null:
+		return
+	sat.breakup_threshold = float(loadout.get("asteroid_breakup_threshold", sat.breakup_threshold))
+	sat.breakup_chance = float(loadout.get("asteroid_breakup_chance", sat.breakup_chance))
+	sat.breakup_children_min = int(loadout.get("asteroid_breakup_children_min", sat.breakup_children_min))
+	sat.breakup_children_max = int(loadout.get("asteroid_breakup_children_max", sat.breakup_children_max))
+	sat.breakup_deflection_deg = float(loadout.get("asteroid_breakup_deflection_deg", sat.breakup_deflection_deg))
 
 
 func _random_unit_vector() -> Vector3:
