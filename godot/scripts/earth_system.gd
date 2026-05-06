@@ -90,6 +90,7 @@ var atmosphere_burnup_count: int = 0
 var atmosphere_burnup_hp: float = 0.0
 # Breakup fragments that escaped the system on a hyperbolic trajectory.
 var asteroids_deflected: int = 0
+var deflected_hp: float = 0.0
 # Snapshots of player satellites that died during the run. Each entry
 # is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
 # the moment of death so the end-of-run summary can credit a unit
@@ -510,6 +511,7 @@ func _remove_dead_satellites() -> void:
 			pass
 		elif sat.is_deflected:
 			asteroids_deflected += 1
+			deflected_hp += sat.hp
 		# Tally enemy terminations by cause: HP gone -> shot down by a
 		# weapon; sub-orbital body (asteroid or post-burn decaying
 		# enemy) still has HP -> ground impact (advance_time kills it
@@ -667,6 +669,7 @@ func end_game_summary() -> Dictionary:
 		"atmosphere_burnup_count": atmosphere_burnup_count,
 		"atmosphere_burnup_hp": atmosphere_burnup_hp,
 		"asteroids_deflected": asteroids_deflected,
+		"deflected_hp": deflected_hp,
 	}
 
 
