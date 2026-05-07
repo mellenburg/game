@@ -79,6 +79,10 @@ var asteroids_impacted: int = 0
 # every impact flows through one place. Surfaced on the end-of-run
 # summary alongside per-unit damage / kills.
 var total_impact_hp: float = 0.0
+# Sum of body mass (kg) absorbed at the surface — physical analogue
+# to total_impact_hp, surfaced as the human-readable "mass delivered"
+# figure on the end-of-run overlay.
+var total_impact_mass_kg: float = 0.0
 # Bodies the atmosphere finished off — sub-orbital threats whose mass
 # at the moment of surface crossing was at or below the burn-up
 # threshold (either spawned that small or chipped down by player fire
@@ -560,6 +564,7 @@ func _remove_dead_satellites() -> void:
 					# freed so the end-of-run summary can show "total HP
 					# of impactors", not just a count.
 					total_impact_hp += maxf(sat.hp, 0.0)
+					total_impact_mass_kg += maxf(sat.mass, 0.0)
 					_record_asteroid_impact(sat)
 		elif sat.team == Satellite.TEAM_PLAYER and sat.unit_name != "":
 			# Snapshot the dying player unit's tallies so the summary
@@ -703,6 +708,7 @@ func end_game_summary() -> Dictionary:
 		"per_unit": per_unit,
 		"total_impacts": asteroids_impacted,
 		"total_impact_hp": total_impact_hp,
+		"total_impact_mass_kg": total_impact_mass_kg,
 		"atmosphere_burnup_count": atmosphere_burnup_count,
 		"atmosphere_burnup_hp": atmosphere_burnup_hp,
 		"asteroids_deflected": asteroids_deflected,
