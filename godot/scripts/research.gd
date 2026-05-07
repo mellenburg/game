@@ -91,10 +91,10 @@ const LAUNCH_CAPACITY_CHAIN: Dictionary = {
 	"shape": "diamond",
 	"stat_template": "Plan up to %d simultaneous launches",
 	"tiers": [
-		{"id": "launch_capacity_4", "label": "Launch Capacity I", "cost": 0, "value": 4, "flavor": "Four orbits per stage. Enough to seed an equatorial laser ring with a kinetic flanker."},
-		{"id": "launch_capacity_6", "label": "Launch Capacity II", "cost": 200, "value": 6, "flavor": "Six orbits. A respectable picket pattern."},
-		{"id": "launch_capacity_8", "label": "Launch Capacity III", "cost": 400, "value": 8, "flavor": "Eight orbits. Layered orbit shells become viable."},
-		{"id": "launch_capacity_12", "label": "Launch Capacity IV", "cost": 800, "value": 12, "flavor": "Twelve orbits. Operations on this scale used to require a coalition."},
+		{"id": "launch_capacity_15", "label": "Launch Capacity I", "cost": 0, "value": 15, "flavor": "Fifteen orbits per stage. A three-plane laser shell on the Cartesian axes plus a kinetic picket."},
+		{"id": "launch_capacity_18", "label": "Launch Capacity II", "cost": 200, "value": 18, "flavor": "Eighteen orbits. Room to thicken the picket without cracking the shell."},
+		{"id": "launch_capacity_21", "label": "Launch Capacity III", "cost": 400, "value": 21, "flavor": "Twenty-one orbits. Layered shells start to pay dividends."},
+		{"id": "launch_capacity_24", "label": "Launch Capacity IV", "cost": 800, "value": 24, "flavor": "Twenty-four orbits. Operations on this scale used to require a coalition."},
 	],
 }
 
