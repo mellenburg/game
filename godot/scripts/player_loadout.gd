@@ -29,15 +29,13 @@ const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 # cost zero. The fleet won't launch if the cumulative debit exceeds
 # this number; the menu's LAUNCH button gates on can_launch().
 #
-# 50 000 kg fits the new default 3-unit roster (T-01..T-03 at 0°/25°/
-# 50° inclination, all 500 km circular). The railgun magazine now
-# dominates wet mass (1000 × 20 kg = 20 t per gun ≫ 700 kg airframe),
-# which pushes T-03's draw to ~17.8 t alone; total fleet draw lands
-# near 18.4 t. The remaining ~32 t of headroom lets the player add
-# another railgun unit, tilt a launch into a polar slot, or push one
-# unit out to GEO without busting the cap. Loading every slot with a
-# railgun and pushing them all to high-inclination GEO will still run
-# the budget out — that's the intended tension.
+# Sized to comfortably fit the default 4-unit roster (three lasers
+# in an equatorial 5000 km circle plus a 500 km / 25° railgun). The
+# Hohmann burn out to 5000 km dominates the laser cost and the
+# railgun's 20 t magazine dominates the kinetic-unit cost; both fit
+# inside this budget with enough headroom to absorb the operator
+# tilting a launch off-equator or pushing one to GEO before the
+# LAUNCH button locks out.
 const LAUNCH_PROPELLANT_BUDGET_KG: float = 5000000.0
 
 # Stage catalogue. `id` is the stable key the menu writes to
@@ -173,7 +171,7 @@ const STAGES: Array = [
 	},
 ]
 
-const DEFAULT_UNIT_COUNT: int = 3
+const DEFAULT_UNIT_COUNT: int = 4
 
 
 # Look up the current launch cap from Research. Wrapped in a helper so
@@ -253,12 +251,14 @@ func reset_recon_settings() -> void:
 	recon_settings = ReconSettings.default_settings()
 
 
-# Repopulate the unit pool and launch list with the default 3-unit
-# roster, with each launch pre-assigned to a unit so a player who
-# clicks LAUNCH without touching either tab gets the same starting
-# fleet behaviour the previous build shipped with. Two units carry the
-# default laser, the third carries the default railgun — matching the
-# legacy starting-fleet split.
+# Repopulate the unit pool and launch list with the default starting
+# roster. Three laser units (T-01..T-03) plus one railgun unit (T-04).
+# The lasers share an equatorial 5000 km circular orbit and are spaced
+# 120° in true anomaly so they're equally distributed around Earth's
+# equator at game start; the railgun gets its own slightly inclined
+# LEO slot so it isn't stacked on top of the lasers visually. Each
+# launch is pre-assigned to a unit so a player who clicks LAUNCH
+# without touching either tab still gets a sensible starting fleet.
 func reset_units() -> void:
 	unit_pool.clear()
 	launches.clear()
@@ -270,19 +270,31 @@ func reset_units() -> void:
 	var seed_count: int = mini(DEFAULT_UNIT_COUNT, _launch_cap())
 	for i in range(seed_count):
 		var unit := _make_unit_with_id("T-%02d" % (i + 1))
-		# Default loadout mirrors the previous starting fleet: T-01 and
-		# T-02 carry a laser, T-03 carries a railgun. set_chassis() has
-		# already populated weapon slot 0 with laser_default — flip the
-		# third unit to railgun_default so the legacy behaviour holds.
-		if i >= 2:
+		# Slot 0 is laser_default after set_chassis. T-01..T-03 keep that;
+		# T-04 (and any further seed slot) flips to the railgun so the
+		# starting fleet still ships with a kinetic weapon for hard
+		# targets.
+		if i >= 3:
 			unit.set_part_id(0, 0, "railgun_default")  # KIND_WEAPON, slot 0
 		unit_pool.append(unit)
 		var launch := add_launch()
 		launch.unit_id = unit.id
-		launch.altitude_km = 500.0
-		launch.inclination_deg = float(i) * 25.0
-		launch.raan_deg = float(i) * 60.0
-		launch.true_anomaly_deg = float(i) * 120.0
+		if i < 3:
+			# Three lasers in a shared 5000 km equatorial circle, evenly
+			# spaced around the equator (Δν = 120°). Zero inclination /
+			# RAAN keeps them on the equator; eccentricity stays at the
+			# Launch.make default of 0 so the orbit is a perfect circle.
+			launch.altitude_km = 5000.0
+			launch.inclination_deg = 0.0
+			launch.raan_deg = 0.0
+			launch.true_anomaly_deg = float(i) * 120.0
+		else:
+			# Railgun gets a parking-orbit slot — low altitude, modest
+			# inclination so it isn't stacked on top of the laser ring.
+			launch.altitude_km = 500.0
+			launch.inclination_deg = 25.0
+			launch.raan_deg = 0.0
+			launch.true_anomaly_deg = 0.0
 
 
 # Allocate a fresh unit and append it to the pool. Returns the new unit

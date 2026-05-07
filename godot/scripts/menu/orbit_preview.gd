@@ -67,10 +67,18 @@ var coverage_mode: bool = false
 # back-to-back redraws caused by other slider drags reuse the prior
 # result instead of repeating the 200k-cell-op accumulation pass.
 var _cov_grid: PackedFloat32Array = PackedFloat32Array()
-var _cov_max_dps: float = 0.0
+# Peak time-averaged DPS actually achieved on the grid — only used in
+# the legend so the operator sees the real on-grid maximum even when
+# the colour scale is tied to the fleet's theoretical ceiling.
+var _cov_grid_peak_dps: float = 0.0
+# Fleet-wide zero-range DPS (sum of every assigned laser's full-pool
+# damage_per_second). The colour ramp normalises to this so the scale
+# stays put when the operator drags an orbit around — only changing
+# the fleet (assigning a laser unit, swapping a part tier, etc.)
+# rescales the heatmap.
+var _cov_fleet_dps: float = 0.0
 var _cov_any_laser: bool = false
 var _cov_state_hash: int = 0
-var _cov_grid_size: int = 0
 var _cov_grid_w: float = 0.0
 var _cov_grid_h: float = 0.0
 
@@ -405,13 +413,19 @@ func _draw_coverage_heatmap(
 		_rebuild_coverage_grid(rect, center, px_per_km)
 		_cov_state_hash = hash_now
 
-	if not _cov_any_laser or _cov_max_dps <= 0.0:
-		_draw_coverage_legend(rect, 0.0, _cov_any_laser)
+	if not _cov_any_laser or _cov_fleet_dps <= 0.0:
+		_draw_coverage_legend(rect, 0.0, 0.0, _cov_any_laser)
 		return
 
 	var cell_w: float = _cov_grid_w
 	var cell_h: float = _cov_grid_h
-	var inv_max: float = 1.0 / _cov_max_dps
+	# Normalise to the fleet's theoretical zero-range DPS ceiling
+	# rather than the grid's actual peak. That ceiling only changes
+	# when the operator assigns / swaps laser units, so dragging
+	# orbits around no longer rescales the colour ramp underneath
+	# them — a wider laser ring stays the same brightness, it just
+	# spreads out, exactly what the heatmap is supposed to show.
+	var inv_max: float = 1.0 / _cov_fleet_dps
 	for cy in range(COVERAGE_GRID):
 		var row_origin: int = cy * COVERAGE_GRID
 		for cx in range(COVERAGE_GRID):
@@ -427,7 +441,7 @@ func _draw_coverage_heatmap(
 				),
 				col, true,
 			)
-	_draw_coverage_legend(rect, _cov_max_dps, true)
+	_draw_coverage_legend(rect, _cov_grid_peak_dps, _cov_fleet_dps, true)
 
 
 # Run the cell-by-cell DPS accumulation pass. Inlines range_factor for
@@ -439,9 +453,9 @@ func _rebuild_coverage_grid(
 	_cov_grid.resize(COVERAGE_GRID * COVERAGE_GRID)
 	for i in range(_cov_grid.size()):
 		_cov_grid[i] = 0.0
-	_cov_max_dps = 0.0
+	_cov_grid_peak_dps = 0.0
+	_cov_fleet_dps = 0.0
 	_cov_any_laser = false
-	_cov_grid_size = COVERAGE_GRID
 	_cov_grid_w = rect.size.x / float(COVERAGE_GRID)
 	_cov_grid_h = rect.size.y / float(COVERAGE_GRID)
 
@@ -459,6 +473,9 @@ func _rebuild_coverage_grid(
 		var dps: float = _launch_laser_dps(launch)
 		if dps <= 0.0:
 			continue
+		# Sum the fleet's zero-range DPS — the colour ramp normalises
+		# to this so the scale doesn't slide around as orbits move.
+		_cov_fleet_dps += dps
 		var e: float = clampf(launch.eccentricity, 0.0, 0.999)
 		var sample_pts := PackedVector2Array()
 		sample_pts.resize(COVERAGE_SAMPLES)
@@ -502,8 +519,8 @@ func _rebuild_coverage_grid(
 
 	for i in range(_cov_grid.size()):
 		var v: float = _cov_grid[i]
-		if v > _cov_max_dps:
-			_cov_max_dps = v
+		if v > _cov_grid_peak_dps:
+			_cov_grid_peak_dps = v
 
 
 # Two-stop heat ramp: black → deep red → orange → yellow → white.
@@ -521,7 +538,7 @@ func _heat_color(t: float) -> Color:
 # looking at and prints the current peak DPS so they can compare two
 # loadouts quantitatively, not just by colour.
 func _draw_coverage_legend(
-	rect: Rect2, peak_dps: float, has_lasers: bool
+	rect: Rect2, peak_dps: float, fleet_dps: float, has_lasers: bool
 ) -> void:
 	var font := get_theme_default_font()
 	if font == null:
@@ -536,7 +553,14 @@ func _draw_coverage_legend(
 	if not has_lasers:
 		second = "No assigned lasers — assign a laser unit to populate."
 	else:
-		second = "peak ≈ %.1f DPS  ·  white = peak, black = 0" % peak_dps
+		# White = the fleet's theoretical zero-range DPS ceiling
+		# (every laser firing at zero range simultaneously); peak is
+		# the brightest cell actually achieved on the grid. Reporting
+		# both lets the operator read coverage as a fraction of the
+		# fleet's hard cap rather than just an unanchored colour.
+		second = "white = %.1f DPS (fleet cap) · grid peak ≈ %.1f DPS" % [
+			fleet_dps, peak_dps,
+		]
 	draw_string(
 		font, origin + Vector2(0, 14),
 		second,
