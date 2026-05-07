@@ -38,8 +38,21 @@ const Launch = preload("res://scripts/launch.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
-const TIME_FACTOR_RATE: int = 60       # changes per second while held
+const TIME_FACTOR_RATE: int = 400      # changes per second while held
 const PLANNING_DT_MAX: int = 86400 * 7  # one week of plan window
+# Planning-dt scrub speed scales with the current window so the operator
+# can hold Q/E and walk through close-in seconds at human granularity,
+# then accelerate naturally into hour- and day-long horizons. At dt=0
+# the rate matches TIME_FACTOR_RATE; at dt=300 it's doubled, at
+# dt=86400 it's ~290× — sweeping a full week of plan in a few seconds.
+const PLANNING_DT_SCALE: float = 300.0
+# Local-frame Δv (km/s) added to the queued planning maneuver per
+# wall-clock second a thrust key is held. Matches the per-second burn
+# the live sim applies at the 30 Hz physics tick (DELTA_V_MAGNITUDE *
+# physics_ticks_per_second), so a player holding an arrow key for one
+# second in planning mode previews the same delta as one second of
+# real-time thrust at default time factor.
+const PLANNING_DV_RATE_KMS: float = 1.5
 
 # Engagement-range adjustment rate while shift+up/down is held. Sized
 # so an operator can sweep the full settable band (MIN_ENGAGEMENT_RANGE
@@ -64,6 +77,13 @@ var planning_mode: bool = false
 # it was" because time_factor=0 means _physics_process advances it
 # by 0 each tick.
 var _pre_pause_time_factor: int = 0
+# Sticky local-frame Δv the operator has queued for the selected
+# planning satellite. Accumulated by arrow-key input while paused;
+# applied as a single instantaneous kick to the planning preview
+# every physics tick. Cleared on planning-mode entry so each pause
+# starts with a clean slate, and never propagated to real satellites
+# — the projection is read-only.
+var _planning_dv: Vector3 = Vector3.ZERO
 
 # Simulated seconds elapsed since the scene came up. Advanced in
 # _physics_process by sim_delta — same units satellites use for orbital
@@ -459,12 +479,25 @@ func _physics_process(delta: float) -> void:
 		_sync_planning_to_reality()
 		var window := float(planning_dt)
 		for i in range(planning_satellites.size()):
-			# Snap orbit-state from reality but keep the operator's queued
-			# maneuver. Then advance by planning_dt so the path shows
-			# "where this satellite would be after planning_dt seconds
-			# given the queued thrust".
+			# Snap orbit-state from reality, then apply the queued
+			# planning-mode Δv (selected ship only) as a single
+			# instantaneous kick before propagating by planning_dt. The
+			# preview shows "where this satellite would be after the
+			# scrub window, given the maneuver the operator has staged".
 			var plan_sat := planning_satellites[i]
 			plan_sat.clone_orbit_from(real_satellites[i])
+			if (
+				i == planning_selected
+				and _planning_dv.length_squared() > 0.0
+				and plan_sat.alive
+				and plan_sat.orbit_alive
+				and plan_sat.team == Satellite.TEAM_PLAYER
+				and not plan_sat.is_surface
+			):
+				if not plan_sat.orbit.relative_maneuver(
+					_planning_dv, 0.0, Satellite.safe_periapsis_km()
+				):
+					plan_sat.orbit_alive = false
 			if plan_sat.orbit_alive and plan_sat.alive and window > 0.0:
 				if plan_sat.is_surface:
 					# Surface installation — extrapolate the planet's
@@ -738,15 +771,23 @@ func _process_continuous_input(delta: float) -> void:
 	# exit, so we suppress the time-factor accumulator entirely in that
 	# branch; otherwise releasing the keys mid-pause would leave behind
 	# a fractional carry that fires on resume.
-	var rate := float(TIME_FACTOR_RATE) * delta
+	#
+	# Planning-dt rate scales with the current window (PLANNING_DT_SCALE)
+	# so close-in seconds tick at a granular rate while hour- and
+	# day-long horizons sweep past quickly under one continuous press.
 	if planning_mode:
-		_planning_dt_accum += rate * (
+		var planning_rate := (
+			float(TIME_FACTOR_RATE)
+			* (1.0 + float(planning_dt) / PLANNING_DT_SCALE)
+		)
+		_planning_dt_accum += planning_rate * delta * (
 			(1.0 if Input.is_action_pressed("speed_up") else 0.0)
 			- (1.0 if Input.is_action_pressed("speed_down") else 0.0)
 			+ (1.0 if Input.is_action_pressed("planning_advance") else 0.0)
 			- (1.0 if Input.is_action_pressed("planning_retard") else 0.0)
 		)
 	else:
+		var rate := float(TIME_FACTOR_RATE) * delta
 		_time_factor_accum += rate * (
 			(1.0 if Input.is_action_pressed("speed_up") else 0.0)
 			- (1.0 if Input.is_action_pressed("speed_down") else 0.0)
@@ -769,17 +810,40 @@ func _process_continuous_input(delta: float) -> void:
 	# operator-controlled, so refuse thrust input on them; a stale
 	# selection pointing at an enemy after a player ship died just means
 	# the keys do nothing this frame.
-	var target_satellites: Array[Satellite] = (
-		planning_satellites if planning_mode else real_satellites
-	)
+	#
+	# In planning mode we accumulate into a sticky local-frame Δv on the
+	# controller instead of round-tripping through the planning sat's
+	# raw_maneuver field — the planning sat gets its orbit re-cloned
+	# from reality every physics tick, and advance_time consumes
+	# raw_maneuver, so a tap-then-release would otherwise erase the
+	# preview the operator just queued. The accumulator persists for
+	# the duration of the pause and is cleared on entry/exit by
+	# _clear_planning.
 	var idx := planning_selected if planning_mode else selected_ship
-	if not target_satellites.is_empty() and idx >= 0 and idx < target_satellites.size():
-		var sat := target_satellites[idx]
-		# Surface installations are anchored to Earth's surface — thrust
-		# inputs are silently ignored on them, otherwise the queued Δv
-		# would land in raw_maneuver and confuse the planning preview.
-		if sat.team == Satellite.TEAM_PLAYER and not sat.is_surface:
-			sat.set_maneuver(thrust)
+	if planning_mode:
+		var pool := planning_satellites
+		if (
+			not pool.is_empty()
+			and idx >= 0
+			and idx < pool.size()
+			and thrust.length_squared() > 0.0
+		):
+			var plan_sat := pool[idx]
+			if plan_sat.team == Satellite.TEAM_PLAYER and not plan_sat.is_surface:
+				_planning_dv += thrust * (PLANNING_DV_RATE_KMS * delta)
+	else:
+		if (
+			not real_satellites.is_empty()
+			and idx >= 0
+			and idx < real_satellites.size()
+		):
+			var sat := real_satellites[idx]
+			# Surface installations are anchored to Earth's surface —
+			# thrust inputs are silently ignored on them, otherwise the
+			# queued Δv would land in raw_maneuver and confuse the
+			# planning preview.
+			if sat.team == Satellite.TEAM_PLAYER and not sat.is_surface:
+				sat.set_maneuver(thrust)
 
 	# Engagement-range nudge. Always written to the *real* satellite —
 	# the planning clone is overwritten from reality every physics tick
@@ -1160,6 +1224,10 @@ func select_next_ship() -> void:
 		planning_satellites[planning_selected].unselect()
 		planning_selected = clampi(selected_ship, 0, planning_satellites.size() - 1)
 		planning_satellites[planning_selected].select()
+		# Drop any queued planning Δv when the selection moves — the dv
+		# is staged for one ship at a time, and silently re-applying it
+		# to whichever ship Tab lands on would be a footgun.
+		_planning_dv = Vector3.ZERO
 
 
 func toggle_planning() -> void:
@@ -1191,6 +1259,10 @@ func _clear_planning() -> void:
 	# next pause starts cleanly at planning_dt = 0 instead of jumping by
 	# whatever fractional step was sitting in the bucket.
 	_planning_dt_accum = 0.0
+	# Discard the queued planning-mode Δv so the next pause opens with
+	# the satellite's real trajectory, not a phantom maneuver staged
+	# during a previous pause.
+	_planning_dv = Vector3.ZERO
 
 
 # Keep planning_satellites length matched to real_satellites. add/remove

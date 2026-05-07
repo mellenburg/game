@@ -317,6 +317,13 @@ func _update_info_label(
 	# clock, so the displayed UTC time is the canonical timestamp.
 	lines.append("[color=#9aa9b8]%s[/color]" % SimClock.format_utc(sim_time))
 	if planning_mode:
+		# Projected UTC = paused-clock + scrub window. Lets the operator
+		# read the planning preview's time directly instead of mentally
+		# summing sim_time and planning_dt.
+		lines.append(
+			"[color=#f5b455]→ %s[/color]"
+			% SimClock.format_utc(sim_time + float(dt))
+		)
 		lines.append("[color=yellow]PLANNING MODE[/color]")
 	lines.append("Time Factor: %d" % time_factor)
 	if planning_mode:
