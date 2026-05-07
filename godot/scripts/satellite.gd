@@ -343,9 +343,9 @@ var railgun_enabled: bool = true
 #   velocity direction can deviate from the parent's.
 var breakup_threshold: float = 0.65
 var breakup_chance: float = 0.5
-var breakup_children_min: int = 2
-var breakup_children_max: int = 4
-var breakup_deflection_deg: float = 20.0
+var breakup_children_min: int = 3
+var breakup_children_max: int = 5
+var breakup_deflection_deg: float = 10.0
 # Set by CombatController when a breakup is triggered on this body.
 # EarthSystem's _remove_dead_satellites checks this to skip the normal
 # impact-accounting path (the body didn't reach Earth — it broke apart).
@@ -764,9 +764,10 @@ func advance_time(delta_time: float) -> void:
 		and orbit.r.dot(orbit.v) > 0.0
 	):
 		_perigee_decay_burn()
-	# Atmospheric drag for asteroids and decaying threats. Applied after
-	# any perigee burn so the two effects are additive within the same tick.
-	if is_asteroid or is_decaying:
+	# Atmospheric drag for asteroids and decaying threats. Stable-orbit
+	# fragments are exempt — they're captured above the atmosphere and
+	# should not decay into Earth.
+	if (is_asteroid or is_decaying) and not is_stable_orbit:
 		_apply_atmospheric_decay(delta_time)
 		if not alive:
 			return  # Atmospheric ablation burned the body up
@@ -788,7 +789,7 @@ func advance_time(delta_time: float) -> void:
 	var sub_impact_periapsis := (
 		is_finite(orbit.r_p) and orbit.r_p <= impact_r
 	)
-	if (
+	if not is_stable_orbit and (
 		orbit.norm_r <= impact_r
 		or (crossed_periapsis and sub_impact_periapsis)
 	):

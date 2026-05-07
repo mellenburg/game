@@ -617,11 +617,17 @@ func _spawn_breakup_children() -> void:
 				and is_finite(child_orbit.r_p)
 				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
 			)
+			# A bound orbit is only truly stable if periapsis clears the
+			# full atmosphere (SAFE_ORBIT_ALT_KM). Orbits with periapsis
+			# below that altitude experience drag each pass, gradually
+			# decaying until they trigger the atmospheric impact check —
+			# those fragments must stay targetable so weapons can intercept
+			# them before they reach the surface.
 			var stable: bool = (
 				not deflected
 				and child_orbit.ecc < 1.0
 				and is_finite(child_orbit.r_p)
-				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
+				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM + EarthOrbit.SAFE_ORBIT_ALT_KM
 			)
 			var sat := Satellite.new()
 			sat.team = Satellite.TEAM_ENEMY
