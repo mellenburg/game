@@ -425,6 +425,15 @@ func _draw_coverage_heatmap(
 	# orbits around no longer rescales the colour ramp underneath
 	# them — a wider laser ring stays the same brightness, it just
 	# spreads out, exactly what the heatmap is supposed to show.
+	#
+	# The mapping is sqrt() rather than linear because time-averaging
+	# along an orbit caps any cell's DPS at roughly (visible-arc /
+	# orbit-circumference) × per-laser-DPS — typically ~10% of the
+	# fleet ceiling even with overlapping rings. A linear ramp paints
+	# that as near-black; sqrt() lifts low-coverage regions into
+	# visible reds while keeping black=0 and white=fleet-ceiling
+	# anchored, so the colour scale still reads as "fraction of what
+	# this fleet could in principle deliver".
 	var inv_max: float = 1.0 / _cov_fleet_dps
 	for cy in range(COVERAGE_GRID):
 		var row_origin: int = cy * COVERAGE_GRID
@@ -432,7 +441,7 @@ func _draw_coverage_heatmap(
 			var v: float = _cov_grid[row_origin + cx]
 			if v <= 0.0:
 				continue
-			var t: float = clampf(v * inv_max, 0.0, 1.0)
+			var t: float = clampf(sqrt(v * inv_max), 0.0, 1.0)
 			var col: Color = _heat_color(t)
 			draw_rect(
 				Rect2(
@@ -553,11 +562,12 @@ func _draw_coverage_legend(
 	if not has_lasers:
 		second = "No assigned lasers — assign a laser unit to populate."
 	else:
-		# White = the fleet's theoretical zero-range DPS ceiling
-		# (every laser firing at zero range simultaneously); peak is
-		# the brightest cell actually achieved on the grid. Reporting
-		# both lets the operator read coverage as a fraction of the
-		# fleet's hard cap rather than just an unanchored colour.
+		# White = the fleet's theoretical zero-range DPS ceiling (the
+		# whole fleet stacked on a single cell); grid peak is the
+		# brightest cell actually achieved. Colour ramp is sqrt() of
+		# the ratio, so a tone of ~50% saturation already corresponds
+		# to ~25% of the ceiling — the realistic high-water mark for a
+		# well-phased ring of lasers.
 		second = "white = %.1f DPS (fleet cap) · grid peak ≈ %.1f DPS" % [
 			fleet_dps, peak_dps,
 		]
