@@ -125,14 +125,18 @@ offset_bottom = 240.0
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="PlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD/PlayerRosters"]
+[node name="PlayerRoster" type="HFlowContainer" parent="CanvasLayer/HUD/PlayerRosters"]
+; HFlow so a long fleet wraps onto a second / third row instead of
+; spilling past the right edge into the upper-right detail panel.
 mouse_filter = 2
-theme_override_constants/separation = 6
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
 
-[node name="SurfacePlayerRoster" type="HBoxContainer" parent="CanvasLayer/HUD/PlayerRosters"]
+[node name="SurfacePlayerRoster" type="HFlowContainer" parent="CanvasLayer/HUD/PlayerRosters"]
 visible = false
 mouse_filter = 2
-theme_override_constants/separation = 6
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
 
 [node name="TessellationGrid" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1

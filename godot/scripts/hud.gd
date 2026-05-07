@@ -92,11 +92,15 @@ const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 const HIT_DURATION: float = 0.25
 
 @onready var info_label: RichTextLabel = $InfoLabel as RichTextLabel
-@onready var player_roster: HBoxContainer = (
-	$PlayerRosters/PlayerRoster as HBoxContainer
+# Rosters are HFlowContainers so a long fleet wraps onto a second row
+# instead of spilling past the upper-right detail panel. Typed as
+# Container here so the same code can drive either layout if we swap
+# back to HBox later (the Container API is all we use).
+@onready var player_roster: Container = (
+	$PlayerRosters/PlayerRoster as Container
 )
-@onready var surface_player_roster: HBoxContainer = (
-	$PlayerRosters/SurfacePlayerRoster as HBoxContainer
+@onready var surface_player_roster: Container = (
+	$PlayerRosters/SurfacePlayerRoster as Container
 )
 @onready var target_container: Control = $TargetContainer as Control
 @onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
@@ -258,6 +262,17 @@ func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 	elif sat.is_asteroid:
 		kind = "sub-orbital asteroid"
 	lines.append("[color=#5a6470]type[/color]    %s" % kind)
+	# Numeric HP alongside the bar visual below — the bar conveys a
+	# ratio, but the operator needs the digit count to read whether
+	# their fire is actively chipping HP off rather than just nicking
+	# it. Format the same way the friendly detail panel reports
+	# damage tallies.
+	lines.append(
+		"[color=#5a6470]hp[/color]      %s / %s" % [
+			_format_scientific(maxf(sat.hp, 0.0)),
+			_format_scientific(maxf(sat.max_hp, 0.0)),
+		]
+	)
 	lines.append("[color=#5a6470]mass[/color]    %s kg" % _format_scientific(sat.mass))
 	lines.append("[color=#5a6470]density[/color] %.2f g/cm³" % sat.density_g_cm3)
 	if sat.composition >= 0:
@@ -412,12 +427,12 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 		surface_player_roster.visible = not surface_players.is_empty()
 
 
-# Generic renderer that fills any HBoxContainer with one tile per sat.
-# Both the orbital and surface rosters share this idiom so the per-row
-# UI (selection tint, click handling, weapon icons) stays consistent
-# across both strips.
+# Generic renderer that fills any Container (HFlowContainer in the
+# scene today) with one tile per sat. Both the orbital and surface
+# rosters share this idiom so the per-row UI (selection tint, click
+# handling, weapon icons) stays consistent across both strips.
 func _render_player_roster_into(
-	host: HBoxContainer, sats: Array[Satellite], selected: int
+	host: Container, sats: Array[Satellite], selected: int
 ) -> void:
 	while host.get_child_count() < sats.size():
 		host.add_child(_make_box())

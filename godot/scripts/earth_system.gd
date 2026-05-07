@@ -115,6 +115,14 @@ var _fleet_range_adjusting: bool = false
 # rising edge, surface map auto-selects on falling edge — so manual K
 # presses during a live wave aren't yanked back every frame.
 var _wave_inbound_prev: bool = false
+# Tracks whether the tessellation grid had a highlighted asteroid on
+# the previous tick. Rising edge auto-switches the lower-right slot to
+# the asteroid inspector; falling edge reverts to the wave-driven
+# default. _asteroid_via_highlight latches the auto-switch so a
+# subsequent operator K press un-pins it without strand-leaving the
+# slot stuck in inspector mode after the highlight clears.
+var _highlight_prev: bool = false
+var _asteroid_via_highlight: bool = false
 var impact_tracker := ImpactTracker.new()
 # Day-side albedo loaded once as an Image so we can sample it at an
 # impact's UV without an editor-only Texture readback. Lazily filled
@@ -1001,11 +1009,15 @@ func _railgun_armed_player_sats() -> Array[Satellite]:
 	return out
 
 
-# Cycle the lower-right overlay between surface map / wave radar / off.
-# Both Control nodes share the same anchor slot, so flipping visibility
-# is enough to swap them — there's no transition state to manage.
+# Cycle the lower-right overlay between surface map / wave radar /
+# asteroid inspector / off. All four Control nodes share the same
+# anchor slot, so flipping visibility is enough to swap them — there's
+# no transition state to manage. A manual cycle clears the
+# `_asteroid_via_highlight` latch so the next highlight-clear edge
+# doesn't yank the slot away from an operator-chosen mode.
 func _cycle_map_mode() -> void:
 	map_mode = (map_mode + 1) % MAP_MODE_COUNT
+	_asteroid_via_highlight = false
 	_apply_map_mode()
 
 
@@ -1018,28 +1030,54 @@ func _apply_map_mode() -> void:
 		hud.asteroid_panel.visible = (map_mode == MAP_MODE_ASTEROID)
 
 
-# Auto-switch the lower-right overlay around incoming-wave transitions.
-# Radar selects on rising edge (a wave just appeared in the queue),
-# surface map selects on falling edge (the last wave just drained).
-# Asteroid mode is sticky: if the operator parked the slot on the
-# inspector, neither edge yanks it away — the auto-switch only kicks
-# in when the slot is currently SURFACE or RADAR, so a threat alert
-# can swap those two without overriding a deliberate inspector pick.
-# Edge-triggered so a manual K press during a live wave doesn't keep
-# snapping the panel back to radar every frame.
+# Auto-switch the lower-right overlay around incoming-wave and grid-
+# highlight transitions:
+#   * highlight rising edge — operator clicked an asteroid in the
+#     tessellation grid: jump to the asteroid inspector regardless of
+#     the current mode, and latch `_asteroid_via_highlight` so the
+#     falling edge can revert.
+#   * highlight falling edge — only revert when the slot got into
+#     ASTEROID via the highlight; an operator who manually cycled to
+#     ASTEROID stays parked there.
+#   * wave rising edge — radar selects.
+#   * wave falling edge — surface map selects.
+# Asteroid mode is otherwise sticky: wave edges only swing the slot
+# when it's currently SURFACE or RADAR, so a deliberate inspector pick
+# survives a fresh threat-detection alert.
 func _auto_switch_map_mode() -> void:
 	var inbound := spawn_director.has_active_waves()
-	var auto_switch_eligible := (
-		map_mode == MAP_MODE_SURFACE or map_mode == MAP_MODE_RADAR
-	)
-	if auto_switch_eligible:
-		if inbound and not _wave_inbound_prev:
-			map_mode = MAP_MODE_RADAR
+	var grid_node: Node = null
+	if hud != null:
+		grid_node = hud.get_node_or_null("TessellationGrid")
+	var has_highlight := false
+	if grid_node != null and "highlighted_sat" in grid_node:
+		var hs: Object = grid_node.highlighted_sat
+		has_highlight = hs != null and is_instance_valid(hs)
+	if has_highlight and not _highlight_prev:
+		# Pin the slot to the inspector for as long as the highlight
+		# stays. Manual cycle clears the latch so we don't fight the
+		# operator after they K-press out of inspector mode.
+		if map_mode != MAP_MODE_ASTEROID:
+			map_mode = MAP_MODE_ASTEROID
+			_asteroid_via_highlight = true
 			_apply_map_mode()
-		elif not inbound and _wave_inbound_prev:
-			map_mode = MAP_MODE_SURFACE
-			_apply_map_mode()
+	elif not has_highlight and _highlight_prev and _asteroid_via_highlight:
+		map_mode = MAP_MODE_RADAR if inbound else MAP_MODE_SURFACE
+		_asteroid_via_highlight = false
+		_apply_map_mode()
+	else:
+		var auto_switch_eligible := (
+			map_mode == MAP_MODE_SURFACE or map_mode == MAP_MODE_RADAR
+		)
+		if auto_switch_eligible:
+			if inbound and not _wave_inbound_prev:
+				map_mode = MAP_MODE_RADAR
+				_apply_map_mode()
+			elif not inbound and _wave_inbound_prev:
+				map_mode = MAP_MODE_SURFACE
+				_apply_map_mode()
 	_wave_inbound_prev = inbound
+	_highlight_prev = has_highlight
 
 
 # Engagement-range visual. Renders a circle in the ecliptic plane

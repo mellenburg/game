@@ -37,11 +37,6 @@ const TRIANGLE_COLOR := Color(0.85, 0.20, 0.25, 0.85)
 const HEX_COLOR := Color(0.95, 0.55, 0.15, 0.95)
 const EDGE_WIDTH: float = 1.0
 const EMPTY_COLOR := Color(0.0, 0.0, 0.0, 0.0)
-# HP digits drawn at each tile's centroid. Sized to read clearly inside
-# a single triangle without overflowing — the smallest enemies get one
-# triangle, so the text has to fit there before larger groupings get a
-# proportionally roomier readout.
-const HP_TEXT_FONT_SIZE: int = 11
 
 var _enemies: Array = []
 var _current_sim_time: float = 0.0
@@ -509,34 +504,6 @@ func _draw() -> void:
 
 				draw_line(edge_counts[key].p1, edge_counts[key].p2, edge_color, width)
 
-		# Live HP readout at the tile centroid. The shrinking inner polygon
-		# already conveys "this body is taking damage" qualitatively, but a
-		# numeric reading lets the operator see whether their fire is
-		# actually chipping HP off rather than just nicking it. Drawn with
-		# a one-pixel dark shadow underneath so the white digits stay
-		# legible across the full red→yellow gradient and on top of the
-		# lighter highlighted-fill tint.
-		var hp_text: String = _format_compact_hp(sat.hp)
-		var font: Font = get_theme_default_font()
-		if font != null and hp_text != "":
-			var font_size: int = HP_TEXT_FONT_SIZE
-			var ts: Vector2 = font.get_string_size(
-				hp_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size
-			)
-			var draw_pos := Vector2(
-				center.x - ts.x * 0.5, center.y + font_size * 0.32
-			)
-			draw_string(
-				font, draw_pos + Vector2(1.0, 1.0), hp_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size,
-				Color(0.0, 0.0, 0.0, 0.85),
-			)
-			draw_string(
-				font, draw_pos, hp_text,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size,
-				Color(1.0, 1.0, 1.0, 0.95),
-			)
-
 func _is_neighbor(p1: Dictionary, p2: Dictionary) -> bool:
 	var shared_verts = 0
 	for pt1 in p1.pts:
@@ -545,25 +512,6 @@ func _is_neighbor(p1: Dictionary, p2: Dictionary) -> bool:
 				shared_verts += 1
 				break
 	return shared_verts == 2
-
-
-# Compact HP formatter for the centroid readout. Asteroid HP spans
-# roughly 0..10^11 across the spawner's mass range, so a raw "%d" would
-# overflow the smallest tiles for big bodies. SI suffixes (k / M / G /
-# T) keep the digit count to four characters or fewer, which fits
-# comfortably in a single tessellation triangle.
-static func _format_compact_hp(hp: float) -> String:
-	if not is_finite(hp) or hp <= 0.0:
-		return "0"
-	if hp < 1000.0:
-		return "%d" % int(round(hp))
-	if hp < 1.0e6:
-		return "%.1fk" % (hp / 1000.0)
-	if hp < 1.0e9:
-		return "%.1fM" % (hp / 1.0e6)
-	if hp < 1.0e12:
-		return "%.1fG" % (hp / 1.0e9)
-	return "%.1eT" % (hp / 1.0e12)
 
 
 func _get_hex_id(s: int, t: int) -> Vector2i:
