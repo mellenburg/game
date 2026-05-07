@@ -96,6 +96,12 @@ var _budget_bar_fill: ColorRect
 # rebuilding the whole list (which would yank slider focus mid-drag).
 var _launch_cost_labels: Array[Label] = []
 var _launch_apogee_labels: Array[Label] = []
+# Per-launch expansion state for the orbit-parameter sliders. Sliders
+# stay hidden until the operator clicks the row's "Edit" button so the
+# scheduled-launches list reads as a compact summary by default.
+# Indexed parallel to PlayerLoadout.launches; resized whenever launches
+# are added / removed so the state survives _rebuild_launch_rows.
+var _launch_expanded: Array[bool] = []
 var _previous_tab_index: int = 0
 var _add_launch_btn: Button
 var _launch_capacity_label: Label
@@ -1249,6 +1255,7 @@ func _rebuild_launch_rows() -> void:
 	# children one-for-one as _build_launch_row appends to both.
 	_launch_cost_labels.clear()
 	_launch_apogee_labels.clear()
+	_sync_launch_expanded()
 	for i in range(PlayerLoadout.launches.size()):
 		_launches_root.add_child(_build_launch_row(i))
 	if _orbit_preview != null:
@@ -1411,9 +1418,25 @@ func _on_add_launch_pressed() -> void:
 
 
 func _on_remove_launch_pressed(index: int) -> void:
+	# Drop the matching expansion bit so launches below the removed row
+	# keep their open / closed state instead of inheriting their
+	# neighbour's.
+	if index >= 0 and index < _launch_expanded.size():
+		_launch_expanded.remove_at(index)
 	PlayerLoadout.remove_launch(index)
 	_rebuild_launch_rows()
 	_refresh_stage_brief()
+
+
+# Resize _launch_expanded to match PlayerLoadout.launches without
+# disturbing existing entries. Newly appended launches default to
+# collapsed so the list stays compact; the operator opts into editing
+# by clicking the row's "Edit" button.
+func _sync_launch_expanded() -> void:
+	while _launch_expanded.size() < PlayerLoadout.launches.size():
+		_launch_expanded.append(false)
+	while _launch_expanded.size() > PlayerLoadout.launches.size():
+		_launch_expanded.pop_back()
 
 
 func _build_launch_row(index: int) -> Control:
@@ -1480,6 +1503,18 @@ func _build_launch_row(index: int) -> Control:
 		status_chip.add_theme_color_override("font_color", COLOR_WARN)
 	head.add_child(status_chip)
 
+	# Edit toggle: orbit-parameter sliders stay hidden until the
+	# operator opts in, keeping the scheduled-launches list scannable.
+	# State is mirrored in _launch_expanded so toggling survives the
+	# next _rebuild_launch_rows (e.g. after picking a unit).
+	var expanded: bool = index < _launch_expanded.size() and _launch_expanded[index]
+	var edit_btn := Button.new()
+	edit_btn.toggle_mode = true
+	edit_btn.button_pressed = expanded
+	edit_btn.text = "Hide" if expanded else "Edit"
+	edit_btn.tooltip_text = "Show / hide orbit parameter sliders"
+	head.add_child(edit_btn)
+
 	var remove_btn := Button.new()
 	remove_btn.text = "✕"
 	remove_btn.tooltip_text = "Remove launch"
@@ -1496,19 +1531,28 @@ func _build_launch_row(index: int) -> Control:
 	col.add_child(cost_label)
 	_launch_cost_labels.append(cost_label)
 
+	# All editable orbit controls live inside this container so the
+	# Edit toggle can show / hide them as one block. The apogee readout
+	# rides along — it's only meaningful next to the perigee /
+	# eccentricity sliders that drive it.
+	var sliders := VBoxContainer.new()
+	sliders.add_theme_constant_override("separation", 6)
+	sliders.visible = expanded
+	col.add_child(sliders)
+
 	# Slider step sizes are deliberately coarse. Each value_changed
 	# event drives a heatmap recompute in the Equatorial Preview, and
 	# the operator's typical use is "rough out the orbit, eyeball the
 	# coverage, repeat" — single-km / single-degree precision was just
 	# generating one rebuild per pixel of slider drag.
-	col.add_child(_orbit_slider_row(
+	sliders.add_child(_orbit_slider_row(
 		"Perigee (km)", launch.altitude_km,
 		Launch.ALT_MIN_KM, Launch.ALT_MAX_KM, 50.0,
 		index, "altitude_km", 0,
 	))
 	# Eccentricity step matches the heatmap cache's quantisation
 	# (0.001 in storage); 0.02 lands the slider on cache-stable values.
-	col.add_child(_orbit_slider_row(
+	sliders.add_child(_orbit_slider_row(
 		"Eccentricity", launch.eccentricity,
 		Launch.ECC_MIN, Launch.ECC_MAX, 0.02,
 		index, "eccentricity", 2,
@@ -1530,24 +1574,32 @@ func _build_launch_row(index: int) -> Control:
 	apogee_value.add_theme_font_size_override("font_size", 11)
 	apogee_value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	apogee_row.add_child(apogee_value)
-	col.add_child(apogee_row)
+	sliders.add_child(apogee_row)
 	_launch_apogee_labels.append(apogee_value)
 
-	col.add_child(_orbit_slider_row(
+	sliders.add_child(_orbit_slider_row(
 		"Inclination (°)", launch.inclination_deg,
 		Launch.INC_MIN_DEG, Launch.INC_MAX_DEG, 5.0,
 		index, "inclination_deg", 0,
 	))
-	col.add_child(_orbit_slider_row(
+	sliders.add_child(_orbit_slider_row(
 		"RAAN (°)", launch.raan_deg,
 		Launch.RAAN_MIN_DEG, Launch.RAAN_MAX_DEG, 5.0,
 		index, "raan_deg", 0,
 	))
-	col.add_child(_orbit_slider_row(
+	sliders.add_child(_orbit_slider_row(
 		"True Anomaly (°)", launch.true_anomaly_deg,
 		Launch.NU_MIN_DEG, Launch.NU_MAX_DEG, 5.0,
 		index, "true_anomaly_deg", 0,
 	))
+
+	edit_btn.toggled.connect(
+		func(pressed: bool) -> void:
+			if index < _launch_expanded.size():
+				_launch_expanded[index] = pressed
+			sliders.visible = pressed
+			edit_btn.text = "Hide" if pressed else "Edit"
+	)
 	return row
 
 
