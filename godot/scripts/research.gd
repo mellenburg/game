@@ -91,8 +91,8 @@ const LAUNCH_CAPACITY_CHAIN: Dictionary = {
 	"shape": "diamond",
 	"stat_template": "Plan up to %d simultaneous launches",
 	"tiers": [
-		{"id": "launch_capacity_3", "label": "Launch Capacity I", "cost": 0, "value": 3, "flavor": "Three orbits per stage. Enough to scout a defended approach."},
-		{"id": "launch_capacity_5", "label": "Launch Capacity II", "cost": 200, "value": 5, "flavor": "Five orbits. A respectable picket pattern."},
+		{"id": "launch_capacity_4", "label": "Launch Capacity I", "cost": 0, "value": 4, "flavor": "Four orbits per stage. Enough to seed an equatorial laser ring with a kinetic flanker."},
+		{"id": "launch_capacity_6", "label": "Launch Capacity II", "cost": 200, "value": 6, "flavor": "Six orbits. A respectable picket pattern."},
 		{"id": "launch_capacity_8", "label": "Launch Capacity III", "cost": 400, "value": 8, "flavor": "Eight orbits. Layered orbit shells become viable."},
 		{"id": "launch_capacity_12", "label": "Launch Capacity IV", "cost": 800, "value": 12, "flavor": "Twelve orbits. Operations on this scale used to require a coalition."},
 	],

@@ -32,10 +32,10 @@ func test_reset_seeds_starting_tier_only_for_each_chain() -> void:
 	assert_true(r.is_unlocked("cooling_system_basic"))
 	assert_true(r.is_unlocked("storage_basic"))
 	assert_true(r.is_unlocked("reactor_basic"))
-	assert_true(r.is_unlocked("launch_capacity_3"))
+	assert_true(r.is_unlocked("launch_capacity_4"))
 	assert_true(r.is_unlocked("ground_defense_1"))
 	assert_false(r.is_unlocked("laser_advanced"))
-	assert_false(r.is_unlocked("launch_capacity_5"))
+	assert_false(r.is_unlocked("launch_capacity_6"))
 	assert_false(r.is_unlocked("ground_defense_2"))
 
 
@@ -46,7 +46,7 @@ func test_starting_pool_matches_constant() -> void:
 
 func test_starting_capacities_are_first_tier_values() -> void:
 	var r := _make_research()
-	assert_eq(r.launch_capacity(), 3)
+	assert_eq(r.launch_capacity(), 4)
 	assert_eq(r.ground_defense_capacity(), 1)
 
 
@@ -55,6 +55,7 @@ func test_can_unlock_refuses_when_prereq_missing() -> void:
 	# Tier 2 is gated behind tier 1 even with points to spare.
 	assert_false(r.can_unlock("laser_elite"))
 	assert_false(r.can_unlock("launch_capacity_8"))
+
 
 
 func test_can_unlock_refuses_when_already_unlocked() -> void:
@@ -80,8 +81,8 @@ func test_unlock_refuses_without_enough_points() -> void:
 
 func test_chain_unlock_promotes_capacity() -> void:
 	var r := _make_research()
-	assert_true(r.unlock("launch_capacity_5"))
-	assert_eq(r.launch_capacity(), 5)
+	assert_true(r.unlock("launch_capacity_6"))
+	assert_eq(r.launch_capacity(), 6)
 	assert_true(r.unlock("launch_capacity_8"))
 	assert_eq(r.launch_capacity(), 8)
 	assert_true(r.unlock("launch_capacity_12"))

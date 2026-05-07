@@ -1215,6 +1215,21 @@ func _build_orbital_ops_tab() -> Control:
 	# Centre: 2D top-down preview that redraws when sliders change.
 	var center := _section("Equatorial Preview", 0)
 	hbox.add_child(center[0])
+
+	# Coverage-analysis toggle sits above the preview so the operator
+	# can flip into the heatmap view without leaving the tab. Toggle-
+	# style button so the depressed state mirrors the preview's mode.
+	var coverage_btn := Button.new()
+	coverage_btn.text = "Coverage Analysis"
+	coverage_btn.toggle_mode = true
+	coverage_btn.tooltip_text = (
+		"Show a heat map of potential laser DPS over one full orbit, "
+		+ "summed across every assigned laser unit and scaled to the "
+		+ "current peak."
+	)
+	coverage_btn.toggled.connect(_on_coverage_toggled)
+	center[1].add_child(coverage_btn)
+
 	_orbit_preview = OrbitPreview.new()
 	_orbit_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_orbit_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1378,6 +1393,11 @@ func _refresh_launch_budget() -> void:
 		_budget_label.add_theme_color_override("font_color", COLOR_FG)
 
 
+func _on_coverage_toggled(pressed: bool) -> void:
+	if _orbit_preview != null:
+		_orbit_preview.set_coverage_mode(pressed)
+
+
 func _on_add_launch_pressed() -> void:
 	# add_launch returns null when the operator's at the research cap;
 	# the button gate makes that path unreachable in normal use, but
@@ -1476,16 +1496,21 @@ func _build_launch_row(index: int) -> Control:
 	col.add_child(cost_label)
 	_launch_cost_labels.append(cost_label)
 
+	# Slider step sizes are deliberately coarse. Each value_changed
+	# event drives a heatmap recompute in the Equatorial Preview, and
+	# the operator's typical use is "rough out the orbit, eyeball the
+	# coverage, repeat" — single-km / single-degree precision was just
+	# generating one rebuild per pixel of slider drag.
 	col.add_child(_orbit_slider_row(
 		"Perigee (km)", launch.altitude_km,
-		Launch.ALT_MIN_KM, Launch.ALT_MAX_KM, 10.0,
+		Launch.ALT_MIN_KM, Launch.ALT_MAX_KM, 50.0,
 		index, "altitude_km", 0,
 	))
-	# Eccentricity uses a fractional step so the operator can dial in
-	# small e values; readout shows two decimals.
+	# Eccentricity step matches the heatmap cache's quantisation
+	# (0.001 in storage); 0.02 lands the slider on cache-stable values.
 	col.add_child(_orbit_slider_row(
 		"Eccentricity", launch.eccentricity,
-		Launch.ECC_MIN, Launch.ECC_MAX, 0.01,
+		Launch.ECC_MIN, Launch.ECC_MAX, 0.02,
 		index, "eccentricity", 2,
 	))
 	# Apogee is derived (perigee × (1+e)/(1-e)), not edited directly.
@@ -1510,17 +1535,17 @@ func _build_launch_row(index: int) -> Control:
 
 	col.add_child(_orbit_slider_row(
 		"Inclination (°)", launch.inclination_deg,
-		Launch.INC_MIN_DEG, Launch.INC_MAX_DEG, 1.0,
+		Launch.INC_MIN_DEG, Launch.INC_MAX_DEG, 5.0,
 		index, "inclination_deg", 0,
 	))
 	col.add_child(_orbit_slider_row(
 		"RAAN (°)", launch.raan_deg,
-		Launch.RAAN_MIN_DEG, Launch.RAAN_MAX_DEG, 1.0,
+		Launch.RAAN_MIN_DEG, Launch.RAAN_MAX_DEG, 5.0,
 		index, "raan_deg", 0,
 	))
 	col.add_child(_orbit_slider_row(
 		"True Anomaly (°)", launch.true_anomaly_deg,
-		Launch.NU_MIN_DEG, Launch.NU_MAX_DEG, 1.0,
+		Launch.NU_MIN_DEG, Launch.NU_MAX_DEG, 5.0,
 		index, "true_anomaly_deg", 0,
 	))
 	return row
