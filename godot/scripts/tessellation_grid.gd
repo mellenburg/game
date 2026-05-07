@@ -331,13 +331,20 @@ func _recalculate_allocation() -> void:
 		_rebuild_mesh()
 	if _final_polys.is_empty():
 		return
-		
+
 	var used_polys = {}
 	_assigned_geometry.clear()
-	
+
 	for sat in _enemies:
+		# Skip stale references — a body queued for free between
+		# update_enemies and the next allocation pass would crash on
+		# property access here. The same guard appears in _gui_input
+		# and _draw; mirroring it keeps the allocator from binding
+		# tile geometry to a sat the renderer will then refuse to draw.
+		if not is_instance_valid(sat):
+			continue
 		var assigned_polys = []
-		
+
 		if sat.mass >= 99000000000.0: # Extra Large
 			for hex_id in _sorted_xl_hex_ids:
 				var xl_polys = _xl_groups[hex_id]
@@ -408,20 +415,33 @@ func _recalculate_allocation() -> void:
 
 func _draw() -> void:
 	if _final_polys.is_empty(): return
-	
+
 	for sat in _enemies:
+		# A satellite queued for free between update_enemies and the
+		# canvas redraw is still listed in _enemies but accessing its
+		# properties / methods would crash. The click handler has the
+		# same guard; mirror it here so a click that triggers
+		# queue_redraw() can't paint a freed body.
+		if not is_instance_valid(sat):
+			continue
 		var sat_id = sat.get_instance_id()
 		if not _assigned_geometry.has(sat_id): continue
 		var polys = _assigned_geometry[sat_id]
 		if polys.size() == 0: continue
-		
+
 		var color = sat.enemy_path_gradient_color(_current_sim_time)
 		var is_highlighted = (sat_id == _highlighted_sat_id)
 		var is_flashing = false
 		if sat.get("_flash_until") != null and sat._flash_until > 0.0 and sat._wall_now() < sat._flash_until:
 			is_flashing = true
-		
-		var hp_ratio = clamp(sat.hp / max(sat.max_hp, 1.0), 0.0, 1.0)
+
+		# clamp(NaN,0,1) is NaN under IEEE rules; a NaN hp_ratio
+		# poisons the per-poly scaled vertex math below and feeds
+		# NaN coordinates into draw_polygon, which has crashed the
+		# renderer. Guard with an explicit is_finite check so a
+		# transient bad max_hp / hp can't bring down the canvas.
+		var hp_raw: float = sat.hp / max(sat.max_hp, 1.0)
+		var hp_ratio: float = clamp(hp_raw, 0.0, 1.0) if is_finite(hp_raw) else 0.0
 		var bg_color = color
 		bg_color.a = 0.25
 		
