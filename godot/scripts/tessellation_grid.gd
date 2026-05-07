@@ -63,6 +63,18 @@ var highlighted_sat: Satellite = null
 
 const Satellite = preload("res://scripts/satellite.gd")
 
+
+# Cheap validity check for cross-script consumers (EarthSystem polls
+# this every frame to drive the auto-switch into the asteroid panel).
+# Returning a bool keeps the freed-Satellite check inside the grid —
+# typed assignment of `highlighted_sat` across script boundaries
+# trips "Trying to assign invalid previously freed instance" when the
+# selected body died in this physics tick but `update_enemies` hasn't
+# cleaned up yet.
+func has_valid_highlight() -> bool:
+	return highlighted_sat != null and is_instance_valid(highlighted_sat)
+
+
 func update_enemies(satellites: Array, sim_time: float) -> void:
 	var enemies = []
 	var has_new = false

@@ -1049,10 +1049,13 @@ func _auto_switch_map_mode() -> void:
 	var grid_node: Node = null
 	if hud != null:
 		grid_node = hud.get_node_or_null("TessellationGrid")
+	# Defer to the grid for the freed-instance check — assigning the
+	# typed `highlighted_sat` field into a local Object var across
+	# script boundaries trips Godot when the selected body died this
+	# tick but the grid hasn't cleaned up yet.
 	var has_highlight := false
-	if grid_node != null and "highlighted_sat" in grid_node:
-		var hs: Object = grid_node.highlighted_sat
-		has_highlight = hs != null and is_instance_valid(hs)
+	if grid_node != null and grid_node.has_method("has_valid_highlight"):
+		has_highlight = grid_node.has_valid_highlight()
 	if has_highlight and not _highlight_prev:
 		# Pin the slot to the inspector for as long as the highlight
 		# stays. Manual cycle clears the latch so we don't fight the
