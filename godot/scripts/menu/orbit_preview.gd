@@ -46,20 +46,33 @@ const ORBIT_COLORS: Array[Color] = [
 	Color(0.95, 0.95, 0.55),      # yellow
 ]
 
-# Coverage-analysis grid resolution. 80×80 = 6400 cells; with ~64
-# orbital samples per laser unit and a handful of units this is
-# well under a millisecond per refresh on a Chromebook (no per-frame
-# allocation — refresh() only fires on slider events).
-const COVERAGE_GRID: int = 80
-# Mean-anomaly samples per orbit. 64 is enough resolution that even
+# Coverage-analysis grid resolution. 64×64 = 4096 cells; with ~48
+# orbital samples per laser unit and a handful of units this keeps
+# a single rebuild well under a millisecond on a Chromebook even
+# without caching. The cache below means we only pay this once per
+# meaningful state change anyway.
+const COVERAGE_GRID: int = 64
+# Mean-anomaly samples per orbit. 48 is enough resolution that even
 # highly eccentric orbits (where most of the period is spent near
-# apogee) produce a smooth heatmap.
-const COVERAGE_SAMPLES: int = 64
+# apogee) produce a smooth heatmap without a visible sample-aliasing
+# pattern.
+const COVERAGE_SAMPLES: int = 48
 # Newton-Raphson iterations for Kepler's equation. 8 converges to
 # float precision for e < 0.95, well past the operator's slider cap.
 const KEPLER_ITERATIONS: int = 8
 
 var coverage_mode: bool = false
+# Cached heatmap output. Rebuilt only when the state hash below
+# changes (i.e. a launch's orbit / unit moved enough to matter), so
+# back-to-back redraws caused by other slider drags reuse the prior
+# result instead of repeating the 200k-cell-op accumulation pass.
+var _cov_grid: PackedFloat32Array = PackedFloat32Array()
+var _cov_max_dps: float = 0.0
+var _cov_any_laser: bool = false
+var _cov_state_hash: int = 0
+var _cov_grid_size: int = 0
+var _cov_grid_w: float = 0.0
+var _cov_grid_h: float = 0.0
 
 
 func _ready() -> void:
@@ -90,17 +103,28 @@ func _draw() -> void:
 	if span <= 0.0:
 		return
 
-	# World scale: pick the largest apogee across the configured
-	# launches so even a highly eccentric orbit fits inside the control.
-	# Apogee = perigee · (1+e)/(1-e); collapses to perigee for ecc==0
-	# so circular orbits scale identically to the pre-eccentricity
-	# build. Min ceiling so an empty roster still renders sensibly.
+	# World scale: large enough to fit every launch's apogee AND every
+	# laser-armed unit's MAX_RANGE_KM far-field circle (which can
+	# extend ~20 000 km past the orbit, easily off-screen if we only
+	# scaled to apogee). Apogee = perigee · (1+e)/(1-e); collapses to
+	# perigee for ecc==0 so circular orbits scale identically to the
+	# pre-laser-circle build when no laser is assigned. Min ceiling so
+	# an empty roster still renders sensibly.
 	var max_world_km: float = EarthOrbit.EARTH_RADIUS_KM
 	for launch: Launch in PlayerLoadout.launches:
-		max_world_km = maxf(
-			max_world_km,
-			EarthOrbit.EARTH_RADIUS_KM + launch.apogee_altitude_km(),
+		var apo_r_km: float = (
+			EarthOrbit.EARTH_RADIUS_KM + launch.apogee_altitude_km()
 		)
+		max_world_km = maxf(max_world_km, apo_r_km)
+		# Laser circles are drawn at the unit's instantaneous position;
+		# the worst case for fitting them on screen is the farthest the
+		# unit gets from Earth's centre (apogee) plus the outer ring's
+		# radius. Coverage-mode heatmap shares this envelope, so the
+		# blob never spills outside the viewer either.
+		if _launch_has_laser(launch):
+			max_world_km = maxf(
+				max_world_km, apo_r_km + LaserWeapon.MAX_RANGE_KM,
+			)
 	max_world_km *= 1.10  # 10% padding so labels don't crop on the rim
 	var px_per_km: float = span / max_world_km
 
@@ -329,6 +353,35 @@ func _launch_laser_dps(launch: Launch) -> float:
 	return dps
 
 
+# Build the cache key for the heatmap: the inputs that, if they
+# change, force a recompute. Quantising orbital fields to whole-number
+# steps keeps the hash stable across sub-step slider noise — useful
+# because every value_changed event lands here, and we don't want
+# 0.001-degree jitter to tear down the cache.
+func _coverage_state_hash(rect: Rect2) -> int:
+	var h: int = 0
+	h = hash([
+		int(rect.size.x), int(rect.size.y), COVERAGE_GRID, COVERAGE_SAMPLES,
+	])
+	for launch: Launch in PlayerLoadout.launches:
+		var has_laser: bool = _launch_has_laser(launch)
+		var dps: float = _launch_laser_dps(launch) if has_laser else 0.0
+		# Round each orbital field to its slider's coarsest step so
+		# tiny slider noise (or step changes that don't affect
+		# rendering) don't invalidate the cache. Multiplied integers
+		# are cheap to hash and stable across runs.
+		h = hash([
+			h, has_laser, int(round(dps)),
+			int(round(launch.altitude_km)),
+			int(round(launch.eccentricity * 1000.0)),
+			int(round(launch.inclination_deg)),
+			int(round(launch.raan_deg)),
+			int(round(launch.true_anomaly_deg)),
+			int(round(launch.argp_deg)),
+		])
+	return h
+
+
 # Time-averaged potential-DPS heatmap. For each laser-armed launch we
 # sample COVERAGE_SAMPLES positions at equal mean-anomaly intervals
 # (which are equal time intervals — Kepler's M is linear in t), then
@@ -338,82 +391,31 @@ func _launch_laser_dps(launch: Launch) -> float:
 # across the grid so the colour scale always stretches across the
 # meaningful dynamic range; raising every laser's range proportionally
 # brightens the whole map but the relative shape stays stable.
+#
+# Result is cached and only rebuilt when the state hash changes — the
+# heavy nested loop never reruns when a slider drag doesn't actually
+# move the orbital state past its quantisation step.
 func _draw_coverage_heatmap(
 	rect: Rect2, center: Vector2, px_per_km: float
 ) -> void:
 	if px_per_km <= 0.0:
 		return
-	var grid := PackedFloat32Array()
-	grid.resize(COVERAGE_GRID * COVERAGE_GRID)
-	var max_dps: float = 0.0
-	var any_laser: bool = false
-	var cell_w: float = rect.size.x / float(COVERAGE_GRID)
-	var cell_h: float = rect.size.y / float(COVERAGE_GRID)
+	var hash_now: int = _coverage_state_hash(rect)
+	if hash_now != _cov_state_hash or _cov_grid.size() == 0:
+		_rebuild_coverage_grid(rect, center, px_per_km)
+		_cov_state_hash = hash_now
 
-	for launch: Launch in PlayerLoadout.launches:
-		if not _launch_has_laser(launch):
-			continue
-		any_laser = true
-		var dps: float = _launch_laser_dps(launch)
-		if dps <= 0.0:
-			continue
-		var e: float = clampf(launch.eccentricity, 0.0, 0.999)
-		# Sample positions equally spaced in mean anomaly (i.e. time).
-		# Pre-project all samples to screen space once so the inner cell
-		# loop just does a 2D distance per (sample, cell) pair.
-		var sample_pts := PackedVector2Array()
-		sample_pts.resize(COVERAGE_SAMPLES)
-		for s in range(COVERAGE_SAMPLES):
-			var m: float = TAU * float(s) / float(COVERAGE_SAMPLES)
-			var ea: float = _kepler_solve(m, e)
-			var nu: float = _eccentric_to_true(ea, e)
-			sample_pts[s] = _project_at_true_anomaly(
-				launch, nu, center, px_per_km,
-			)
-		var max_range_px: float = LaserWeapon.MAX_RANGE_KM * px_per_km
-		var inv_samples: float = 1.0 / float(COVERAGE_SAMPLES)
-		for s in range(COVERAGE_SAMPLES):
-			var sp: Vector2 = sample_pts[s]
-			# Cell-index window: only touch cells whose centre could
-			# possibly land inside the laser's MAX range. Saves the
-			# range_factor() call on the vast majority of the grid.
-			var cx_min: int = int(floor((sp.x - max_range_px) / cell_w))
-			var cx_max: int = int(floor((sp.x + max_range_px) / cell_w))
-			var cy_min: int = int(floor((sp.y - max_range_px) / cell_h))
-			var cy_max: int = int(floor((sp.y + max_range_px) / cell_h))
-			cx_min = max(cx_min, 0)
-			cy_min = max(cy_min, 0)
-			cx_max = min(cx_max, COVERAGE_GRID - 1)
-			cy_max = min(cy_max, COVERAGE_GRID - 1)
-			for cy in range(cy_min, cy_max + 1):
-				var cell_centre_y: float = (float(cy) + 0.5) * cell_h
-				for cx in range(cx_min, cx_max + 1):
-					var cell_centre_x: float = (float(cx) + 0.5) * cell_w
-					var dx: float = cell_centre_x - sp.x
-					var dy: float = cell_centre_y - sp.y
-					var dist_px: float = sqrt(dx * dx + dy * dy)
-					var dist_km: float = dist_px / px_per_km
-					var rf: float = LaserWeapon.range_factor(dist_km)
-					if rf <= 0.0:
-						continue
-					var idx: int = cy * COVERAGE_GRID + cx
-					grid[idx] += dps * rf * inv_samples
-
-	if not any_laser:
-		_draw_coverage_legend(rect, 0.0, false)
-		return
-	for i in range(grid.size()):
-		var v: float = grid[i]
-		if v > max_dps:
-			max_dps = v
-	if max_dps <= 0.0:
-		_draw_coverage_legend(rect, 0.0, true)
+	if not _cov_any_laser or _cov_max_dps <= 0.0:
+		_draw_coverage_legend(rect, 0.0, _cov_any_laser)
 		return
 
-	var inv_max: float = 1.0 / max_dps
+	var cell_w: float = _cov_grid_w
+	var cell_h: float = _cov_grid_h
+	var inv_max: float = 1.0 / _cov_max_dps
 	for cy in range(COVERAGE_GRID):
+		var row_origin: int = cy * COVERAGE_GRID
 		for cx in range(COVERAGE_GRID):
-			var v: float = grid[cy * COVERAGE_GRID + cx]
+			var v: float = _cov_grid[row_origin + cx]
 			if v <= 0.0:
 				continue
 			var t: float = clampf(v * inv_max, 0.0, 1.0)
@@ -425,7 +427,83 @@ func _draw_coverage_heatmap(
 				),
 				col, true,
 			)
-	_draw_coverage_legend(rect, max_dps, true)
+	_draw_coverage_legend(rect, _cov_max_dps, true)
+
+
+# Run the cell-by-cell DPS accumulation pass. Inlines range_factor for
+# the inner loop — calling a static function ~200 000 times per refresh
+# in GDScript adds up fast even though the math itself is trivial.
+func _rebuild_coverage_grid(
+	rect: Rect2, center: Vector2, px_per_km: float
+) -> void:
+	_cov_grid.resize(COVERAGE_GRID * COVERAGE_GRID)
+	for i in range(_cov_grid.size()):
+		_cov_grid[i] = 0.0
+	_cov_max_dps = 0.0
+	_cov_any_laser = false
+	_cov_grid_size = COVERAGE_GRID
+	_cov_grid_w = rect.size.x / float(COVERAGE_GRID)
+	_cov_grid_h = rect.size.y / float(COVERAGE_GRID)
+
+	var cell_w: float = _cov_grid_w
+	var cell_h: float = _cov_grid_h
+	var rayleigh_px: float = LaserWeapon.RAYLEIGH_RANGE_KM * px_per_km
+	var rayleigh_px_sq: float = rayleigh_px * rayleigh_px
+	var max_range_px: float = LaserWeapon.MAX_RANGE_KM * px_per_km
+	var max_range_px_sq: float = max_range_px * max_range_px
+
+	for launch: Launch in PlayerLoadout.launches:
+		if not _launch_has_laser(launch):
+			continue
+		_cov_any_laser = true
+		var dps: float = _launch_laser_dps(launch)
+		if dps <= 0.0:
+			continue
+		var e: float = clampf(launch.eccentricity, 0.0, 0.999)
+		var sample_pts := PackedVector2Array()
+		sample_pts.resize(COVERAGE_SAMPLES)
+		for s in range(COVERAGE_SAMPLES):
+			var m: float = TAU * float(s) / float(COVERAGE_SAMPLES)
+			var ea: float = _kepler_solve(m, e)
+			var nu: float = _eccentric_to_true(ea, e)
+			sample_pts[s] = _project_at_true_anomaly(
+				launch, nu, center, px_per_km,
+			)
+		var inv_samples: float = 1.0 / float(COVERAGE_SAMPLES)
+		var dps_per_sample: float = dps * inv_samples
+		for s in range(COVERAGE_SAMPLES):
+			var sp: Vector2 = sample_pts[s]
+			var cx_min: int = int(floor((sp.x - max_range_px) / cell_w))
+			var cx_max: int = int(floor((sp.x + max_range_px) / cell_w))
+			var cy_min: int = int(floor((sp.y - max_range_px) / cell_h))
+			var cy_max: int = int(floor((sp.y + max_range_px) / cell_h))
+			cx_min = max(cx_min, 0)
+			cy_min = max(cy_min, 0)
+			cx_max = min(cx_max, COVERAGE_GRID - 1)
+			cy_max = min(cy_max, COVERAGE_GRID - 1)
+			for cy in range(cy_min, cy_max + 1):
+				var cell_centre_y: float = (float(cy) + 0.5) * cell_h
+				var dy: float = cell_centre_y - sp.y
+				var dy_sq: float = dy * dy
+				var row_origin: int = cy * COVERAGE_GRID
+				for cx in range(cx_min, cx_max + 1):
+					var cell_centre_x: float = (float(cx) + 0.5) * cell_w
+					var dx: float = cell_centre_x - sp.x
+					var d2: float = dx * dx + dy_sq
+					if d2 >= max_range_px_sq:
+						continue
+					# range_factor inlined: rf = 1 inside Rayleigh, else
+					# (rayleigh / dist)² = rayleigh² / d² in pixel space.
+					# Both squared comparisons let us skip the sqrt.
+					var rf: float = 1.0
+					if d2 > rayleigh_px_sq:
+						rf = rayleigh_px_sq / d2
+					_cov_grid[row_origin + cx] += dps_per_sample * rf
+
+	for i in range(_cov_grid.size()):
+		var v: float = _cov_grid[i]
+		if v > _cov_max_dps:
+			_cov_max_dps = v
 
 
 # Two-stop heat ramp: black → deep red → orange → yellow → white.

@@ -1496,16 +1496,21 @@ func _build_launch_row(index: int) -> Control:
 	col.add_child(cost_label)
 	_launch_cost_labels.append(cost_label)
 
+	# Slider step sizes are deliberately coarse. Each value_changed
+	# event drives a heatmap recompute in the Equatorial Preview, and
+	# the operator's typical use is "rough out the orbit, eyeball the
+	# coverage, repeat" — single-km / single-degree precision was just
+	# generating one rebuild per pixel of slider drag.
 	col.add_child(_orbit_slider_row(
 		"Perigee (km)", launch.altitude_km,
-		Launch.ALT_MIN_KM, Launch.ALT_MAX_KM, 10.0,
+		Launch.ALT_MIN_KM, Launch.ALT_MAX_KM, 50.0,
 		index, "altitude_km", 0,
 	))
-	# Eccentricity uses a fractional step so the operator can dial in
-	# small e values; readout shows two decimals.
+	# Eccentricity step matches the heatmap cache's quantisation
+	# (0.001 in storage); 0.02 lands the slider on cache-stable values.
 	col.add_child(_orbit_slider_row(
 		"Eccentricity", launch.eccentricity,
-		Launch.ECC_MIN, Launch.ECC_MAX, 0.01,
+		Launch.ECC_MIN, Launch.ECC_MAX, 0.02,
 		index, "eccentricity", 2,
 	))
 	# Apogee is derived (perigee × (1+e)/(1-e)), not edited directly.
@@ -1530,17 +1535,17 @@ func _build_launch_row(index: int) -> Control:
 
 	col.add_child(_orbit_slider_row(
 		"Inclination (°)", launch.inclination_deg,
-		Launch.INC_MIN_DEG, Launch.INC_MAX_DEG, 1.0,
+		Launch.INC_MIN_DEG, Launch.INC_MAX_DEG, 5.0,
 		index, "inclination_deg", 0,
 	))
 	col.add_child(_orbit_slider_row(
 		"RAAN (°)", launch.raan_deg,
-		Launch.RAAN_MIN_DEG, Launch.RAAN_MAX_DEG, 1.0,
+		Launch.RAAN_MIN_DEG, Launch.RAAN_MAX_DEG, 5.0,
 		index, "raan_deg", 0,
 	))
 	col.add_child(_orbit_slider_row(
 		"True Anomaly (°)", launch.true_anomaly_deg,
-		Launch.NU_MIN_DEG, Launch.NU_MAX_DEG, 1.0,
+		Launch.NU_MIN_DEG, Launch.NU_MAX_DEG, 5.0,
 		index, "true_anomaly_deg", 0,
 	))
 	return row
