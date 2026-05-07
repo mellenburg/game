@@ -111,11 +111,16 @@ bbcode_enabled = true
 scroll_active = false
 
 [node name="PlayerRosters" type="VBoxContainer" parent="CanvasLayer/HUD"]
+; Right edge holds back from the screen-right by enough room to host
+; the upper-right unit detail panel (~300 px) plus a small gap, so a
+; long roster of friendly tiles can never line up behind the detail
+; box.
 layout_mode = 1
-anchors_preset = 0
+anchors_preset = 10
+anchor_right = 1.0
 offset_left = 10.0
 offset_top = 10.0
-offset_right = 1190.0
+offset_right = -320.0
 offset_bottom = 240.0
 mouse_filter = 2
 theme_override_constants/separation = 8
@@ -152,7 +157,11 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="AsteroidPanel" type="PanelContainer" parent="CanvasLayer/HUD"]
+[node name="UnitDetailPanel" type="PanelContainer" parent="CanvasLayer/HUD"]
+; Upper-right slot — vacated by the asteroid status box, which moved
+; into the lower-right map cycle. Now hosts a live readout of the
+; selected friendly unit (HP, energy, propellant, weapon readiness,
+; FC / TGT / RG state). Hidden when nothing's selected.
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
@@ -161,6 +170,37 @@ offset_left = -300.0
 offset_top = 10.0
 offset_right = -10.0
 offset_bottom = 240.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_asteroid_panel")
+
+[node name="VBox" type="VBoxContainer" parent="CanvasLayer/HUD/UnitDetailPanel"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="DetailLabel" type="RichTextLabel" parent="CanvasLayer/HUD/UnitDetailPanel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+bbcode_enabled = true
+scroll_active = false
+fit_content = true
+
+[node name="AsteroidPanel" type="PanelContainer" parent="CanvasLayer/HUD"]
+; Bottom-right cycle option: surface impact map → wave radar →
+; asteroid inspector → off. Sized to match the other two so the slot
+; has consistent footprint regardless of which screen is active.
+visible = false
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -446.0
+offset_top = -388.0
+offset_right = -10.0
+offset_bottom = -10.0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_asteroid_panel")
 

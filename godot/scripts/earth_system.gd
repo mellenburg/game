@@ -162,12 +162,17 @@ var _mission_settings: ReconSettings = null
 	$CanvasLayer/EndGameOverlay as EndGameOverlay
 )
 
-# Lower-right overlay cycle: surface impact map → wave radar → off → ...
-# Driven by the "toggle_impact_map" input (K). Indices into MAP_MODES.
+# Lower-right overlay cycle: surface impact map → wave radar →
+# asteroid inspector → off → ... Driven by the "toggle_impact_map"
+# input (K). Asteroid mode is operator-sticky: the rising / falling
+# wave edge that swings the slot between SURFACE and RADAR is gated on
+# the slot already being in one of those two modes, so a deliberate
+# pick of the asteroid screen survives a fresh threat-detection alert.
 const MAP_MODE_SURFACE: int = 0
 const MAP_MODE_RADAR: int = 1
-const MAP_MODE_OFF: int = 2
-const MAP_MODE_COUNT: int = 3
+const MAP_MODE_ASTEROID: int = 2
+const MAP_MODE_OFF: int = 3
+const MAP_MODE_COUNT: int = 4
 var map_mode: int = MAP_MODE_SURFACE
 
 # Wall-clock cadence at which orbit visuals get rebuilt. Decoupled from
@@ -206,6 +211,12 @@ func _ready() -> void:
 	combat_controller = CombatController.new()
 	add_child(combat_controller)
 	combat_controller.setup(hud, beam_renderer, slug_renderer)
+
+	# Roster tiles in the friendly HUD strip emit `friendly_clicked`
+	# when the operator clicks one. The HUD doesn't own the selection
+	# index — that lives here — so it just hands us the satellite ref
+	# and we resolve it against the active (real or planning) array.
+	hud.friendly_clicked.connect(_on_friendly_clicked)
 
 	if radar_map != null:
 		radar_map.waves = spawn_director.asteroid_waves
@@ -1003,21 +1014,31 @@ func _apply_map_mode() -> void:
 		impact_map.visible = (map_mode == MAP_MODE_SURFACE)
 	if radar_map != null:
 		radar_map.visible = (map_mode == MAP_MODE_RADAR)
+	if hud != null and hud.asteroid_panel != null:
+		hud.asteroid_panel.visible = (map_mode == MAP_MODE_ASTEROID)
 
 
 # Auto-switch the lower-right overlay around incoming-wave transitions.
 # Radar selects on rising edge (a wave just appeared in the queue),
 # surface map selects on falling edge (the last wave just drained).
+# Asteroid mode is sticky: if the operator parked the slot on the
+# inspector, neither edge yanks it away — the auto-switch only kicks
+# in when the slot is currently SURFACE or RADAR, so a threat alert
+# can swap those two without overriding a deliberate inspector pick.
 # Edge-triggered so a manual K press during a live wave doesn't keep
 # snapping the panel back to radar every frame.
 func _auto_switch_map_mode() -> void:
 	var inbound := spawn_director.has_active_waves()
-	if inbound and not _wave_inbound_prev:
-		map_mode = MAP_MODE_RADAR
-		_apply_map_mode()
-	elif not inbound and _wave_inbound_prev:
-		map_mode = MAP_MODE_SURFACE
-		_apply_map_mode()
+	var auto_switch_eligible := (
+		map_mode == MAP_MODE_SURFACE or map_mode == MAP_MODE_RADAR
+	)
+	if auto_switch_eligible:
+		if inbound and not _wave_inbound_prev:
+			map_mode = MAP_MODE_RADAR
+			_apply_map_mode()
+		elif not inbound and _wave_inbound_prev:
+			map_mode = MAP_MODE_SURFACE
+			_apply_map_mode()
 	_wave_inbound_prev = inbound
 
 
@@ -1121,6 +1142,33 @@ func remove_satellite() -> void:
 
 
 # Cycle through *player* ships only — enemies aren't operator-targets.
+# HUD roster click handler. Selects the clicked friendly satellite by
+# locating it in the active array (planning vs real). Silent no-op if
+# the ref is stale, the unit isn't a player team member, or it's
+# already selected — same idiom as Tab cycling.
+func _on_friendly_clicked(sat: Satellite) -> void:
+	if sat == null or not is_instance_valid(sat):
+		return
+	if sat.team != Satellite.TEAM_PLAYER:
+		return
+	if planning_mode:
+		var idx := planning_satellites.find(sat)
+		if idx < 0 or idx == planning_selected:
+			return
+		if planning_selected < planning_satellites.size():
+			planning_satellites[planning_selected].unselect()
+		planning_selected = idx
+		planning_satellites[planning_selected].select()
+		return
+	var idx := real_satellites.find(sat)
+	if idx < 0 or idx == selected_ship:
+		return
+	if selected_ship < real_satellites.size():
+		real_satellites[selected_ship].unselect()
+	selected_ship = idx
+	real_satellites[selected_ship].select()
+
+
 func select_next_ship() -> void:
 	if real_satellites.is_empty():
 		return
