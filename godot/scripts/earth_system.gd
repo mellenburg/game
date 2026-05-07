@@ -56,6 +56,14 @@ const MAX_RADIUS_RATE_KM_PER_SEC: float = 25000.0
 @export var time_factor: int = 300
 var planning_dt: int = 0
 var planning_mode: bool = false
+# Snapshot of time_factor at the moment planning mode was entered.
+# Planning mode is a soft pause: we force time_factor to 0 so the
+# simulation freezes while the operator scrubs planning_dt, then
+# restore the prior speed on exit so the run resumes at the same
+# pace it had before the pause. sim_time naturally lands "back where
+# it was" because time_factor=0 means _physics_process advances it
+# by 0 each tick.
+var _pre_pause_time_factor: int = 0
 
 # Simulated seconds elapsed since the scene came up. Advanced in
 # _physics_process by sim_delta — same units satellites use for orbital
@@ -723,20 +731,35 @@ func _process_continuous_input(delta: float) -> void:
 	# incremented per frame which made the rate framerate-dependent and
 	# unbounded; that drove orbit propagation into NaN within ~30 seconds
 	# of holding Q.
+	#
+	# While paused in planning mode, Q/E (speed_up/speed_down) double as
+	# the planning-dt scrub controls — Q advances the projection, E
+	# rewinds it. time_factor is held at 0 by toggle_planning() until
+	# exit, so we suppress the time-factor accumulator entirely in that
+	# branch; otherwise releasing the keys mid-pause would leave behind
+	# a fractional carry that fires on resume.
 	var rate := float(TIME_FACTOR_RATE) * delta
-	_time_factor_accum += rate * (
-		(1.0 if Input.is_action_pressed("speed_up") else 0.0)
-		- (1.0 if Input.is_action_pressed("speed_down") else 0.0)
-	)
-	var step_int := int(_time_factor_accum)
-	if step_int != 0:
-		time_factor = clampi(time_factor + step_int, TIME_FACTOR_MIN, TIME_FACTOR_MAX)
-		_time_factor_accum -= float(step_int)
+	if planning_mode:
+		_planning_dt_accum += rate * (
+			(1.0 if Input.is_action_pressed("speed_up") else 0.0)
+			- (1.0 if Input.is_action_pressed("speed_down") else 0.0)
+			+ (1.0 if Input.is_action_pressed("planning_advance") else 0.0)
+			- (1.0 if Input.is_action_pressed("planning_retard") else 0.0)
+		)
+	else:
+		_time_factor_accum += rate * (
+			(1.0 if Input.is_action_pressed("speed_up") else 0.0)
+			- (1.0 if Input.is_action_pressed("speed_down") else 0.0)
+		)
+		var step_int := int(_time_factor_accum)
+		if step_int != 0:
+			time_factor = clampi(time_factor + step_int, TIME_FACTOR_MIN, TIME_FACTOR_MAX)
+			_time_factor_accum -= float(step_int)
 
-	_planning_dt_accum += rate * (
-		(1.0 if Input.is_action_pressed("planning_advance") else 0.0)
-		- (1.0 if Input.is_action_pressed("planning_retard") else 0.0)
-	)
+		_planning_dt_accum += rate * (
+			(1.0 if Input.is_action_pressed("planning_advance") else 0.0)
+			- (1.0 if Input.is_action_pressed("planning_retard") else 0.0)
+		)
 	var dt_step := int(_planning_dt_accum)
 	if dt_step != 0:
 		planning_dt = clampi(planning_dt + dt_step, 0, PLANNING_DT_MAX)
@@ -1143,6 +1166,7 @@ func toggle_planning() -> void:
 	if planning_mode:
 		planning_mode = false
 		_clear_planning()
+		time_factor = _pre_pause_time_factor
 		return
 	_clear_planning()
 	for sat in real_satellites:
@@ -1153,6 +1177,8 @@ func toggle_planning() -> void:
 	planning_selected = clampi(selected_ship, 0, maxi(planning_satellites.size() - 1, 0))
 	if not planning_satellites.is_empty():
 		planning_satellites[planning_selected].select()
+	_pre_pause_time_factor = time_factor
+	time_factor = 0
 	planning_mode = true
 
 
@@ -1161,6 +1187,10 @@ func _clear_planning() -> void:
 		sat.queue_free()
 	planning_satellites.clear()
 	planning_dt = 0
+	# Drop any partial accumulator carry from the previous session so the
+	# next pause starts cleanly at planning_dt = 0 instead of jumping by
+	# whatever fractional step was sitting in the bucket.
+	_planning_dt_accum = 0.0
 
 
 # Keep planning_satellites length matched to real_satellites. add/remove
