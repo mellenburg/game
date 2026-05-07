@@ -617,11 +617,22 @@ func _spawn_breakup_children() -> void:
 				and is_finite(child_orbit.r_p)
 				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
 			)
+			# Stable-orbit threshold sits above the atmospheric drag zone,
+			# not the bare surface. A bound orbit with periapsis between
+			# the surface and SAFE_ORBIT_ALT_KM dips into the atmosphere on
+			# every perigee pass, gets ablated by _apply_atmospheric_decay,
+			# and dies — visually identical to "weapons destroyed it" once
+			# is_stable_orbit hides it from targeting and the live-enemy
+			# check. Requiring r_p above the drag floor means anything
+			# flagged stable here is genuinely free-propagating.
+			var stable_alt_floor: float = (
+				EarthOrbit.EARTH_RADIUS_KM + EarthOrbit.SAFE_ORBIT_ALT_KM
+			)
 			var stable: bool = (
 				not deflected
 				and child_orbit.ecc < 1.0
 				and is_finite(child_orbit.r_p)
-				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
+				and child_orbit.r_p > stable_alt_floor
 			)
 			var sat := Satellite.new()
 			sat.team = Satellite.TEAM_ENEMY

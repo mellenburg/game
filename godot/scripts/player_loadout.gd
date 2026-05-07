@@ -221,9 +221,9 @@ var hp_per_kg_per_density: float = AsteroidPhysics.DEFAULT_HP_PER_KG_PER_DENSITY
 # asteroid so the settings menu knobs affect the full storm/wave.
 var asteroid_breakup_threshold: float = 0.65
 var asteroid_breakup_chance: float = 0.5
-var asteroid_breakup_children_min: int = 2
-var asteroid_breakup_children_max: int = 4
-var asteroid_breakup_deflection_deg: float = 20.0
+var asteroid_breakup_children_min: int = 3
+var asteroid_breakup_children_max: int = 5
+var asteroid_breakup_deflection_deg: float = 10.0
 
 # Monotonic id counters — used to produce stable per-unit ids so a
 # launch's unit_id reference survives the operator reordering /
