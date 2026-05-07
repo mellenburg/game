@@ -289,10 +289,12 @@ func reset_units() -> void:
 			launch.raan_deg = 0.0
 			launch.true_anomaly_deg = float(i) * 120.0
 		else:
-			# Railgun gets a parking-orbit slot — low altitude, modest
-			# inclination so it isn't stacked on top of the laser ring.
-			launch.altitude_km = 500.0
-			launch.inclination_deg = 25.0
+			# Railgun rides a 6000 km / 35° orbit so it sits visibly
+			# off the laser ring's plane and gives the operator a
+			# kinetic platform that drifts through the laser fleet's
+			# coverage gaps over time.
+			launch.altitude_km = 6000.0
+			launch.inclination_deg = 35.0
 			launch.raan_deg = 0.0
 			launch.true_anomaly_deg = 0.0
 

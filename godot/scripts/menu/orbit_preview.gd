@@ -101,33 +101,41 @@ func set_coverage_mode(enabled: bool) -> void:
 func _draw() -> void:
 	var rect := get_rect()
 	var center := rect.size * 0.5
-	var span: float = minf(rect.size.x, rect.size.y) * 0.45
+	# 0.49 of the shorter side leaves a 1 px hairline of padding so
+	# stroke widths don't clip on the edge; the apogee/ring bound
+	# below carries its own small multiplier on top.
+	var span: float = minf(rect.size.x, rect.size.y) * 0.49
 	if span <= 0.0:
 		return
 
-	# World scale: large enough to fit every launch's apogee AND every
-	# laser-armed unit's MAX_RANGE_KM far-field circle (which can
-	# extend ~20 000 km past the orbit, easily off-screen if we only
-	# scaled to apogee). Apogee = perigee · (1+e)/(1-e); collapses to
-	# perigee for ecc==0 so circular orbits scale identically to the
-	# pre-laser-circle build when no laser is assigned. Min ceiling so
-	# an empty roster still renders sensibly.
+	# World scale: tight-fit the geometry that's actually about to
+	# render. Orbit ellipses always extend out to apogee, so that's
+	# the floor for every launch. Range circles only render in
+	# default mode and are centred on the unit's current marker
+	# position — using |marker| + MAX_RANGE keeps the zoom locked
+	# to what's on screen, instead of the apogee-based worst case
+	# that left ~30% of the viewer empty when the satellite happened
+	# to sit on a near point of an eccentric orbit. In coverage mode
+	# the heatmap blob can extend MAX_RANGE past *any* point on the
+	# orbit, so the bound there is apogee + MAX_RANGE.
 	var max_world_km: float = EarthOrbit.EARTH_RADIUS_KM
 	for launch: Launch in PlayerLoadout.launches:
 		var apo_r_km: float = (
 			EarthOrbit.EARTH_RADIUS_KM + launch.apogee_altitude_km()
 		)
 		max_world_km = maxf(max_world_km, apo_r_km)
-		# Laser circles are drawn at the unit's instantaneous position;
-		# the worst case for fitting them on screen is the farthest the
-		# unit gets from Earth's centre (apogee) plus the outer ring's
-		# radius. Coverage-mode heatmap shares this envelope, so the
-		# blob never spills outside the viewer either.
 		if _launch_has_laser(launch):
-			max_world_km = maxf(
-				max_world_km, apo_r_km + LaserWeapon.MAX_RANGE_KM,
-			)
-	max_world_km *= 1.10  # 10% padding so labels don't crop on the rim
+			if coverage_mode:
+				max_world_km = maxf(
+					max_world_km, apo_r_km + LaserWeapon.MAX_RANGE_KM,
+				)
+			else:
+				var marker_km: Vector2 = _marker_position_km(launch)
+				max_world_km = maxf(
+					max_world_km,
+					marker_km.length() + LaserWeapon.MAX_RANGE_KM,
+				)
+	max_world_km *= 1.02  # 2% padding so labels don't crop on the rim
 	var px_per_km: float = span / max_world_km
 
 	# Background fill
@@ -272,6 +280,30 @@ func _project_at_true_anomaly(
 	var x: float = qx * cos(raan_rad) - qy * cos(i_rad) * sin(raan_rad)
 	var y: float = qx * sin(raan_rad) + qy * cos(i_rad) * cos(raan_rad)
 	return center + Vector2(x, -y) * px_per_km
+
+
+# Marker position in km, projected onto the equatorial 2D plane.
+# Mirrors _project_at_true_anomaly's math but stops before the
+# screen-space conversion so the auto-fit zoom can ask "how far from
+# Earth's centre is this unit right now?" without going through pixels.
+# Sign convention matches the screen-space helper (y-flip is purely
+# a draw concern), so .length() comes out the same either way.
+func _marker_position_km(launch: Launch) -> Vector2:
+	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
+	var p_km: float = r_p_km * (1.0 + e)
+	var nu_rad: float = deg_to_rad(launch.true_anomaly_deg)
+	var r_nu: float = p_km / (1.0 + e * cos(nu_rad))
+	var px: float = r_nu * cos(nu_rad)
+	var py: float = r_nu * sin(nu_rad)
+	var argp_rad: float = deg_to_rad(launch.argp_deg)
+	var qx: float = px * cos(argp_rad) - py * sin(argp_rad)
+	var qy: float = px * sin(argp_rad) + py * cos(argp_rad)
+	var i_rad: float = deg_to_rad(launch.inclination_deg)
+	var raan_rad: float = deg_to_rad(launch.raan_deg)
+	var x: float = qx * cos(raan_rad) - qy * cos(i_rad) * sin(raan_rad)
+	var y: float = qx * sin(raan_rad) + qy * cos(i_rad) * cos(raan_rad)
+	return Vector2(x, y)
 
 
 # Solve Kepler's equation E - e·sin(E) = M for the eccentric anomaly.
