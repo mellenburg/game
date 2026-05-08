@@ -132,10 +132,10 @@ func _ready() -> void:
 	# same setup).
 	PlayerLoadout.launched = false
 
-	# Sync the static EarthOrbit physics constants to the menu's
+	# Sync the static MassCenterOrbit physics constants to the menu's
 	# selection so the orbit-preview's planet radius / altitude lines
 	# match the body the operator is actually configuring for. Returning
-	# to the menu after a Mars run leaves EarthOrbit.EARTH_RADIUS_KM at
+	# to the menu after a Mars run leaves MassCenterOrbit.BODY_RADIUS_KM at
 	# Mars's value; without this re-apply, an Earth selection here would
 	# preview against the wrong surface.
 	CelestialBody.for_stage(

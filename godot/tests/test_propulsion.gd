@@ -11,7 +11,7 @@ extends "res://tests/framework.gd"
 
 const Propulsion = preload("res://scripts/propulsion.gd")
 const Satellite = preload("res://scripts/satellite.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
 const Launch = preload("res://scripts/launch.gd")
@@ -55,7 +55,7 @@ func test_inclination_change_per_degree_at_leo() -> void:
 	# ~133 m/s. Tolerance is generous because the analytic formula is
 	# exact but small-angle approximations differ by < 1%.
 	var v_leo := Propulsion.circular_speed_kms(
-		EarthOrbit.EARTH_RADIUS_KM + 500.0
+		MassCenterOrbit.BODY_RADIUS_KM + 500.0
 	)
 	var dv := Propulsion.inclination_change_dv_ms(deg_to_rad(1.0), v_leo)
 	assert_close(dv, 133.0, 2.0)
@@ -65,15 +65,15 @@ func test_hohmann_leo_to_geo_total_dv() -> void:
 	# LEO 200 km → GEO 35786 km. Wikipedia tables this at ~3.9 km/s
 	# total (~2.44 km/s perigee + ~1.47 km/s apogee). Tolerance allows
 	# small drift across the gravitational-parameter convention.
-	var r_leo := EarthOrbit.EARTH_RADIUS_KM + 200.0
-	var r_geo := EarthOrbit.EARTH_RADIUS_KM + 35786.0
+	var r_leo := MassCenterOrbit.BODY_RADIUS_KM + 200.0
+	var r_geo := MassCenterOrbit.BODY_RADIUS_KM + 35786.0
 	var dv := Propulsion.hohmann_dv_ms(r_leo, r_geo)
 	assert_close(dv, 3900.0, 50.0)
 
 
 func test_hohmann_symmetric() -> void:
-	var r_low := EarthOrbit.EARTH_RADIUS_KM + 500.0
-	var r_high := EarthOrbit.EARTH_RADIUS_KM + 20000.0
+	var r_low := MassCenterOrbit.BODY_RADIUS_KM + 500.0
+	var r_high := MassCenterOrbit.BODY_RADIUS_KM + 20000.0
 	assert_close(
 		Propulsion.hohmann_dv_ms(r_low, r_high),
 		Propulsion.hohmann_dv_ms(r_high, r_low),
@@ -101,7 +101,7 @@ func test_polar_leo_costs_only_inclination() -> void:
 		Propulsion.BASELINE_LEO_ALT_KM, 0.0, deg_to_rad(90.0)
 	)
 	var v_base := Propulsion.circular_speed_kms(
-		EarthOrbit.EARTH_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
+		MassCenterOrbit.BODY_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
 	)
 	var expected := Propulsion.inclination_change_dv_ms(
 		deg_to_rad(90.0), v_base
@@ -117,10 +117,10 @@ func test_eccentric_orbit_costs_extra_apogee_burn() -> void:
 	var dv := Propulsion.launch_setup_dv_ms(
 		Propulsion.BASELINE_LEO_ALT_KM, 0.3, 0.0
 	)
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
+	var r_p := MassCenterOrbit.BODY_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
 	var a := r_p / (1.0 - 0.3)
-	var v_circ := sqrt(EarthOrbit.MU / r_p) * 1000.0
-	var v_peri := sqrt(EarthOrbit.MU * (2.0 / r_p - 1.0 / a)) * 1000.0
+	var v_circ := sqrt(MassCenterOrbit.MU / r_p) * 1000.0
+	var v_peri := sqrt(MassCenterOrbit.MU * (2.0 / r_p - 1.0 / a)) * 1000.0
 	assert_close(dv, v_peri - v_circ, 1.0e-3)
 
 
@@ -145,8 +145,8 @@ func test_zero_eccentricity_matches_circular_baseline() -> void:
 	var alt := 2000.0
 	var inc := deg_to_rad(20.0)
 	var dv_e0 := Propulsion.launch_setup_dv_ms(alt, 0.0, inc)
-	var r_b := EarthOrbit.EARTH_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
-	var r_t := EarthOrbit.EARTH_RADIUS_KM + alt
+	var r_b := MassCenterOrbit.BODY_RADIUS_KM + Propulsion.BASELINE_LEO_ALT_KM
+	var r_t := MassCenterOrbit.BODY_RADIUS_KM + alt
 	var v_b := Propulsion.circular_speed_kms(r_b)
 	var expected := (
 		Propulsion.inclination_change_dv_ms(inc, v_b)
@@ -278,8 +278,8 @@ func test_launch_apogee_altitude_tracks_eccentricity() -> void:
 	var l := Launch.new()
 	l.altitude_km = 500.0
 	l.eccentricity = 0.5
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + 500.0
-	var expected := r_p * 1.5 / 0.5 - EarthOrbit.EARTH_RADIUS_KM
+	var r_p := MassCenterOrbit.BODY_RADIUS_KM + 500.0
+	var expected := r_p * 1.5 / 0.5 - MassCenterOrbit.BODY_RADIUS_KM
 	assert_close(l.apogee_altitude_km(), expected, 1.0e-6)
 	# At e=0, apogee equals perigee.
 	l.eccentricity = 0.0
@@ -299,8 +299,8 @@ func test_make_elliptical_at_zero_ecc_matches_make_circular() -> void:
 	var inc := deg_to_rad(45.0)
 	var raan := deg_to_rad(20.0)
 	var nu := deg_to_rad(60.0)
-	var circ := EarthOrbit.make_circular(alt, inc, raan, nu)
-	var ellip := EarthOrbit.make_elliptical(alt, 0.0, inc, raan, 0.0, nu)
+	var circ := MassCenterOrbit.make_circular(alt, inc, raan, nu)
+	var ellip := MassCenterOrbit.make_elliptical(alt, 0.0, inc, raan, 0.0, nu)
 	assert_vec_close(ellip.r, circ.r, 1.0e-3)
 	assert_vec_close(ellip.v, circ.v, 1.0e-6)
 
@@ -312,16 +312,16 @@ func test_make_elliptical_perigee_at_nu_zero() -> void:
 	# make_elliptical without a full sweep.
 	#
 	# Tolerance is metres-scale, not the 1e-6 km the pure-math helpers
-	# get: EarthOrbit stores state in Vector3 whose components are
+	# get: MassCenterOrbit stores state in Vector3 whose components are
 	# 32-bit even though GDScript `float` is 64-bit, so r_a at ~16000
 	# km loses ≈2 mm to float32 quantisation through _recompute_elements.
 	# Same calibration as test_earth_orbit's classical-element tests.
 	var perigee_alt := 600.0
 	var e := 0.4
-	var o := EarthOrbit.make_elliptical(
+	var o := MassCenterOrbit.make_elliptical(
 		perigee_alt, e, 0.0, 0.0, 0.0, 0.0
 	)
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + perigee_alt
+	var r_p := MassCenterOrbit.BODY_RADIUS_KM + perigee_alt
 	var r_a := r_p * (1.0 + e) / (1.0 - e)
 	assert_close(o.r_p, r_p, 1.0e-2)
 	assert_close(o.r_a, r_a, 1.0e-2)

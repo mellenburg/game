@@ -17,7 +17,7 @@ extends RefCounted
 ##
 ## Below the burn-up threshold (10 metric tons / 10 Mg / 1e4 kg) bodies
 ## are treated as fully ablating in the atmosphere and never produce
-## a recorded surface impact. EarthSystem._record_asteroid_impact
+## a recorded surface impact. MassCenterSystem._record_asteroid_impact
 ## reads `is_burn_up()` to gate that branch.
 
 # Below this mass (kg) a body is assumed to fully burn up in the

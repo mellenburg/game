@@ -1,4 +1,4 @@
-class_name EarthSystem
+class_name MassCenterSystem
 extends Node3D
 ## Top-level controller. Simulation runs in _physics_process at a fixed
 ## tick rate so the orbit math is frame-rate independent. _process is
@@ -10,10 +10,10 @@ extends Node3D
 ## input through to the right service.
 
 const Satellite = preload("res://scripts/satellite.gd")
-const Earth = preload("res://scripts/earth.gd")
+const MassCenter = preload("res://scripts/mass_center.gd")
 const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const SlugRenderer = preload("res://scripts/slug_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
@@ -159,7 +159,7 @@ var _mission_wave_bases: Dictionary = {}
 # class config the player intended at launch time.
 var _mission_settings: ReconSettings = null
 
-@onready var earth: Earth = $Earth as Earth
+@onready var mass_center: MassCenter = $MassCenter as MassCenter
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
 @onready var hud: HUD = $CanvasLayer/HUD as HUD
 @onready var satellite_container: Node3D = $Satellites as Node3D
@@ -205,7 +205,7 @@ var satellites: Array[Satellite]:
 func _ready() -> void:
 	# Apply the active body's μ and surface radius before anything
 	# else looks at orbital state. SpawnDirector and the satellites it
-	# materialises read EarthOrbit.MU / EARTH_RADIUS_KM eagerly at spawn
+	# materialises read MassCenterOrbit.MU / BODY_RADIUS_KM eagerly at spawn
 	# time, so a deferred apply would leave the very first fleet sitting
 	# on Earth physics inside a Mars stage.
 	CelestialBody.active(get_tree()).apply_to_propagator()
@@ -239,7 +239,7 @@ func _ready() -> void:
 	var pool := _player_loadout_pool()
 	spawn_director.spawn_starting_fleet(launches, pool)
 	spawn_director.spawn_surface_units(
-		_player_loadout_surface_units(), earth.earth_phase
+		_player_loadout_surface_units(), mass_center.rotation_phase
 	)
 	# Position surface units immediately so the very first render frame
 	# already shows them on the ground — _physics_process won't run until
@@ -247,7 +247,7 @@ func _ready() -> void:
 	# briefly sit at orbit.r's spawn placeholder.
 	for sat in real_satellites:
 		if sat.is_surface:
-			sat.update_surface_position(earth.earth_phase)
+			sat.update_surface_position(mass_center.rotation_phase)
 	if not real_satellites.is_empty():
 		selected_ship = _first_orbital_player_index()
 		real_satellites[selected_ship].select()
@@ -452,15 +452,15 @@ func _physics_process(delta: float) -> void:
 	# Convert wall-clock seconds to simulated seconds.
 	var sim_delta := float(time_factor) * delta
 	sim_time += sim_delta
-	earth.advance_phase(sim_delta)
+	mass_center.advance_phase(sim_delta)
 	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
 		if sat.is_surface:
 			# Surface installations ride Earth's daily rotation rather
 			# than propagating Keplerian motion — orbit.r is rewritten
-			# from (lat, lon, earth_phase) so combat queries that read
+			# from (lat, lon, rotation_phase) so combat queries that read
 			# attacker.orbit.r still work.
-			sat.update_surface_position(earth.earth_phase)
+			sat.update_surface_position(mass_center.rotation_phase)
 		else:
 			sat.advance_time(sim_delta)
 	combat_controller.process_combat(real_satellites, sim_time, sim_delta)
@@ -488,7 +488,7 @@ func _physics_process(delta: float) -> void:
 					# rotation rather than the orbit so the planning
 					# preview shows the unit's future ECI position.
 					var future_phase: float = (
-						earth.earth_phase + earth.rotation_rate * window
+						mass_center.rotation_phase + mass_center.rotation_rate * window
 					)
 					plan_sat.update_surface_position(future_phase)
 				else:
@@ -607,7 +607,7 @@ func _remove_dead_satellites() -> void:
 # the broken-up parent is swept out, keeping the array contiguous.
 #
 # Children inherit the parent's position (orbit.r at breakup time), density,
-# and composition. Each gets its own EarthOrbit from the momentum-conserving
+# and composition. Each gets its own MassCenterOrbit from the momentum-conserving
 # velocity vector computed by AsteroidBreakup.compute_children. Their HP is
 # derived from mass × density via AsteroidPhysics.hp_for so the damage
 # model stays consistent with how the parent was scaled.
@@ -632,7 +632,7 @@ func _spawn_breakup_children() -> void:
 			# breakup position instead of at the surface.
 			if mass < 1.0:
 				continue
-			var child_orbit := EarthOrbit.new(pos, velocity)
+			var child_orbit := MassCenterOrbit.new(pos, velocity)
 			if not child_orbit.is_state_valid():
 				continue
 			# A fragment with ecc >= 1.0 and periapsis above Earth's
@@ -642,7 +642,7 @@ func _spawn_breakup_children() -> void:
 			var deflected: bool = (
 				child_orbit.ecc >= 1.0
 				and is_finite(child_orbit.r_p)
-				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
+				and child_orbit.r_p > MassCenterOrbit.BODY_RADIUS_KM
 			)
 			# Stable-orbit threshold sits above the atmospheric drag zone,
 			# not the bare surface. A bound orbit with periapsis between
@@ -653,7 +653,7 @@ func _spawn_breakup_children() -> void:
 			# check. Requiring r_p above the drag floor means anything
 			# flagged stable here is genuinely free-propagating.
 			var stable_alt_floor: float = (
-				EarthOrbit.EARTH_RADIUS_KM + EarthOrbit.SAFE_ORBIT_ALT_KM
+				MassCenterOrbit.BODY_RADIUS_KM + MassCenterOrbit.SAFE_ORBIT_ALT_KM
 			)
 			var stable: bool = (
 				not deflected
@@ -1151,8 +1151,8 @@ func _record_asteroid_impact(sat: Satellite) -> void:
 	# nothing else needs unwinding here.
 	if AsteroidPhysics.is_burn_up(sat.mass):
 		return
-	var phase: float = earth.earth_phase if earth != null else 0.0
-	var surface_pos: Vector3 = sat.orbit.r.normalized() * EarthOrbit.EARTH_RADIUS_KM
+	var phase: float = mass_center.rotation_phase if mass_center != null else 0.0
+	var surface_pos: Vector3 = sat.orbit.r.normalized() * MassCenterOrbit.BODY_RADIUS_KM
 	var local := ImpactTracker.eci_to_mesh_local(surface_pos, phase)
 	var uv := ImpactTracker.mesh_local_to_uv(local)
 	var ocean_hint := false

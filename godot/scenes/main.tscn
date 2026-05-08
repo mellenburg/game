@@ -1,7 +1,7 @@
 [gd_scene load_steps=18 format=3 uid="uid://b3orbitgameroot0"]
 
-[ext_resource type="Script" path="res://scripts/earth_system.gd" id="1_system"]
-[ext_resource type="Script" path="res://scripts/earth.gd" id="2_earth"]
+[ext_resource type="Script" path="res://scripts/mass_center_system.gd" id="1_system"]
+[ext_resource type="Script" path="res://scripts/mass_center.gd" id="2_mass_center"]
 [ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="3_camera"]
 [ext_resource type="Script" path="res://scripts/hud.gd" id="4_hud"]
 [ext_resource type="Script" path="res://scripts/sun.gd" id="5_sun"]
@@ -48,14 +48,14 @@ ambient_light_energy = 0.3
 
 [sub_resource type="CameraAttributesPractical" id="CameraAttributes_main"]
 
-[node name="EarthSystem" type="Node3D"]
+[node name="MassCenterSystem" type="Node3D"]
 script = ExtResource("1_system")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Env_main")
 
-[node name="Earth" type="MeshInstance3D" parent="."]
-script = ExtResource("2_earth")
+[node name="MassCenter" type="MeshInstance3D" parent="."]
+script = ExtResource("2_mass_center")
 
 [node name="OrbitCamera" type="Camera3D" parent="."]
 attributes = SubResource("CameraAttributes_main")

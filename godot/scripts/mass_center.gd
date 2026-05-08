@@ -1,8 +1,8 @@
-class_name Earth
+class_name MassCenter
 extends MeshInstance3D
 ## Rotating planet globe. Originally Earth-only; now drives whichever
 ## body the player picked on the Campaign tab. The class name is
-## retained for the rest of the codebase (which references `$Earth`),
+## retained for the rest of the codebase (which references `$MassCenter`),
 ## but the radius, sidereal day, axial tilt, and texture set all come
 ## from the active CelestialBody record — adding a new body needs no
 ## changes to this script.
@@ -13,14 +13,14 @@ extends MeshInstance3D
 ## branch in the shared shader (city lights, cloud overlay) collapses
 ## to no contribution.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const CelestialBody = preload("res://scripts/celestial_body.gd")
 
 # Scene-units-per-km. Sun.gd reads this to convert km offsets into the
 # scene's display scale, so it stays public.
 const SCENE_SCALE: float = 1.0 / 1000.0
 
-var earth_phase: float = 0.0
+var rotation_phase: float = 0.0
 var rotation_rate: float
 # Active body. Resolved in _ready from the menu's stage selection;
 # defaults to Earth when no PlayerLoadout autoload is reachable.
@@ -109,10 +109,10 @@ func _make_solid_texture(color: Color) -> ImageTexture:
 
 
 func advance_phase(sim_delta: float) -> void:
-	earth_phase = fposmod(earth_phase + rotation_rate * sim_delta, TAU)
+	rotation_phase = fposmod(rotation_phase + rotation_rate * sim_delta, TAU)
 	# Composition order (right-to-left): align mesh poles to local Z,
 	# spin daily about that local Z, then tilt the whole thing by the
 	# body's obliquity so the spin axis tilts away from world Z but
 	# the sun direction (world frame) is untouched.
-	var daily := Basis(Vector3(0.0, 0.0, 1.0), earth_phase)
+	var daily := Basis(Vector3(0.0, 0.0, 1.0), rotation_phase)
 	transform.basis = _axial_tilt_basis() * daily * POLE_ALIGN

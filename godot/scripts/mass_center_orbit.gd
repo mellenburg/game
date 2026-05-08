@@ -1,17 +1,17 @@
-class_name EarthOrbit
+class_name MassCenterOrbit
 extends RefCounted
 ## Keplerian orbital mechanics. Universal-variable propagator with
 ## Newton-Raphson iteration on the Kepler equation. Pure RefCounted so
 ## it can be unit-tested headlessly without a SceneTree.
 
-# MU and EARTH_RADIUS_KM start at Earth defaults but are mission-mutable
+# MU and BODY_RADIUS_KM start at Earth defaults but are mission-mutable
 # `static var`s so the same propagator can run against Mars (or any other
-# body) without forking. EarthSystem rewrites them at scene boot from the
+# body) without forking. MassCenterSystem rewrites them at scene boot from the
 # selected stage's body record; tests never touch them and observe the
-# Earth defaults. Class name retained as `EarthOrbit` for compatibility
+# Earth defaults. Class name retained as `MassCenterOrbit` for compatibility
 # with the existing call sites.
 static var MU: float = 398600.4415       # Earth gravitational parameter (km^3/s^2)
-static var EARTH_RADIUS_KM: float = 6371.0
+static var BODY_RADIUS_KM: float = 6371.0
 # Altitude above which orbits are stable against atmospheric drag (km).
 # Set by CelestialBody.apply_to_propagator() at scene boot. Earth default
 # is 150 km; the atmosphere impact floor (ablation termination) is derived
@@ -50,7 +50,7 @@ func _init(r_in: Vector3, v_in: Vector3) -> void:
 	_recompute_elements()
 
 
-func clone_from(other: EarthOrbit) -> void:
+func clone_from(other: MassCenterOrbit) -> void:
 	r = other.r
 	v = other.v
 	r_p = other.r_p
@@ -179,13 +179,13 @@ static func make_elliptical(
 	raan: float,
 	argp: float,
 	nu: float,
-) -> EarthOrbit:
+) -> MassCenterOrbit:
 	# Clamp eccentricity strictly below 1 — a parabolic / hyperbolic
 	# orbit is unbound and outside the menu's "place a unit in a
 	# starting orbit" contract. The menu's slider gate enforces the
 	# cap too; this is the pure-math safety net.
 	var e: float = clampf(ecc, 0.0, 0.999)
-	var r_p: float = EARTH_RADIUS_KM + perigee_alt_km
+	var r_p: float = BODY_RADIUS_KM + perigee_alt_km
 	var a: float = r_p / (1.0 - e)
 	var p: float = a * (1.0 - e * e)
 	# r at the requested true anomaly via the conic identity.
@@ -214,7 +214,7 @@ static func make_elliptical(
 	)
 	var pos := pqw_x * pos_pqw.x + pqw_y * pos_pqw.y
 	var vel := pqw_x * vel_pqw.x + pqw_y * vel_pqw.y
-	return EarthOrbit.new(pos, vel)
+	return MassCenterOrbit.new(pos, vel)
 
 
 ## Build a circular orbit at altitude `alt_km` above the surface with
@@ -225,8 +225,8 @@ static func make_elliptical(
 ## the conversion from elements to ECI state lives in one tested place.
 static func make_circular(
 	alt_km: float, inc: float, raan: float, nu: float
-) -> EarthOrbit:
-	var radius := EARTH_RADIUS_KM + alt_km
+) -> MassCenterOrbit:
+	var radius := BODY_RADIUS_KM + alt_km
 	var v_mag := sqrt(MU / radius)
 	var cn := cos(nu)
 	var sn := sin(nu)
@@ -248,7 +248,7 @@ static func make_circular(
 		v_mag * (-sn * so + cn * ci * co),
 		v_mag * cn * si,
 	)
-	return EarthOrbit.new(pos, vel)
+	return MassCenterOrbit.new(pos, vel)
 
 
 ## Forward-only estimate of when this orbit's trajectory crosses the
@@ -264,7 +264,7 @@ func time_to_impact(
 ) -> float:
 	if not is_state_valid():
 		return INF
-	if norm_r <= EARTH_RADIUS_KM:
+	if norm_r <= BODY_RADIUS_KM:
 		return 0.0
 	# A bound orbit whose periapsis sits above the surface won't cross it
 	# on its own — short-circuit before we waste a clone on a satellite
@@ -272,18 +272,18 @@ func time_to_impact(
 	# also fall through the inequality cleanly: their r_p is well-defined
 	# (positive in both arms of the branch above) and the gate still
 	# eliminates the ones that miss.
-	if is_finite(r_p) and r_p > EARTH_RADIUS_KM:
+	if is_finite(r_p) and r_p > BODY_RADIUS_KM:
 		return INF
 	if step_seconds <= 0.0 or max_seconds <= 0.0:
 		return INF
-	var clone := EarthOrbit.new(r, v)
+	var clone := MassCenterOrbit.new(r, v)
 	var t := 0.0
 	while t < max_seconds:
 		var dt: float = minf(step_seconds, max_seconds - t)
 		if not clone.propagate(dt):
 			return INF
 		t += dt
-		if clone.norm_r <= EARTH_RADIUS_KM:
+		if clone.norm_r <= BODY_RADIUS_KM:
 			return t
 	return INF
 

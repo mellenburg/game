@@ -99,7 +99,7 @@ func _ready() -> void:
 	_shared_mesh.rings = 1
 
 
-## Called by EarthSystem each physics tick a weapon successfully fires.
+## Called by MassCenterSystem each physics tick a weapon successfully fires.
 ## Spawns a beam for this (attacker, weapon_index) if absent, otherwise
 ## refreshes target ref + last-fired timestamp. `style` selects the
 ## visual preset (STYLE_LASER vs STYLE_KINETIC) — only honored on first

@@ -21,10 +21,10 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SimClock = preload("res://scripts/sim_clock.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const HPBar = preload("res://scripts/hp_bar.gd")
 
-## Emitted when the operator clicks a friendly roster tile. EarthSystem
+## Emitted when the operator clicks a friendly roster tile. MassCenterSystem
 ## owns the selection index and resolves the satellite ref against the
 ## active (real or planning) array.
 signal friendly_clicked(sat: Satellite)
@@ -105,7 +105,7 @@ const HIT_DURATION: float = 0.25
 @onready var target_container: Control = $TargetContainer as Control
 @onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
 # Asteroid inspector — moved from the upper-right slot into the lower-
-# right map cycle. EarthSystem flips visibility on the panel via
+# right map cycle. MassCenterSystem flips visibility on the panel via
 # `asteroid_panel`; this script just renders into the contained label
 # / HP bar each tick so the readout stays fresh whether or not the
 # panel is currently showing.
@@ -138,7 +138,7 @@ var _last_text_update: float = 0.0
 # lives in BeamRenderer; this list is just timed metadata for the
 # box / marker feedback so it outlives the firing tick.
 var _hits: Array[Dictionary] = []
-# Driven by EarthSystem from the "toggle_los" input action — true only
+# Driven by MassCenterSystem from the "toggle_los" input action — true only
 # while the V key is held. The yellow / pink LOS lines from the
 # selected satellite to opposing units render only during that window;
 # hit pulses remain visible regardless.
@@ -297,7 +297,7 @@ func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 	if is_finite(eta) and eta > 0.0:
 		eta_str = _format_eta(eta)
 	lines.append("[color=#5a6470]eta[/color]     %s" % eta_str)
-	var alt_km: float = sat.orbit.r.length() - EarthOrbit.EARTH_RADIUS_KM
+	var alt_km: float = sat.orbit.r.length() - MassCenterOrbit.BODY_RADIUS_KM
 	lines.append("[color=#5a6470]alt[/color]     %s km" % _format_scientific(alt_km))
 	lines.append("[/color][/font_size]")
 	return "\n".join(lines)

@@ -1,7 +1,7 @@
 class_name SimClock
 extends RefCounted
 ## UTC clock for the simulation. The game starts at a fixed in-fiction
-## epoch (2116-04-24 00:00:00 UTC); EarthSystem's `sim_time` is the
+## epoch (2116-04-24 00:00:00 UTC); MassCenterSystem's `sim_time` is the
 ## number of simulated seconds since that epoch. Anything that wants to
 ## display a wall-clock-looking timestamp adds sim_time to the epoch
 ## and asks Godot's Time API to format the result.
