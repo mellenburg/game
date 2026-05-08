@@ -228,21 +228,21 @@ func _render_summary(summary: Dictionary) -> void:
 	))
 
 	var deflected_count := int(summary.get("asteroids_deflected", 0))
-	var deflected_hp := float(summary.get("deflected_hp", 0.0))
+	var deflected_mass_kg := float(summary.get("deflected_mass_kg", 0.0))
 	inner.add_child(_kv_row(
 		"Deflected (escaped system)", "%d" % deflected_count,
 	))
 	inner.add_child(_kv_row(
-		"HP deflected", "%.0f" % deflected_hp,
+		"Mass deflected", _format_mass_grams(deflected_mass_kg * 1000.0),
 	))
 
 	var captured_count := int(summary.get("asteroids_captured", 0))
-	var captured_hp := float(summary.get("captured_hp", 0.0))
+	var captured_mass_kg := float(summary.get("captured_mass_kg", 0.0))
 	inner.add_child(_kv_row(
 		"Captured (stable orbit)", "%d" % captured_count,
 	))
 	inner.add_child(_kv_row(
-		"Total captured HP", "%.0f" % captured_hp,
+		"Total captured mass", _format_mass_grams(captured_mass_kg * 1000.0),
 	))
 
 	_content_root.add_child(_hr())
