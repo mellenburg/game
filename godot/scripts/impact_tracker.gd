@@ -17,7 +17,7 @@ extends RefCounted
 ## proper country raster later — `classify_region` is the single
 ## seam to replace.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 const POLE_ALIGN := Basis(Vector3(1.0, 0.0, 0.0), PI / 2.0)
 const AXIAL_TILT_RAD: float = 23.5 * PI / 180.0
@@ -90,7 +90,7 @@ var sim_time: float = 0.0
 
 
 ## Bump the simulation clock so impacts are timestamped against game
-## time, not wall-clock. Driven by EarthSystem._physics_process.
+## time, not wall-clock. Driven by MassCenterSystem._physics_process.
 func tick(sim_delta: float) -> void:
 	if sim_delta <= 0.0:
 		return
@@ -100,8 +100,8 @@ func tick(sim_delta: float) -> void:
 ## Convert an ECI position (Z-up world frame, km) into a position in
 ## the Earth mesh's local frame. The mesh's local frame is what UV
 ## generation operates in: +Y is the north pole.
-static func eci_to_mesh_local(p_world: Vector3, earth_phase: float) -> Vector3:
-	var daily := Basis(Vector3(0.0, 0.0, 1.0), earth_phase)
+static func eci_to_mesh_local(p_world: Vector3, rotation_phase: float) -> Vector3:
+	var daily := Basis(Vector3(0.0, 0.0, 1.0), rotation_phase)
 	var basis := AXIAL_TILT * daily * POLE_ALIGN
 	return basis.inverse() * p_world
 
@@ -126,8 +126,8 @@ static func uv_to_latlon(uv: Vector2) -> Vector2:
 	return Vector2(lon, lat)
 
 
-static func eci_to_latlon(p_world: Vector3, earth_phase: float) -> Vector2:
-	return uv_to_latlon(mesh_local_to_uv(eci_to_mesh_local(p_world, earth_phase)))
+static func eci_to_latlon(p_world: Vector3, rotation_phase: float) -> Vector2:
+	return uv_to_latlon(mesh_local_to_uv(eci_to_mesh_local(p_world, rotation_phase)))
 
 
 ## Resolve (lon, lat) to a coarse region label. `is_ocean_hint` lets
@@ -183,15 +183,15 @@ static func _match(table: Array[Dictionary], lon: float, lat: float) -> String:
 ## panel; -1 leaves it unset for legacy callers.
 func record_impact(
 	p_world: Vector3,
-	earth_phase: float,
+	rotation_phase: float,
 	is_ocean_hint: bool,
 	hp: float = 0.0,
 	mass_kg: float = 0.0,
 	density_g_cm3: float = 0.0,
 	composition: int = -1,
 ) -> Dictionary:
-	var surface := p_world.normalized() * EarthOrbit.EARTH_RADIUS_KM
-	var local := eci_to_mesh_local(surface, earth_phase)
+	var surface := p_world.normalized() * MassCenterOrbit.BODY_RADIUS_KM
+	var local := eci_to_mesh_local(surface, rotation_phase)
 	var uv := mesh_local_to_uv(local)
 	var ll := uv_to_latlon(uv)
 	var region := classify_region(ll.x, ll.y, is_ocean_hint)
@@ -214,7 +214,7 @@ func record_impact(
 ## Cheap heuristic: classify an albedo pixel as ocean. Tuned for the
 ## NASA-style Blue Marble texture in resources/3D/earth/ — water is
 ## blue-dominant and not extremely bright; land has more red/green
-## or is very bright (snow / desert). Used by EarthSystem at impact
+## or is very bright (snow / desert). Used by MassCenterSystem at impact
 ## time to pick land vs. ocean entries from the region table.
 static func is_ocean_pixel(c: Color) -> bool:
 	# Snow and ice can be very blue but also extremely bright. Bail

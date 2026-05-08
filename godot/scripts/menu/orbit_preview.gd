@@ -18,7 +18,7 @@ extends Control
 ##     stays meaningful as the fleet's footprint shrinks or grows.
 
 const Launch = preload("res://scripts/launch.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
 const UnitPart = preload("res://scripts/unit_part.gd")
@@ -118,10 +118,10 @@ func _draw() -> void:
 	# to sit on a near point of an eccentric orbit. In coverage mode
 	# the heatmap blob can extend MAX_RANGE past *any* point on the
 	# orbit, so the bound there is apogee + MAX_RANGE.
-	var max_world_km: float = EarthOrbit.EARTH_RADIUS_KM
+	var max_world_km: float = MassCenterOrbit.BODY_RADIUS_KM
 	for launch: Launch in PlayerLoadout.launches:
 		var apo_r_km: float = (
-			EarthOrbit.EARTH_RADIUS_KM + launch.apogee_altitude_km()
+			MassCenterOrbit.BODY_RADIUS_KM + launch.apogee_altitude_km()
 		)
 		max_world_km = maxf(max_world_km, apo_r_km)
 		if _launch_has_laser(launch):
@@ -157,7 +157,7 @@ func _draw() -> void:
 	)
 
 	# Planet
-	var planet_r: float = EarthOrbit.EARTH_RADIUS_KM * px_per_km
+	var planet_r: float = MassCenterOrbit.BODY_RADIUS_KM * px_per_km
 	draw_circle(center, planet_r, COLOR_PLANET)
 	draw_arc(center, planet_r, 0.0, TAU, 64, COLOR_PLANET_RING, 1.0)
 
@@ -189,7 +189,7 @@ func _draw() -> void:
 func _draw_orbit(
 	launch: Launch, center: Vector2, px_per_km: float, color: Color
 ) -> void:
-	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var r_p_km: float = MassCenterOrbit.BODY_RADIUS_KM + launch.altitude_km
 	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
 	var p_km: float = r_p_km * (1.0 + e)
 	var i_rad: float = deg_to_rad(launch.inclination_deg)
@@ -266,7 +266,7 @@ func _project_at_true_anomaly(
 	center: Vector2,
 	px_per_km: float,
 ) -> Vector2:
-	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var r_p_km: float = MassCenterOrbit.BODY_RADIUS_KM + launch.altitude_km
 	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
 	var p_km: float = r_p_km * (1.0 + e)
 	var r_nu: float = p_km / (1.0 + e * cos(nu_rad))
@@ -289,7 +289,7 @@ func _project_at_true_anomaly(
 # Sign convention matches the screen-space helper (y-flip is purely
 # a draw concern), so .length() comes out the same either way.
 func _marker_position_km(launch: Launch) -> Vector2:
-	var r_p_km: float = EarthOrbit.EARTH_RADIUS_KM + launch.altitude_km
+	var r_p_km: float = MassCenterOrbit.BODY_RADIUS_KM + launch.altitude_km
 	var e: float = clampf(launch.eccentricity, 0.0, 0.999)
 	var p_km: float = r_p_km * (1.0 + e)
 	var nu_rad: float = deg_to_rad(launch.true_anomaly_deg)

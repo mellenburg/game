@@ -1,6 +1,6 @@
 extends "res://tests/framework.gd"
 ## Smoke-test the surface-unit spawn pipeline end-to-end. Walks the
-## same path EarthSystem._ready does — instantiate a SpawnDirector,
+## same path MassCenterSystem._ready does — instantiate a SpawnDirector,
 ## hand it a satellite container + an array, call spawn_surface_units
 ## with a couple of SurfaceUnitConfigs — and verifies the resulting
 ## Satellite instances carry the expected fields. Exercising this in
@@ -11,7 +11,7 @@ extends "res://tests/framework.gd"
 const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
 
 
@@ -46,7 +46,7 @@ func test_spawn_surface_unit_writes_expected_fields() -> void:
 	# spawn_surface_units' seed step and should sit at Earth's surface.
 	var expected := SurfacePosition.latlon_to_eci(
 		35.0, -75.0, 0.0,
-		EarthOrbit.EARTH_RADIUS_KM + Satellite.SURFACE_UNIT_ALTITUDE_KM,
+		MassCenterOrbit.BODY_RADIUS_KM + Satellite.SURFACE_UNIT_ALTITUDE_KM,
 	)
 	assert_vec_close(sat.orbit.r, expected, 1.0e-2)
 	# Free the throwaway parent so the per-test queue stays clean.
@@ -73,8 +73,8 @@ func test_spawn_multiple_surface_units() -> void:
 	bundle[1].queue_free()
 
 
-func test_update_surface_position_tracks_earth_phase() -> void:
-	# Surface position should advance with earth_phase: a unit at lat=0,
+func test_update_surface_position_tracks_rotation_phase() -> void:
+	# Surface position should advance with rotation_phase: a unit at lat=0,
 	# lon=0 sampled at phase=0 vs phase=PI/4 must shift by a non-zero
 	# distance matching the rotation arc.
 	var bundle := _make_director()

@@ -132,7 +132,7 @@ func register_fire(
 
 
 ## Advance every slug's position by `sim_delta` of simulated travel.
-## EarthSystem calls this from _physics_process so slug motion uses
+## MassCenterSystem calls this from _physics_process so slug motion uses
 ## the same clock the simulation runs on — at high time_factor the
 ## slug whips across visibly fast; at time_factor=1 it crawls at
 ## literal 10 km/s.

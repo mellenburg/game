@@ -16,12 +16,12 @@ const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const HUD = preload("res://scripts/hud.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
-# EarthOrbit.EARTH_RADIUS_KM is now a runtime-mutable static var (each
+# MassCenterOrbit.BODY_RADIUS_KM is now a runtime-mutable static var (each
 # mission may set its own body's radius), so a const initialiser can't
 # read it. The tests run on the Earth defaults; pin the literal here.
-const EARTH_RADIUS_KM: float = 6371.0
+const BODY_RADIUS_KM: float = 6371.0
 # Energy budget large enough to cover several railgun shots (one shot
 # is ~1.7 TJ at the current wall-plug efficiency).
 const STARTING_ENERGY_J: float = 1.0e14
@@ -60,8 +60,8 @@ func _make_attacker(radius: float, team: int) -> Satellite:
 	s.alive = true
 	s.orbit_alive = true
 	s.energy = STARTING_ENERGY_J
-	var v_circ: float = sqrt(EarthOrbit.MU / radius)
-	s.orbit = EarthOrbit.new(
+	var v_circ: float = sqrt(MassCenterOrbit.MU / radius)
+	s.orbit = MassCenterOrbit.new(
 		Vector3(radius, 0.0, 0.0), Vector3(0.0, v_circ, 0.0)
 	)
 	# Wipe the default 2-laser-1-railgun loadout and install a single
@@ -80,8 +80,8 @@ func _make_enemy(pos: Vector3, team: int) -> Satellite:
 	s.alive = true
 	s.orbit_alive = true
 	var radius: float = pos.length()
-	var v_circ: float = sqrt(EarthOrbit.MU / radius)
-	s.orbit = EarthOrbit.new(pos, Vector3(0.0, 0.0, v_circ))
+	var v_circ: float = sqrt(MassCenterOrbit.MU / radius)
+	s.orbit = MassCenterOrbit.new(pos, Vector3(0.0, 0.0, v_circ))
 	s.weapons = []
 	s.hp = 1.0e6  # massive HP so the shot never lethals during tests
 	s.recompute_mass()
@@ -101,8 +101,8 @@ func test_exclude_reserved_drops_only_reserved_target_ids() -> void:
 	# one survives. Doesn't go through the slug renderer at all.
 	var parts := _make_controller()
 	var cc: CombatController = parts[0]
-	var a := _make_attacker(EARTH_RADIUS_KM + 5000.0, 1)
-	var b := _make_attacker(EARTH_RADIUS_KM + 5000.0, 1)
+	var a := _make_attacker(BODY_RADIUS_KM + 5000.0, 1)
+	var b := _make_attacker(BODY_RADIUS_KM + 5000.0, 1)
 	cc._reserved_target_iids[b.get_instance_id()] = true
 	var cands: Array[Satellite] = [a, b]
 	var filtered: Array[Satellite] = cc._exclude_reserved(cands)
@@ -122,12 +122,12 @@ func test_railgun_fire_reserves_target_then_releases_on_slug_arrival() -> void:
 	var parts := _make_controller()
 	var cc: CombatController = parts[0]
 	var sr: SlugRenderer = parts[1]
-	var attacker := _make_attacker(EARTH_RADIUS_KM + 5000.0, 0)
+	var attacker := _make_attacker(BODY_RADIUS_KM + 5000.0, 0)
 	# Place enemy 3000 km laterally — well outside Earth's 6371 km
 	# disc relative to the attacker, so LOS is clear and the recoil
 	# stays within the safety envelope.
 	var enemy := _make_enemy(
-		Vector3(EARTH_RADIUS_KM + 5000.0, 3000.0, 0.0), 1
+		Vector3(BODY_RADIUS_KM + 5000.0, 3000.0, 0.0), 1
 	)
 	var weapon: RailgunWeapon = attacker.weapons[0]
 	assert_true(weapon.can_fire(attacker))
@@ -155,9 +155,9 @@ func test_railgun_reservation_released_on_attacker_death() -> void:
 	var parts := _make_controller()
 	var cc: CombatController = parts[0]
 	var sr: SlugRenderer = parts[1]
-	var attacker := _make_attacker(EARTH_RADIUS_KM + 5000.0, 0)
+	var attacker := _make_attacker(BODY_RADIUS_KM + 5000.0, 0)
 	var enemy := _make_enemy(
-		Vector3(EARTH_RADIUS_KM + 5000.0, 3000.0, 0.0), 1
+		Vector3(BODY_RADIUS_KM + 5000.0, 3000.0, 0.0), 1
 	)
 	var weapon: RailgunWeapon = attacker.weapons[0]
 	cc._fire_railgun_with_slug(attacker, weapon, enemy, 1.0)
@@ -185,10 +185,10 @@ func test_second_railgun_skips_reserved_target() -> void:
 	# the user-visible bug the fix is here to address.
 	var parts := _make_controller()
 	var cc: CombatController = parts[0]
-	var attacker_a := _make_attacker(EARTH_RADIUS_KM + 5000.0, 0)
-	var attacker_b := _make_attacker(EARTH_RADIUS_KM + 5000.0, 0)
+	var attacker_a := _make_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var attacker_b := _make_attacker(BODY_RADIUS_KM + 5000.0, 0)
 	var enemy := _make_enemy(
-		Vector3(EARTH_RADIUS_KM + 5000.0, 3000.0, 0.0), 1
+		Vector3(BODY_RADIUS_KM + 5000.0, 3000.0, 0.0), 1
 	)
 	var weapon_a: RailgunWeapon = attacker_a.weapons[0]
 	var weapon_b: RailgunWeapon = attacker_b.weapons[0]
@@ -221,9 +221,9 @@ func test_clear_all_releases_reservations() -> void:
 	var parts := _make_controller()
 	var cc: CombatController = parts[0]
 	var sr: SlugRenderer = parts[1]
-	var attacker := _make_attacker(EARTH_RADIUS_KM + 5000.0, 0)
+	var attacker := _make_attacker(BODY_RADIUS_KM + 5000.0, 0)
 	var enemy := _make_enemy(
-		Vector3(EARTH_RADIUS_KM + 5000.0, 3000.0, 0.0), 1
+		Vector3(BODY_RADIUS_KM + 5000.0, 3000.0, 0.0), 1
 	)
 	var weapon: RailgunWeapon = attacker.weapons[0]
 	cc._fire_railgun_with_slug(attacker, weapon, enemy, 1.0)

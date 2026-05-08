@@ -6,8 +6,8 @@ extends RefCounted
 ## forget without dragging in a SceneTree, and so the round-trip
 ## identity is unit-testable.
 ##
-## The basis composition mirrors Earth.gd's render transform exactly —
-## ECI = AXIAL_TILT * daily(earth_phase) * POLE_ALIGN * mesh_local.
+## The basis composition mirrors mass_center.gd's render transform exactly —
+## ECI = AXIAL_TILT * daily(rotation_phase) * POLE_ALIGN * mesh_local.
 ## Mesh-local conventions match SphereMesh's UV layout (u=0 seam runs
 ## through +Z, +Y is the north pole), so a satellite spawned via this
 ## helper draws on the globe at the same lat/lon the menu picker
@@ -33,9 +33,9 @@ static func latlon_to_mesh_local(lat_deg: float, lon_deg: float) -> Vector3:
 ## small antenna offset so the position is strictly above the LOS-
 ## blocking sphere.
 static func latlon_to_eci(
-	lat_deg: float, lon_deg: float, earth_phase: float, radius_km: float
+	lat_deg: float, lon_deg: float, rotation_phase: float, radius_km: float
 ) -> Vector3:
 	var local := latlon_to_mesh_local(lat_deg, lon_deg)
-	var daily := Basis(Vector3(0.0, 0.0, 1.0), earth_phase)
+	var daily := Basis(Vector3(0.0, 0.0, 1.0), rotation_phase)
 	var basis := AXIAL_TILT * daily * POLE_ALIGN
 	return (basis * local) * radius_km

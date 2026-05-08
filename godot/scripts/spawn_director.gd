@@ -2,15 +2,15 @@ class_name SpawnDirector
 extends Node
 ## Owns the PvE spawn behaviours — starting fleet, random enemy drops,
 ## asteroid storms, time-distributed asteroid waves, and the
-## decaying-orbit enemy. EarthSystem wires this with the satellite
+## decaying-orbit enemy. MassCenterSystem wires this with the satellite
 ## container and the shared real_satellites array at _ready, then routes
 ## input-bound spawn requests through it. Pure spawn logic; no combat,
 ## no input handling, no planning-mode concerns. Splitting these out of
-## EarthSystem makes the eventual server-authoritative refactor a clean
+## MassCenterSystem makes the eventual server-authoritative refactor a clean
 ## seam — only this node's spawn calls need to move to the server side.
 
 const Satellite = preload("res://scripts/satellite.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const AsteroidWave = preload("res://scripts/asteroid_wave.gd")
 const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
@@ -49,7 +49,7 @@ const ASTEROID_ALT_MIN_KM: float = 40000.0
 const ASTEROID_ALT_MAX_KM: float = 70000.0
 # Inward radial dominates; the tangential share is small but non-zero so
 # the trajectories fan out over time. After spawn, each body's velocity
-# is clamped (EarthOrbit.clamp_velocity_for_periapsis) to guarantee
+# is clamped (MassCenterOrbit.clamp_velocity_for_periapsis) to guarantee
 # periapsis below the surface — without that clamp, lateral spread and
 # per-axis jitter can pump enough angular momentum into the orbit to
 # lift periapsis above ground, which both removes the trajectory arc
@@ -62,13 +62,13 @@ const ASTEROID_TANGENTIAL_SPEED_MAX: float = 1.6
 # active body's surface radius. Strictly less than the surface so the
 # surface-cross termination is unambiguous under propagator step-size
 # (it samples r at step boundaries and via the perihelion-cross detector).
-# Surfaces as a function because EarthOrbit.EARTH_RADIUS_KM is now a
+# Surfaces as a function because MassCenterOrbit.BODY_RADIUS_KM is now a
 # runtime-mutable static var (per-mission body) — a `const` would
 # refuse to compile against a non-constant initialiser.
 const ASTEROID_PERIAPSIS_TARGET_FRACTION: float = 0.9
 
 static func asteroid_periapsis_target_km() -> float:
-	return EarthOrbit.EARTH_RADIUS_KM * ASTEROID_PERIAPSIS_TARGET_FRACTION
+	return MassCenterOrbit.BODY_RADIUS_KM * ASTEROID_PERIAPSIS_TARGET_FRACTION
 # Cluster scatter relative to the storm's nominal entry point. Thousands
 # of km of lateral offset + altitude jitter so the three trajectory
 # lines fan out clearly on screen rather than overlapping; per-axis
@@ -144,7 +144,7 @@ const DEFAULT_WAVE_WARNING_SEC: float = 3600.0
 # eccentric ellipse, with perigee sampled randomly inside the
 # atmospheric zone (ablation floor → safe orbit altitude).
 # For Earth that is 60–150 km; for other bodies it scales with
-# EarthOrbit.SAFE_ORBIT_ALT_KM set at boot from CelestialBody.
+# MassCenterOrbit.SAFE_ORBIT_ALT_KM set at boot from CelestialBody.
 # Perigee sits in the atmosphere from the very first pass, so
 # atmospheric drag fires every cycle on top of the perigee burn
 # that halves r_a — bodies with low periapsis decay much faster
@@ -180,7 +180,7 @@ const MISSION_NEXUS_CONE_HALF_ANGLE_DEG: float = 20.0
 # array directly, so any new wave appended here is visible without an
 # extra wiring step.
 var asteroid_waves: Array[AsteroidWave] = []
-# Mirrors ReconSettings.perigee_burn_enabled; set from EarthSystem after
+# Mirrors ReconSettings.perigee_burn_enabled; set from MassCenterSystem after
 # the mission settings snapshot so every subsequent decaying-orbit spawn
 # respects the player's toggle. False by default (atmospheric drag only).
 var perigee_burn_enabled: bool = false
@@ -229,7 +229,7 @@ func spawn_starting_fleet(
 	for i in range(STARTING_SAT_COUNT):
 		var sat := Satellite.new()
 		sat.unit_name = "T-%02d" % (i + 1)
-		sat.orbit = EarthOrbit.make_circular(
+		sat.orbit = MassCenterOrbit.make_circular(
 			STARTING_SAT_ALT_KM,
 			_rng.randf_range(0.0, inc_max),
 			_rng.randf_range(0.0, TAU),
@@ -269,7 +269,7 @@ func _spawn_from_launches(
 		# `argp_deg` so the spawner builds an ellipse when the operator
 		# dials them up. Passing ecc=0 / argp=0 reproduces make_circular
 		# exactly, which is what every pre-eccentricity save resolves to.
-		sat.orbit = EarthOrbit.make_elliptical(
+		sat.orbit = MassCenterOrbit.make_elliptical(
 			launch.altitude_km,
 			launch.eccentricity,
 			deg_to_rad(launch.inclination_deg),
@@ -364,14 +364,14 @@ func _default_loadout_for(index: int) -> Array[Weapon]:
 	return [LaserWeapon.new()] as Array[Weapon]
 
 
-# Spawn the player's configured surface installations. `earth_phase`
-# at spawn time is taken from the EarthSystem so the very first frame
+# Spawn the player's configured surface installations. `rotation_phase`
+# at spawn time is taken from the MassCenterSystem so the very first frame
 # already has the units sitting on the right ECI position; subsequent
 # frames are driven by Satellite.update_surface_position from the
 # physics tick. Empty `configs` is a no-op — surface units are entirely
 # opt-in and the legacy direct-boot path leaves them empty.
 func spawn_surface_units(
-	configs: Array[SurfaceUnitConfig], earth_phase: float
+	configs: Array[SurfaceUnitConfig], rotation_phase: float
 ) -> void:
 	for cfg in configs:
 		var sat := Satellite.new()
@@ -388,11 +388,11 @@ func spawn_surface_units(
 		# render frame draws the marker on the ground rather than at
 		# Satellite._init's DEFAULT_R far above LEO. update_surface_position
 		# overwrites this each physics tick.
-		var radius := EarthOrbit.EARTH_RADIUS_KM + Satellite.SURFACE_UNIT_ALTITUDE_KM
+		var radius := MassCenterOrbit.BODY_RADIUS_KM + Satellite.SURFACE_UNIT_ALTITUDE_KM
 		var pos := SurfacePosition.latlon_to_eci(
-			cfg.lat_deg, cfg.lon_deg, earth_phase, radius
+			cfg.lat_deg, cfg.lon_deg, rotation_phase, radius
 		)
-		sat.orbit = EarthOrbit.new(pos, Vector3(0.0, 0.0, 1.0e-3))
+		sat.orbit = MassCenterOrbit.new(pos, Vector3(0.0, 0.0, 1.0e-3))
 		_satellite_container.add_child(sat)
 		_satellites.append(sat)
 
@@ -480,7 +480,7 @@ func start_asteroid_wave_clustered(base_r_hat: Vector3) -> void:
 
 
 # Sample a uniform-on-sphere unit vector. Public so the mission scheduler
-# in EarthSystem can fix a fresh per-wave base direction without having
+# in MassCenterSystem can fix a fresh per-wave base direction without having
 # to mint its own RNG — keeps every wave-related random draw on the one
 # seeded RNG this director owns.
 func sample_unit_vector() -> Vector3:
@@ -889,14 +889,14 @@ func _make_asteroid(
 	var alt_offset: float = spec["alt_offset"]
 	var vel_jitter: Vector3 = spec["vel_jitter"]
 	var altitude := base_altitude + alt_offset
-	var pos := r_hat * (EarthOrbit.EARTH_RADIUS_KM + altitude) + (
+	var pos := r_hat * (MassCenterOrbit.BODY_RADIUS_KM + altitude) + (
 		tangent * lateral.x + bitangent * lateral.y
 	)
 	var vel := base_velocity + vel_jitter
-	vel = EarthOrbit.clamp_velocity_for_periapsis(
+	vel = MassCenterOrbit.clamp_velocity_for_periapsis(
 		pos, vel, asteroid_periapsis_target_km()
 	)
-	sat.orbit = EarthOrbit.new(pos, vel)
+	sat.orbit = MassCenterOrbit.new(pos, vel)
 	return sat
 
 
@@ -959,11 +959,11 @@ func _make_decaying_enemy(mass: float, density: float = -1.0, composition: int =
 	# Low periapsis → strong drag every pass → faster decay; high periapsis
 	# → lighter drag → slower, more survivable spiral-in.
 	var perigee_alt_km: float = _rng.randf_range(
-		maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0),
-		EarthOrbit.SAFE_ORBIT_ALT_KM
+		maxf(MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0),
+		MassCenterOrbit.SAFE_ORBIT_ALT_KM
 	)
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + perigee_alt_km
-	var r_a := EarthOrbit.EARTH_RADIUS_KM + DECAYING_APOGEE_ALT_KM
+	var r_p := MassCenterOrbit.BODY_RADIUS_KM + perigee_alt_km
+	var r_a := MassCenterOrbit.BODY_RADIUS_KM + DECAYING_APOGEE_ALT_KM
 	var a := 0.5 * (r_p + r_a)
 	var e := (r_a - r_p) / (r_a + r_p)
 	var p_slr := a * (1.0 - e * e)
@@ -988,9 +988,9 @@ func _make_decaying_enemy(mass: float, density: float = -1.0, composition: int =
 	# Perifocal velocity from the conic identities: v_p = sqrt(μ/p) * -sin(ν),
 	# v_q = sqrt(μ/p) * (e + cos(ν)). Same prograde sense as a normal
 	# orbit — at nu just past apogee that means inbound (r·v < 0).
-	var v_mag := sqrt(EarthOrbit.MU / p_slr)
+	var v_mag := sqrt(MassCenterOrbit.MU / p_slr)
 	var vel := pqw_x * (-v_mag * sin(nu)) + pqw_y * (v_mag * (e + cos(nu)))
-	sat.orbit = EarthOrbit.new(pos, vel)
+	sat.orbit = MassCenterOrbit.new(pos, vel)
 	return sat
 
 
@@ -1000,12 +1000,12 @@ func _make_enemy_in_random_orbit() -> Satellite:
 	sat.weapons.clear()  # Enemies are unarmed in the MVP.
 
 	var altitude := _rng.randf_range(ENEMY_ALT_MIN_KM, ENEMY_ALT_MAX_KM)
-	var radius := EarthOrbit.EARTH_RADIUS_KM + altitude
+	var radius := MassCenterOrbit.BODY_RADIUS_KM + altitude
 	var r_hat := _random_unit_vector()
 	var v_hat := _random_perpendicular_unit(r_hat)
-	var v_mag := sqrt(EarthOrbit.MU / radius)
+	var v_mag := sqrt(MassCenterOrbit.MU / radius)
 
-	sat.orbit = EarthOrbit.new(r_hat * radius, v_hat * v_mag)
+	sat.orbit = MassCenterOrbit.new(r_hat * radius, v_hat * v_mag)
 	return sat
 
 

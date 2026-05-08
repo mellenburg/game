@@ -23,7 +23,7 @@ extends Camera3D
 ## around Earth when left alone. All rates use wall-clock delta — sim
 ## time_factor must not influence camera motion.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 # Camera radius bands are pegged to Earth-scale so the camera distance
 # feels consistent regardless of the active body — a Mars stage doesn't

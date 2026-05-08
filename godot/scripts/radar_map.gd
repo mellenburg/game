@@ -9,7 +9,7 @@ extends Control
 ## downward as their countdown elapses; reaching Y=0 means the body just
 ## spawned in the game area and the wave dropped it from its queue.
 ##
-## The overlay reads pending specs straight off the EarthSystem's active
+## The overlay reads pending specs straight off the MassCenterSystem's active
 ## wave list — no signal plumbing — and queues a redraw each frame.
 ## Multiple concurrent waves overlay their blips on the same axes.
 ##
@@ -152,7 +152,7 @@ const PAD_TOP: float = 22.0
 const PAD_BOTTOM: float = 36.0
 
 
-# Bound to the EarthSystem's active wave list at _ready. Read-only from
+# Bound to the MassCenterSystem's active wave list at _ready. Read-only from
 # the radar's perspective; the system owns add/remove of waves, the
 # radar just reflects whatever's pending.
 var waves: Array[AsteroidWave] = []:

@@ -4,7 +4,7 @@ extends "res://tests/framework.gd"
 ## safe-orbit altitude parameter. Pure math where possible; the Satellite
 ## advance_time path is exercised by stepping a minimal orbit forward.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const OrbitalPath = preload("res://scripts/orbital_path.gd")
 
 # Default Earth parameters used throughout.
@@ -25,16 +25,16 @@ const ABLATION_BOT:  float = SAFE_ALT - 90.0   #  60 km
 func test_impact_altitude_equals_safe_minus_90() -> void:
 	# The ablation floor / impact threshold is always safe_alt - 90 km.
 	# For Earth that is 150 - 90 = 60 km, matching the design spec.
-	var impact_r := EARTH_R + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+	var impact_r := EARTH_R + maxf(MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
 	assert_close(impact_r - EARTH_R, IMPACT_ALT, 1.0e-9)
 
 
 func test_impact_r_stored_in_earthorbit() -> void:
-	# EarthOrbit.SAFE_ORBIT_ALT_KM must default to 150 km (Earth). Tests
+	# MassCenterOrbit.SAFE_ORBIT_ALT_KM must default to 150 km (Earth). Tests
 	# never call CelestialBody.apply_to_propagator(), so the static starts
 	# at the declared default and is what we calibrate the rest of these
 	# tests against.
-	assert_close(EarthOrbit.SAFE_ORBIT_ALT_KM, SAFE_ALT, 1.0e-9)
+	assert_close(MassCenterOrbit.SAFE_ORBIT_ALT_KM, SAFE_ALT, 1.0e-9)
 
 
 # ── Drag-rate interpolation ───────────────────────────────────────────────
@@ -44,7 +44,7 @@ func test_impact_r_stored_in_earthorbit() -> void:
 
 
 func _drag_rate(alt_km: float) -> float:
-	var safe_alt := EarthOrbit.SAFE_ORBIT_ALT_KM
+	var safe_alt := MassCenterOrbit.SAFE_ORBIT_ALT_KM
 	var air_brake_bot := safe_alt - 30.0
 	var reentry_bot   := safe_alt - 50.0
 	var ablation_bot  := safe_alt - 90.0
@@ -115,7 +115,7 @@ func test_drag_rate_midpoint_ablation() -> void:
 
 
 func _hp_frac_per_s(alt_km: float) -> float:
-	var safe_alt := EarthOrbit.SAFE_ORBIT_ALT_KM
+	var safe_alt := MassCenterOrbit.SAFE_ORBIT_ALT_KM
 	if alt_km >= safe_alt or alt_km < safe_alt - 90.0:
 		return 0.0
 	if alt_km >= safe_alt - 30.0:
@@ -149,7 +149,7 @@ func _compute_v_sq_for_new_ra(
 ) -> float:
 	var r_a_new := maxf(r_a - delta_r_a, r_p)
 	var a_new := 0.5 * (r_p + r_a_new)
-	return EarthOrbit.MU * (2.0 / r_km - 1.0 / a_new)
+	return MassCenterOrbit.MU * (2.0 / r_km - 1.0 / a_new)
 
 
 func test_reduce_apoapsis_lowers_ra() -> void:
@@ -159,7 +159,7 @@ func test_reduce_apoapsis_lowers_ra() -> void:
 	var r_a := EARTH_R + 50000.0
 	var a_old := 0.5 * (r_p + r_a)
 	var r := r_p  # evaluate at periapsis for clean arithmetic
-	var v_old_sq := EarthOrbit.MU * (2.0 / r - 1.0 / a_old)
+	var v_old_sq := MassCenterOrbit.MU * (2.0 / r - 1.0 / a_old)
 	var delta := 1000.0  # km reduction
 	var v_new_sq := _compute_v_sq_for_new_ra(r, r_p, r_a, delta)
 	# New speed must be lower (retrograde drag).
@@ -167,7 +167,7 @@ func test_reduce_apoapsis_lowers_ra() -> void:
 		"drag should reduce speed: v_new_sq=%f vs v_old_sq=%f" % [v_new_sq, v_old_sq])
 	# Resulting r_a after vis-viva: a_new = mu / (2*mu/r - v_new²);
 	# r_a_new = 2*a_new - r_p.
-	var a_new := EarthOrbit.MU / (2.0 * EarthOrbit.MU / r - v_new_sq)
+	var a_new := MassCenterOrbit.MU / (2.0 * MassCenterOrbit.MU / r - v_new_sq)
 	var r_a_new := 2.0 * a_new - r_p
 	assert_close(r_a_new, r_a - delta, 1.0e-3)
 
@@ -187,17 +187,17 @@ func test_reduce_apoapsis_clamps_at_rp() -> void:
 func test_decaying_spiral_final_segment_meets_impact_altitude() -> void:
 	# The spiral segmenter must terminate its final arc at the impact-altitude
 	# radius (EARTH_RADIUS + 60 km for Earth defaults), not the bare surface.
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + 500.0
-	var r_a := EarthOrbit.EARTH_RADIUS_KM + 50000.0
+	var r_p := MassCenterOrbit.BODY_RADIUS_KM + 500.0
+	var r_a := MassCenterOrbit.BODY_RADIUS_KM + 50000.0
 	var a := 0.5 * (r_p + r_a)
 	var e := (r_a - r_p) / (r_a + r_p)
 	var p_slr := a * (1.0 - e * e)
 	var nu := PI + deg_to_rad(15.0)  # just past apogee, descending
 	var r_at := p_slr / (1.0 + e * cos(nu))
 	var pos := Vector3(r_at * cos(nu), r_at * sin(nu), 0.0)
-	var v_mag := sqrt(EarthOrbit.MU / p_slr)
+	var v_mag := sqrt(MassCenterOrbit.MU / p_slr)
 	var vel := Vector3(-v_mag * sin(nu), v_mag * (e + cos(nu)), 0.0)
-	var orbit := EarthOrbit.new(pos, vel)
+	var orbit := MassCenterOrbit.new(pos, vel)
 	var segs: Array = OrbitalPath._build_decaying_segments(orbit)
 	assert_true(segs.size() > 0, "expected at least one segment")
 	var last: Dictionary = segs[-1]
@@ -205,7 +205,7 @@ func test_decaying_spiral_final_segment_meets_impact_altitude() -> void:
 	var last_p: float = last["p_slr"]
 	var r_at_end: float = last_p / (1.0 + last_e * cos(last["nu_end"]))
 	var expected_impact_r: float = (
-		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+		MassCenterOrbit.BODY_RADIUS_KM + maxf(MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
 	)
 	assert_close(r_at_end, expected_impact_r, 1.0e-3)
 
@@ -214,17 +214,17 @@ func test_decaying_eta_uses_impact_altitude() -> void:
 	# decaying_time_to_impact must return a finite value and that value must
 	# match the brute-force spiral walk to within 2 % (same tolerance the
 	# existing test uses).
-	var r_p := EarthOrbit.EARTH_RADIUS_KM + 500.0
-	var r_a := EarthOrbit.EARTH_RADIUS_KM + 50000.0
+	var r_p := MassCenterOrbit.BODY_RADIUS_KM + 500.0
+	var r_a := MassCenterOrbit.BODY_RADIUS_KM + 50000.0
 	var a := 0.5 * (r_p + r_a)
 	var e := (r_a - r_p) / (r_a + r_p)
 	var p_slr := a * (1.0 - e * e)
 	var nu := PI + deg_to_rad(15.0)
 	var r_at := p_slr / (1.0 + e * cos(nu))
 	var pos := Vector3(r_at * cos(nu), r_at * sin(nu), 0.0)
-	var v_mag := sqrt(EarthOrbit.MU / p_slr)
+	var v_mag := sqrt(MassCenterOrbit.MU / p_slr)
 	var vel := Vector3(-v_mag * sin(nu), v_mag * (e + cos(nu)), 0.0)
-	var orbit := EarthOrbit.new(pos, vel)
+	var orbit := MassCenterOrbit.new(pos, vel)
 	var eta := OrbitalPath.decaying_time_to_impact(orbit)
 	assert_finite(eta)
 	assert_true(eta > 0.0, "expected positive ETA, got %f" % eta)
@@ -237,15 +237,15 @@ func test_safe_orbit_alt_can_be_overridden() -> void:
 	# Simulate switching to a body with a different safe altitude (e.g. Mars
 	# with 100 km). The impact radius derived from SAFE_ORBIT_ALT_KM must
 	# reflect the new value, not the Earth default.
-	var old_safe := EarthOrbit.SAFE_ORBIT_ALT_KM
-	EarthOrbit.SAFE_ORBIT_ALT_KM = 100.0
+	var old_safe := MassCenterOrbit.SAFE_ORBIT_ALT_KM
+	MassCenterOrbit.SAFE_ORBIT_ALT_KM = 100.0
 	var impact_r := (
-		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+		MassCenterOrbit.BODY_RADIUS_KM + maxf(MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
 	)
 	# Mars impact threshold: 100 - 90 = 10 km altitude.
-	assert_close(impact_r - EarthOrbit.EARTH_RADIUS_KM, 10.0, 1.0e-9)
+	assert_close(impact_r - MassCenterOrbit.BODY_RADIUS_KM, 10.0, 1.0e-9)
 	# Restore to avoid affecting subsequent tests.
-	EarthOrbit.SAFE_ORBIT_ALT_KM = old_safe
+	MassCenterOrbit.SAFE_ORBIT_ALT_KM = old_safe
 
 
 func test_drag_rate_zero_below_impact_threshold() -> void:

@@ -13,7 +13,7 @@ extends MeshInstance3D
 ## owning Satellite can drive thickness from initial HP and tint from
 ## impact-proximity without ever rebuilding geometry.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const POINTS: int = 360
 const SCENE_SCALE: float = 1.0 / 1000.0  # km -> scene units
 const _LINE_SHADER: Shader = preload("res://shaders/orbit_line.gdshader")
@@ -63,7 +63,7 @@ func _ready() -> void:
 
 ## Recompute orbit geometry only when elements have actually changed past a
 ## small tolerance, then upload the vertex buffer to the cached ArrayMesh.
-func update_orbit(orbit: EarthOrbit) -> void:
+func update_orbit(orbit: MassCenterOrbit) -> void:
 	if not orbit.is_state_valid():
 		_clear_surfaces()
 		return
@@ -94,7 +94,7 @@ func update_orbit(orbit: EarthOrbit) -> void:
 ## Uses eccentric anomaly so points are evenly distributed around the
 ## ellipse — the previous port chained four separate Transform3Ds and did
 ## a Vector4 helper to recover the same geometry.
-func _compute_points(orbit: EarthOrbit) -> void:
+func _compute_points(orbit: MassCenterOrbit) -> void:
 	var a := orbit.a
 	var b := orbit.b
 	var e := orbit.ecc
@@ -123,7 +123,7 @@ func _compute_points(orbit: EarthOrbit) -> void:
 ## omitted, so the visual matches the gameplay rule (asteroids exit
 ## play on ground contact). Caller must keep `color` in sync; we don't
 ## cache anything here because the body's nu changes every tick.
-func update_trajectory(orbit: EarthOrbit) -> void:
+func update_trajectory(orbit: MassCenterOrbit) -> void:
 	if not orbit.is_state_valid():
 		_clear_surfaces()
 		return
@@ -137,7 +137,7 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 	# 60 km for Earth) rather than the physical surface, so the trajectory arc
 	# ends there instead of tunnelling through the planet.
 	var impact_r: float = (
-		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+		MassCenterOrbit.BODY_RADIUS_KM + maxf(MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
 	)
 	var cos_nu_surf := (p_slr / impact_r - 1.0) / e
 	if cos_nu_surf > 1.0 or cos_nu_surf < -1.0:
@@ -200,7 +200,7 @@ func update_trajectory(orbit: EarthOrbit) -> void:
 ## Caller must keep `color` in sync (set once via the line_color setter).
 const DEFLECT_BOUNDARY_KM: float = 50000.0
 
-func update_escape_trajectory(orbit: EarthOrbit) -> void:
+func update_escape_trajectory(orbit: MassCenterOrbit) -> void:
 	if not orbit.is_state_valid():
 		_clear_surfaces()
 		return
@@ -263,7 +263,7 @@ const _DECAYING_MIN_PTS_PER_SEG: int = 8
 ## that intersects Earth's surface. Each perigee-burn halves r_a, so
 ## the orbits visibly nest inward — the rendered spiral is the player's
 ## window into "how many cycles before this thing impacts".
-func update_decaying_spiral(orbit: EarthOrbit) -> void:
+func update_decaying_spiral(orbit: MassCenterOrbit) -> void:
 	if not orbit.is_state_valid():
 		_clear_surfaces()
 		return
@@ -356,7 +356,7 @@ func update_decaying_spiral(orbit: EarthOrbit) -> void:
 # inc are taken straight off `orbit` by the caller — in-plane burns
 # don't perturb them. Static so headless tests can exercise the
 # segmentation without instantiating a Node.
-static func _build_decaying_segments(orbit: EarthOrbit) -> Array:
+static func _build_decaying_segments(orbit: MassCenterOrbit) -> Array:
 	var segs: Array = []
 	var cur_e: float = orbit.ecc
 	var cur_p: float = orbit.p_slr
@@ -373,7 +373,7 @@ static func _build_decaying_segments(orbit: EarthOrbit) -> Array:
 	# reach a next "perigee" — it impacts first. Render only the inbound arc
 	# from the current nu to the impact crossing, no further burns.
 	var impact_r: float = (
-		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+		MassCenterOrbit.BODY_RADIUS_KM + maxf(MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
 	)
 	if cur_r_p < impact_r:
 		var nu_end_impact := _next_surface_crossing(cur_p, cur_e, nu0, impact_r)
@@ -474,8 +474,8 @@ static func _next_surface_crossing(
 		return NAN
 	if target_r < 0.0:
 		target_r = (
-			EarthOrbit.EARTH_RADIUS_KM
-			+ maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+			MassCenterOrbit.BODY_RADIUS_KM
+			+ maxf(MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
 		)
 	var cos_surf := (p_slr / target_r - 1.0) / e
 	if cos_surf > 1.0 or cos_surf < -1.0:
@@ -499,7 +499,7 @@ static func _next_surface_crossing(
 ## gradient (and any other ETA-keyed UI) reflects "time until ground
 ## contact", not "time until current orbit decays" (which is INF).
 ## Returns INF if the segmenter couldn't resolve a final impact arc.
-static func decaying_time_to_impact(orbit: EarthOrbit) -> float:
+static func decaying_time_to_impact(orbit: MassCenterOrbit) -> float:
 	if not orbit.is_state_valid():
 		return INF
 	var segs := _build_decaying_segments(orbit)
@@ -509,7 +509,7 @@ static func decaying_time_to_impact(orbit: EarthOrbit) -> float:
 	# segmenter ran out of cycles without resolving an impact, treat the
 	# prediction as "beyond horizon" rather than understating the ETA.
 	var impact_r: float = (
-		EarthOrbit.EARTH_RADIUS_KM + maxf(EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
+		MassCenterOrbit.BODY_RADIUS_KM + maxf(MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0)
 	)
 	var last: Dictionary = segs[-1]
 	var last_e: float = last["e"]
@@ -541,7 +541,7 @@ static func _segment_tof_seconds(seg: Dictionary) -> float:
 	var a := p / (1.0 - e * e)
 	if a <= 0.0:
 		return INF
-	var n := sqrt(EarthOrbit.MU / (a * a * a))
+	var n := sqrt(MassCenterOrbit.MU / (a * a * a))
 	if n <= 0.0:
 		return INF
 	var m_a := _mean_anomaly_unwrapped(nu_a, e)

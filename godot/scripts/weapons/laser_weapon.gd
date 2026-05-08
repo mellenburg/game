@@ -20,7 +20,7 @@ const LosCheck = preload("res://scripts/los_check.gd")
 # by pick_target() to rank in-envelope candidates. Definitions live on
 # the weapon (the strategy that consumes them) rather than the
 # satellite (which just carries the operator setting); HUD and
-# EarthSystem reference them via LaserWeapon.* so toggling and
+# MassCenterSystem reference them via LaserWeapon.* so toggling and
 # rendering stay aligned with the weapon's semantics.
 const TARGETING_MAX_DAMAGE: int = 0
 const TARGETING_MAX_DANGER: int = 1
