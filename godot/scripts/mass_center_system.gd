@@ -35,6 +35,7 @@ const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const Launch = preload("res://scripts/launch.gd")
+const PlanetRings = preload("res://scripts/planet_rings.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
@@ -208,7 +209,9 @@ func _ready() -> void:
 	# materialises read MassCenterOrbit.MU / BODY_RADIUS_KM eagerly at spawn
 	# time, so a deferred apply would leave the very first fleet sitting
 	# on Earth physics inside a Mars stage.
-	CelestialBody.active(get_tree()).apply_to_propagator()
+	var body: CelestialBody = CelestialBody.active(get_tree())
+	body.apply_to_propagator()
+	_spawn_planet_rings(body)
 
 	_albedo_image = _load_albedo_image()
 	if impact_map != null:
@@ -260,6 +263,21 @@ func _ready() -> void:
 		spawn_director.perigee_burn_enabled = _mission_settings.perigee_burn_enabled
 		mission = Mission.new()
 		mission.start_from_settings(_mission_settings)
+
+
+# Spawn the body's ring system if it has one. Bodies without rings
+# (Earth / Mars in the current campaign roster) are a no-op so the
+# legacy direct-boot path doesn't have to know about ring rendering.
+# The rings are added as a sibling of MassCenter so they inherit the
+# axial tilt baked into PlanetRings.setup() but NOT the planet's daily
+# spin — Saturn's rings are inertially fixed; only the body rotates
+# underneath them.
+func _spawn_planet_rings(body: CelestialBody) -> void:
+	if not body.has_rings:
+		return
+	var rings := PlanetRings.new()
+	add_child(rings)
+	rings.setup(body)
 
 
 # Pull the player's wave configuration off PlayerLoadout. Falls back

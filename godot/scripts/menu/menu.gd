@@ -465,10 +465,20 @@ func _on_stage_selected(idx: int) -> void:
 	CelestialBody.for_stage(
 		PlayerLoadout.selected_stage_id
 	).apply_to_propagator()
+	# Re-seed launch orbit fields with the new body's defaults so a
+	# Saturn pick lifts the laser shell out of the rings without the
+	# operator manually retuning every row. Preserves unit assignments
+	# and parts; only orbit geometry is rewritten.
+	PlayerLoadout.reset_launch_orbits_for_active_body()
 	# Surface Ops basemap follows the stage selection — refresh now so
 	# tabbing in already shows the right planet's surface.
 	if _surface_placement != null:
 		_surface_placement.refresh()
+	# Mirror the orbit reset into the launch-row UI when it's already
+	# been built — otherwise the operator switches to Saturn, opens
+	# Orbital Ops, and sees stale Earth-altitude sliders.
+	if _launches_root != null:
+		_rebuild_launch_rows()
 	_refresh_stage_brief()
 
 
@@ -479,8 +489,11 @@ func _on_stage_selected(idx: int) -> void:
 func _on_system_map_body_selected(stage_id: String) -> void:
 	PlayerLoadout.selected_stage_id = stage_id
 	CelestialBody.for_stage(stage_id).apply_to_propagator()
+	PlayerLoadout.reset_launch_orbits_for_active_body()
 	if _surface_placement != null:
 		_surface_placement.refresh()
+	if _launches_root != null:
+		_rebuild_launch_rows()
 	for i in range(PlayerLoadout.STAGES.size()):
 		var stage: Dictionary = PlayerLoadout.STAGES[i]
 		if String(stage.get("id", "")) == stage_id:

@@ -12,17 +12,22 @@ extends Node3D
 
 const MassCenter = preload("res://scripts/mass_center.gd")
 const LosCheck = preload("res://scripts/los_check.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
 
 # Direction from Earth toward the sun, in world (ECI) coordinates.
 # Must match `planet.gdshader`'s sun_direction.
 const WORLD_DIRECTION := Vector3(1.0, 0.0, 0.0)
 
-# Distance in scene units (1 unit = 1000 km). Held inside the camera's
-# 700-unit far plane so the billboard always renders.
+# Earth-scale distance in scene units (1 unit = 1000 km). Held inside
+# the camera's 700-unit far plane so the billboard always renders. For
+# bodies whose camera band pushes past this number (Saturn at ~720
+# scene units MAX) we scale the distance up in _ready so the sun stays
+# beyond the operator's pull-back.
 const DISTANCE: float = 600.0
 
-# Visual size of the quad (scene units). The shader confines the bright
-# region to the inner ~50% so the quad edges fade to black cleanly.
+# Visual size of the quad (scene units). Earth-scale; we scale this in
+# _ready alongside the distance so the apparent angular size of the
+# sun stays the same when standing at the body's default camera radius.
 const QUAD_SIZE: float = 80.0
 
 @export var core_color: Color = Color(1.0, 0.97, 0.85)
@@ -32,10 +37,16 @@ var _quad: MeshInstance3D
 
 
 func _ready() -> void:
-	position = WORLD_DIRECTION.normalized() * DISTANCE
+	# Scale distance / quad with the active body's radius so a Saturn
+	# stage doesn't have the sun billboard rendering inside the camera's
+	# default standoff. For Earth-scale bodies (< Earth radius) the scale
+	# clamps at 1.0 so Mars / Earth keep the legacy 600-unit distance.
+	var body: CelestialBody = CelestialBody.active(get_tree())
+	var scale := maxf(1.0, body.radius_km / 6371.0)
+	position = WORLD_DIRECTION.normalized() * (DISTANCE * scale)
 
 	var quad := QuadMesh.new()
-	quad.size = Vector2(QUAD_SIZE, QUAD_SIZE)
+	quad.size = Vector2(QUAD_SIZE * scale, QUAD_SIZE * scale)
 
 	_quad = MeshInstance3D.new()
 	_quad.mesh = quad

@@ -22,6 +22,7 @@ const Launch = preload("res://scripts/launch.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const ReconSettings = preload("res://scripts/recon_settings.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
 
 # Pre-game launch capacity, in propellant kg. Each scheduled launch
 # debits the budget by Tsiolkovsky-weighted propellant — heavier units
@@ -134,10 +135,16 @@ const STAGES: Array = [
 		"id": "saturn",
 		"name": "Saturn",
 		"code": "CMP-007",
-		"difficulty": "—",
-		"waves": 0,
-		"playable": false,
-		"summary": "Capital-ship engagement at Hyperion. (Locked)",
+		"difficulty": "HARD",
+		"waves": 4,
+		"playable": true,
+		"summary": (
+			"Defend the Hyperion capital-ship picket from across the "
+			+ "ring plane. Saturn's gas-giant gravity well stretches "
+			+ "engagement timelines and the ring system blocks line-of-"
+			+ "sight on bodies passing the equator — fleet placement "
+			+ "above the disc reads cleaner than a low equatorial shell."
+		),
 		"orbit_radius": 0.70,
 		"angle_deg": 145.0,
 		"body_radius": 14.0,
@@ -256,6 +263,45 @@ func reset_recon_settings() -> void:
 	recon_settings = ReconSettings.default_settings()
 
 
+# Re-seed the orbit fields on every launch from the active body's
+# defaults, leaving the unit pool / parts / unit assignments intact.
+# Called from the menu when the operator picks a different stage so
+# Saturn's 90 000 km laser shell isn't stuck at the Earth-scaled
+# 5 000 km after a stage switch. The launch list keeps its row order
+# and each launch's slot in the laser shell / railgun trio: the only
+# fields we touch are altitude_km / eccentricity / inclination_deg /
+# RAAN / argp / true anomaly. Operators who manually retuned a launch
+# lose the customisation — that's accepted because the alternative
+# (Saturn launches sitting inside the rings) is worse than redoing the
+# tweak.
+func reset_launch_orbits_for_active_body() -> void:
+	var body: CelestialBody = CelestialBody.active(get_tree())
+	var laser_alt_km: float = body.default_laser_alt_km
+	var railgun_perigee_km: float = body.default_railgun_perigee_km
+	for i in range(launches.size()):
+		var launch := launches[i]
+		if i < DEFAULT_LASER_COUNT:
+			var plane: Dictionary = _LASER_PLANES[i / _LASER_PER_PLANE]
+			var slot_in_plane: int = i % _LASER_PER_PLANE
+			launch.altitude_km = laser_alt_km
+			launch.eccentricity = 0.0
+			launch.inclination_deg = float(plane["inclination_deg"])
+			launch.raan_deg = float(plane["raan_deg"])
+			launch.argp_deg = 0.0
+			launch.true_anomaly_deg = float(slot_in_plane) * 90.0
+		else:
+			var idx_in_railguns: int = i - DEFAULT_LASER_COUNT
+			if idx_in_railguns >= _RAILGUN_ORBITS.size():
+				continue
+			var orbit: Dictionary = _RAILGUN_ORBITS[idx_in_railguns]
+			launch.altitude_km = railgun_perigee_km
+			launch.eccentricity = _RAILGUN_ECCENTRICITY
+			launch.inclination_deg = float(orbit["inclination_deg"])
+			launch.raan_deg = float(orbit["raan_deg"])
+			launch.argp_deg = float(orbit["argp_deg"])
+			launch.true_anomaly_deg = float(orbit["true_anomaly_deg"])
+
+
 # Repopulate the unit pool and launch list with the default starting
 # roster: twelve laser units (T-01..T-12) on a three-plane Cartesian
 # shell plus three railgun units (T-13..T-15) on higher elliptical
@@ -276,7 +322,6 @@ const _LASER_PLANES: Array = [
 	{"inclination_deg": 90.0, "raan_deg": 0.0},
 	{"inclination_deg": 90.0, "raan_deg": 90.0},
 ]
-const _LASER_RING_ALT_KM: float = 5000.0
 const _LASER_PER_PLANE: int = 4
 
 const _RAILGUN_ORBITS: Array = [
@@ -284,7 +329,6 @@ const _RAILGUN_ORBITS: Array = [
 	{"inclination_deg": 50.0, "raan_deg": 120.0, "argp_deg": 60.0, "true_anomaly_deg": 120.0},
 	{"inclination_deg": 80.0, "raan_deg": 240.0, "argp_deg": 120.0, "true_anomaly_deg": 240.0},
 ]
-const _RAILGUN_PERIGEE_ALT_KM: float = 8000.0
 const _RAILGUN_ECCENTRICITY: float = 0.5
 
 
@@ -293,6 +337,15 @@ func reset_units() -> void:
 	launches.clear()
 	_next_unit_seq = 1
 	_next_launch_seq = 1
+	# Pull starting altitudes off the active body so a Saturn run seeds
+	# its laser shell above the ring system rather than reusing the
+	# Earth-scaled 5 000 km ring that would land the fleet inside the C
+	# ring. CelestialBody.active() falls back to Earth when no autoload
+	# / no stage is selected, which preserves the legacy direct-boot
+	# numbers.
+	var body: CelestialBody = CelestialBody.active(get_tree())
+	var laser_alt_km: float = body.default_laser_alt_km
+	var railgun_perigee_km: float = body.default_railgun_perigee_km
 	# Seed at most as many launches as the current research tier
 	# permits — a player who's somehow lost capacity since the last run
 	# shouldn't end up with launches that immediately fail to schedule.
@@ -311,13 +364,13 @@ func reset_units() -> void:
 		if i < DEFAULT_LASER_COUNT:
 			var plane: Dictionary = _LASER_PLANES[i / _LASER_PER_PLANE]
 			var slot_in_plane: int = i % _LASER_PER_PLANE
-			launch.altitude_km = _LASER_RING_ALT_KM
+			launch.altitude_km = laser_alt_km
 			launch.inclination_deg = float(plane["inclination_deg"])
 			launch.raan_deg = float(plane["raan_deg"])
 			launch.true_anomaly_deg = float(slot_in_plane) * 90.0
 		else:
 			var orbit: Dictionary = _RAILGUN_ORBITS[i - DEFAULT_LASER_COUNT]
-			launch.altitude_km = _RAILGUN_PERIGEE_ALT_KM
+			launch.altitude_km = railgun_perigee_km
 			launch.eccentricity = _RAILGUN_ECCENTRICITY
 			launch.inclination_deg = float(orbit["inclination_deg"])
 			launch.raan_deg = float(orbit["raan_deg"])

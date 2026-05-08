@@ -24,20 +24,35 @@ extends Camera3D
 ## time_factor must not influence camera motion.
 
 const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
+const CelestialBody = preload("res://scripts/celestial_body.gd")
 
-# Camera radius bands are pegged to Earth-scale so the camera distance
-# feels consistent regardless of the active body — a Mars stage doesn't
-# halve the camera's standoff just because Mars is half Earth's radius.
-const REFERENCE_RADIUS_KM: float = 6371.0
+# Camera radius bands scale with the active body so a gas-giant stage
+# doesn't bury the camera inside the planet at the Earth-scaled
+# defaults. The original Earth-pegged constants are now per-body fields
+# on CelestialBody (camera_default_radii / camera_min_radii /
+# camera_max_radii), expressed as multiples of the body's surface
+# radius. Resolved into instance vars in _ready below; everything
+# downstream reads the vars, not the constants.
 const SCENE_SCALE: float = 1.0 / 1000.0
-const DEFAULT_ORBIT_RADIUS: float = 7.8 * REFERENCE_RADIUS_KM * SCENE_SCALE
-const MIN_ORBIT_RADIUS: float = 1.5 * REFERENCE_RADIUS_KM * SCENE_SCALE
-const MAX_ORBIT_RADIUS: float = 18.0 * REFERENCE_RADIUS_KM * SCENE_SCALE
 const ORBIT_TILT_DEG: float = 20.0
+
+# Earth-scale defaults — used when CelestialBody isn't reachable (e.g.
+# direct-boot tests). These are the legacy const values and stay at
+# Earth's radius × the legacy multipliers so the headless test path
+# observes the historical numbers.
+const DEFAULT_ORBIT_RADIUS_FALLBACK: float = 7.8 * 6371.0 * SCENE_SCALE
+const MIN_ORBIT_RADIUS_FALLBACK: float = 1.5 * 6371.0 * SCENE_SCALE
+const MAX_ORBIT_RADIUS_FALLBACK: float = 18.0 * 6371.0 * SCENE_SCALE
+
+var default_orbit_radius: float = DEFAULT_ORBIT_RADIUS_FALLBACK
+var min_orbit_radius: float = MIN_ORBIT_RADIUS_FALLBACK
+var max_orbit_radius: float = MAX_ORBIT_RADIUS_FALLBACK
+# Translation rate for W/S held — sized so the operator can sweep from
+# default to MIN or to MAX in roughly two seconds.
+var radius_rate: float = 0.6 * DEFAULT_ORBIT_RADIUS_FALLBACK
 
 const AUTO_ORBIT_RATE: float = TAU / 90.0  # rad/s, slow ambient drift
 const USER_ANGULAR_RATE: float = TAU / 15.0  # rad/s while A/D held
-const RADIUS_RATE: float = 0.6 * DEFAULT_ORBIT_RADIUS  # units/s while W/S
 const INCLINATION_RATE_DEG: float = 90.0  # deg/s while shift+W/S held
 const MAX_INCLINATION_DEG: float = 60.0
 const MOUSE_SENSITIVITY: float = 0.15
@@ -55,7 +70,7 @@ var yaw: float = 0.0
 var pitch: float = 0.0
 
 var _orbit_phase: float = 0.0
-var _orbit_radius: float = DEFAULT_ORBIT_RADIUS
+var _orbit_radius: float = DEFAULT_ORBIT_RADIUS_FALLBACK
 var _inclination_offset: float = 0.0
 
 var _radius_idle: float = RETURN_DELAY
@@ -64,8 +79,25 @@ var _look_idle: float = RETURN_DELAY
 
 
 func _ready() -> void:
+	# Pull the active body's radius and resolve every camera-band
+	# constant against it. Direct-boot / headless paths get Earth's
+	# radius via CelestialBody.active(...) so the legacy numbers fall
+	# out unchanged when no menu is in front of us.
+	var body: CelestialBody = CelestialBody.active(get_tree())
+	var body_radius_units: float = body.radius_km * SCENE_SCALE
+	default_orbit_radius = body.camera_default_radii * body_radius_units
+	min_orbit_radius = body.camera_min_radii * body_radius_units
+	max_orbit_radius = body.camera_max_radii * body_radius_units
+	radius_rate = 0.6 * default_orbit_radius
+	_orbit_radius = default_orbit_radius
+	# Far plane scales with the camera's max standoff so a Saturn stage
+	# (max ≈ 720 scene units) keeps the planet, the rings, and the sun
+	# billboard inside the frustum. The 1.6× headroom holds the sun a
+	# comfortable distance past the camera's apex; near stays at 0.3
+	# (close enough to look at the surface from inside the ring plane,
+	# far enough that z-buffer precision survives the wider far span).
 	near = 0.3
-	far = 700.0
+	far = maxf(700.0, max_orbit_radius * 1.6)
 	position = _orbit_position()
 	var yp := _yaw_pitch_facing_origin(position)
 	yaw = yp.x
@@ -122,14 +154,14 @@ func process_movement(delta: float) -> void:
 			_inclination_offset += incl_step
 			inclination_input = true
 		else:
-			_orbit_radius -= RADIUS_RATE * delta
+			_orbit_radius -= radius_rate * delta
 			radius_input = true
 	if Input.is_action_pressed("move_backward"):
 		if shift:
 			_inclination_offset -= incl_step
 			inclination_input = true
 		else:
-			_orbit_radius += RADIUS_RATE * delta
+			_orbit_radius += radius_rate * delta
 			radius_input = true
 
 	# Phase auto-advances unless the player is actively scrubbing it.
@@ -144,8 +176,8 @@ func process_movement(delta: float) -> void:
 		_radius_idle += delta
 		if _radius_idle >= RETURN_DELAY:
 			var t := clampf(RETURN_BLEND_RATE * delta, 0.0, 1.0)
-			_orbit_radius = lerpf(_orbit_radius, DEFAULT_ORBIT_RADIUS, t)
-	_orbit_radius = clampf(_orbit_radius, MIN_ORBIT_RADIUS, MAX_ORBIT_RADIUS)
+			_orbit_radius = lerpf(_orbit_radius, default_orbit_radius, t)
+	_orbit_radius = clampf(_orbit_radius, min_orbit_radius, max_orbit_radius)
 
 	# Inclination offset: same idle/return treatment.
 	if inclination_input:

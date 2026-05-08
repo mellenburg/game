@@ -29,6 +29,7 @@ const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 # wiring is auditable in one place.
 const ID_EARTH := "earth"
 const ID_MARS := "mars"
+const ID_SATURN := "saturn"
 
 # Physics ------------------------------------------------------------
 var id: String
@@ -70,6 +71,37 @@ var albedo_path: String
 var night_path: String
 var normal_path: String
 var clouds_path: String
+
+# Default starting-fleet orbital geometry. The pre-game menu seeds the
+# laser shell at `default_laser_alt_km` and the railguns at
+# `default_railgun_perigee_km`; both are scaled to the body so a tiny
+# rocky world doesn't get the same 5 000 km shell as a gas giant
+# 10× Earth's radius. Earth defaults reproduce the legacy numbers.
+var default_laser_alt_km: float = 5000.0
+var default_railgun_perigee_km: float = 8000.0
+
+# Ring system. Real radii in km from the body's centre — the ring mesh
+# scales these by Satellite.SCENE_SCALE, the same conversion the rest
+# of the renderer uses. Empty ring_texture_path == "this body has no
+# ring system"; the SaturnRings node is only instantiated when the path
+# resolves. ring_tilt_offset_rad lets a body's rings sit at a different
+# obliquity than the body's spin axis — Saturn's rings sit in the
+# equatorial plane (offset = 0) but the field exists so future bodies
+# (e.g. Uranus's ring system) can decouple ring tilt from axial tilt.
+var has_rings: bool = false
+var ring_inner_km: float = 0.0
+var ring_outer_km: float = 0.0
+var ring_texture_path: String = ""
+var ring_tilt_offset_rad: float = 0.0
+
+# Camera radius band, expressed in body-radii. The OrbitCamera reads
+# these to size DEFAULT / MIN / MAX standoff from the active body so a
+# Saturn stage doesn't bury the camera inside the planet at the Earth-
+# scaled defaults. Values match the legacy Earth band when left at the
+# defaults below.
+var camera_default_radii: float = 7.8
+var camera_min_radii: float = 1.5
+var camera_max_radii: float = 18.0
 
 
 static func make_earth() -> CelestialBody:
@@ -119,6 +151,61 @@ static func make_mars() -> CelestialBody:
 	return body
 
 
+static func make_saturn() -> CelestialBody:
+	# Saturn constants from the NASA Planetary Fact Sheet:
+	#   equatorial radius = 60268 km
+	#   mass              = 5.6834e26 kg
+	#   μ                 = 37931187.0 km^3/s^2
+	#   surface gravity   = 10.44 m/s^2 → 1.065 g (1-bar reference)
+	#   sidereal day      = 38362.4 s (~10h 39m 22s, Voyager radio period)
+	#   axial tilt        = 26.73° from orbital normal
+	# Ring extents track the canonical Cassini geometry:
+	#   D-ring inner edge ≈ 66 900 km from centre
+	#   F-ring outer edge ≈ 140 220 km from centre
+	# safe_orbit_altitude is generous because Saturn lacks a hard
+	# surface — the value gates atmospheric-decay logic and isn't a
+	# physical altitude in the rocky-planet sense; 1 000 km is the
+	# rough "above the visible cloud deck plus a bit" buffer.
+	var body := CelestialBody.new()
+	body.id = ID_SATURN
+	body.display_name = "Saturn"
+	body.radius_km = 60268.0
+	body.mass_kg = 5.6834e26
+	body.mu_km3_s2 = 37931187.0
+	body.surface_gravity_g = 1.065
+	body.sidereal_day_s = 38362.4
+	body.axial_tilt_rad = 26.73 * PI / 180.0
+	body.safe_orbit_altitude_km = 1000.0
+	body.fallback_color = Color(0.93, 0.85, 0.62)
+	# Default starting orbits live well outside the F ring (~80 000 km
+	# altitude) so the seeded fleet doesn't spawn in the middle of the
+	# ring system. Railgun perigee sits closer to the body so the
+	# Tsiolkovsky budget still reads as "long elliptical arc" rather
+	# than "circular outside the rings".
+	body.default_laser_alt_km = 90000.0
+	body.default_railgun_perigee_km = 110000.0
+	# Camera band scaled down a touch from the Earth multipliers — at
+	# 7.8 body-radii Saturn's apparent-disc still dominates the view
+	# but the rings would clip the standoff; 4.5 keeps the rings inside
+	# the frame at the default radius.
+	body.camera_default_radii = 4.5
+	body.camera_min_radii = 1.05
+	body.camera_max_radii = 12.0
+	# Procedurally generated banded surface map with the Cassini-era
+	# hexagonal vortex baked in over the north polar cap. See
+	# resources/3D/saturn/CREDITS.md for the bake-script details.
+	body.albedo_path = "res://resources/3D/saturn/2048_saturn.jpg"
+	body.night_path = ""
+	body.normal_path = ""
+	body.clouds_path = ""
+	body.has_rings = true
+	body.ring_inner_km = 66900.0
+	body.ring_outer_km = 140220.0
+	body.ring_texture_path = "res://resources/3D/saturn/2048_rings.png"
+	body.ring_tilt_offset_rad = 0.0
+	return body
+
+
 # Look up a body record by stage id. Falls back to Earth when the id
 # doesn't match a known body — keeps the legacy debug-boot path (no
 # PlayerLoadout) on Earth defaults.
@@ -126,6 +213,8 @@ static func for_stage(stage_id: String) -> CelestialBody:
 	match stage_id:
 		ID_MARS:
 			return make_mars()
+		ID_SATURN:
+			return make_saturn()
 		_:
 			return make_earth()
 
