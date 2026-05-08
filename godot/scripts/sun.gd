@@ -37,16 +37,24 @@ var _quad: MeshInstance3D
 
 
 func _ready() -> void:
-	# Scale distance / quad with the active body's radius so a Saturn
-	# stage doesn't have the sun billboard rendering inside the camera's
-	# default standoff. For Earth-scale bodies (< Earth radius) the scale
-	# clamps at 1.0 so Mars / Earth keep the legacy 600-unit distance.
+	# Distance / quad both grow with the active body's max-camera
+	# standoff so a Saturn stage doesn't render the sun billboard
+	# inside the camera's default radius (then have it clipped against
+	# the camera's far plane the moment we widen the camera band).
+	# Earth's legacy numbers (600 / 80) fall out as the floor when the
+	# body's max-camera fits inside them.
 	var body: CelestialBody = CelestialBody.active(get_tree())
-	var scale := maxf(1.0, body.radius_km / 6371.0)
-	position = WORLD_DIRECTION.normalized() * (DISTANCE * scale)
+	var max_camera_units: float = body.radius_km * 0.001 * body.camera_max_radii
+	var distance: float = maxf(DISTANCE, max_camera_units * 1.4)
+	# Keep apparent angular size constant by scaling the quad by the
+	# same factor. distance / DISTANCE collapses to 1.0 for Earth-scale
+	# bodies (where the floor is hit) so the legacy quad-size is
+	# preserved exactly.
+	var size_scale: float = distance / DISTANCE
+	position = WORLD_DIRECTION.normalized() * distance
 
 	var quad := QuadMesh.new()
-	quad.size = Vector2(QUAD_SIZE * scale, QUAD_SIZE * scale)
+	quad.size = Vector2(QUAD_SIZE * size_scale, QUAD_SIZE * size_scale)
 
 	_quad = MeshInstance3D.new()
 	_quad.mesh = quad

@@ -25,8 +25,15 @@ uniform float penumbra_scene : hint_range(0.0, 50.0) = 1.5;
 // scatter Mie-like, so the side of the disc lit by the sun reads
 // brighter than the dark side. Lambertian fades to ambient as the disc
 // normal turns away from the sun.
-uniform float lit_face_strength : hint_range(0.0, 2.0) = 1.0;
-uniform float ambient : hint_range(0.0, 1.0) = 0.18;
+uniform float lit_face_strength : hint_range(0.0, 2.0) = 0.6;
+// Base brightness when the disc isn't in the body's umbra. The rings
+// scatter sunlight forward + back, so even when the disc is edge-on
+// to the sun (dot(N, sun) = 0 in this scene's coordinate setup) we
+// want the disc to read at near-full brightness; the umbra check is
+// what actually carves the dark arc into the lit disc. Tuned high
+// enough that the shadow drop reads as stark rather than as "the
+// whole disc is dim".
+uniform float ambient : hint_range(0.0, 1.0) = 0.85;
 
 varying vec3 world_pos;
 varying vec3 world_normal;
@@ -49,7 +56,6 @@ void fragment() {
 	// away. NORMAL on the back face flips, so a single dot(N, d) per
 	// fragment captures the asymmetry correctly without explicit cull.
 	float facing = clamp(dot(world_normal, d), -1.0, 1.0);
-	float lit = ambient + max(facing, 0.0) * lit_face_strength;
 
 	// Saturn's shadow on the disc. Project the fragment's world-space
 	// position onto the sun direction; t < 0 puts the fragment on the
@@ -69,10 +75,15 @@ void fragment() {
 		shadow = clamp((dist - inner) / max(outer - inner, 0.001), 0.0, 1.0);
 	}
 
-	// The shadow only attenuates the *sun-driven* lit term; the ambient
-	// floor stays so the dark side of the disc isn't pitch black.
-	float lit_with_shadow = ambient + max(facing, 0.0) * lit_face_strength * shadow;
-	vec3 color = sample.rgb * lit_with_shadow;
+	// Stark umbra: in full shadow the ring drops to ~3% brightness so
+	// the dark cone Saturn casts onto the disc reads as a clear black
+	// arc rather than the previous gentle attenuation. Outside the
+	// umbra the lit term is the regular ambient + lambert mix; the
+	// umbra knocks both factors down by `shadow_attenuation` so even
+	// the "back face" ambient floor is suppressed inside the cone.
+	float shadow_attenuation = mix(0.03, 1.0, shadow);
+	float lit = (ambient + max(facing, 0.0) * lit_face_strength) * shadow_attenuation;
+	vec3 color = sample.rgb * lit;
 
 	ALBEDO = color;
 	ALPHA = sample.a;

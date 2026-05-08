@@ -97,7 +97,14 @@ func _ready() -> void:
 	# (close enough to look at the surface from inside the ring plane,
 	# far enough that z-buffer precision survives the wider far span).
 	near = 0.3
-	far = maxf(700.0, max_orbit_radius * 1.6)
+	# Far plane has to clear two things at once: the camera's max pull-
+	# back (so we still see the planet at full standoff) and the sun
+	# billboard (which sits at max(600, max_orbit_radius * 1.4) — see
+	# Sun._ready()). Push the far plane another 1.2× past the larger
+	# of the two so the sun's quad doesn't pop in/out at the depth
+	# boundary.
+	var sun_distance := maxf(600.0, max_orbit_radius * 1.4)
+	far = maxf(maxf(700.0, max_orbit_radius * 1.6), sun_distance * 1.2)
 	position = _orbit_position()
 	var yp := _yaw_pitch_facing_origin(position)
 	yaw = yp.x

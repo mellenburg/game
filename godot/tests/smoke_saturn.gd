@@ -27,9 +27,20 @@ func _init() -> void:
 	loadout.selected_stage_id = "saturn"
 	loadout.launched = false  # avoid scheduling waves; we just want a still frame
 	change_scene_to_file(STAGE_PATH)
-	# Wait a few process frames so the scene is fully entered + the
-	# rings / camera are ready, then ask for a screenshot.
-	for _i in range(60):
+	# Wait one frame so the scene is in the tree, then nudge the camera
+	# off the default phase. The default _orbit_phase=0 sits the camera
+	# on the +X axis (between Saturn and the sun), which hides Saturn's
+	# umbra behind the planet from the camera's POV. Phase ≈ 2.3 rad
+	# (~132°) puts the camera up and across from the sun so the umbra
+	# falls visibly across the near side of the disc.
+	await process_frame
+	var system := root.get_node_or_null("MassCenterSystem")
+	if system != null:
+		var cam: Node = system.get_node_or_null("OrbitCamera")
+		if cam != null and cam.has_method("set"):
+			cam.set("_orbit_phase", 2.3)
+			cam.set("_radius_idle", 0.0)
+	for _i in range(120):
 		await process_frame
 	var img: Image = root.get_viewport().get_texture().get_image()
 	if img == null:
