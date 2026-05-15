@@ -392,18 +392,16 @@ func _load_albedo_image() -> Image:
 	return tex.get_image()
 
 
-# Intercept commit_plan / cancel_plan before they propagate to the
-# pause menu (Backspace) or end-game overlay (Enter). Consuming the
-# event via set_input_as_handled() prevents those overlays from
-# opening on the same keypress when we're actively planning.
+# Intercept commit_plan before it propagates to the end-game overlay
+# (Enter) when we're actively planning. Consuming the event via
+# set_input_as_handled() prevents that overlay from opening on the
+# same keypress. cancel_or_remove_plan is wired through
+# _process_one_shot_input (X key) instead — polled rather than event-
+# driven because X also drives the fleet-wide railgun toggle.
 func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("commit_plan"):
 		if planning_mode and _planning_dv.length_squared() > 0.0 and planning_dt > 0:
 			commit_current_plan()
-			get_viewport().set_input_as_handled()
-		return
-	if event.is_action_pressed("cancel_plan"):
-		if cancel_or_remove_plan():
 			get_viewport().set_input_as_handled()
 
 
@@ -968,7 +966,13 @@ func _process_one_shot_input() -> void:
 		else:
 			_toggle_targeting_mode_on_selected()
 	if Input.is_action_just_pressed("toggle_railgun"):
-		_toggle_railgun_on_all()
+		# X is overloaded: in planning mode (or with a row picked
+		# in the plans panel) it acts as the delete / undo key —
+		# remove the selected plan, or scrub the in-progress Δv.
+		# Falls back to the fleet-wide railgun toggle when neither
+		# context applies.
+		if not cancel_or_remove_plan():
+			_toggle_railgun_on_all()
 	if Input.is_action_just_pressed("toggle_slug_render"):
 		# Visual-only toggle — the simulation has already applied damage
 		# at fire-time. Off ⇒ railguns route through the laser-style
