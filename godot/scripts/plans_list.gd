@@ -135,9 +135,63 @@ func _refresh() -> void:
 		return
 	_last_signature = sig
 	_clear_rows()
+	# Bucket plans by their owning satellite so each unit gets a
+	# header followed by its plans. Preserves first-seen order across
+	# units so the panel layout is stable across renders.
+	var groups: Dictionary = {}
+	var group_order: Array = []
 	for i in range(plans.size()):
-		_rows.add_child(_build_row(i, plans[i], i == selected, sim_time))
+		var plan: Dictionary = plans[i]
+		var sat: Satellite = plan.get("sat")
+		var key: int = sat.get_instance_id() if sat != null else 0
+		if not groups.has(key):
+			groups[key] = []
+			group_order.append(key)
+		groups[key].append(i)
+	for key in group_order:
+		var plan_indices: Array = groups[key]
+		var first_plan: Dictionary = plans[int(plan_indices[0])]
+		var owner: Satellite = first_plan.get("sat")
+		_rows.add_child(_build_group_header(owner))
+		# Sort each group's plans chronologically so a stack of
+		# committed burns reads top-down in firing order.
+		var sorted_indices: Array = plan_indices.duplicate()
+		sorted_indices.sort_custom(
+			func(a: int, b: int) -> bool:
+				return float(plans[a].get("apply_at", 0.0)) \
+					< float(plans[b].get("apply_at", 0.0))
+		)
+		for idx_v in sorted_indices:
+			var idx: int = int(idx_v)
+			_rows.add_child(
+				_build_row(idx, plans[idx], idx == selected, sim_time)
+			)
 	_update_hint(plans.size())
+
+
+# Banner row for a satellite — its display name in the accent colour
+# above the indented plan rows beneath. Mouse_filter set to IGNORE so
+# clicks fall through to the panel background; only the plan rows
+# themselves are clickable.
+func _build_group_header(sat: Satellite) -> Control:
+	var box := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+	sb.content_margin_left = 4.0
+	sb.content_margin_right = 4.0
+	sb.content_margin_top = 6.0
+	sb.content_margin_bottom = 0.0
+	box.add_theme_stylebox_override("panel", sb)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var label := Label.new()
+	label.text = (
+		sat.unit_name if sat != null and sat.unit_name != "" else "Unnamed unit"
+	)
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", ROW_FG_ACCENT)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(label)
+	return box
 
 
 func _signature(plans: Array, selected: int, sim_time: float) -> String:
@@ -160,18 +214,22 @@ func _signature(plans: Array, selected: int, sim_time: float) -> String:
 
 
 func _refresh_time_labels(plans: Array, sim_time: float) -> void:
-	# Walk children in index order and rewrite their countdown labels.
-	# Bound by min(count, child count) so a mid-frame mutation doesn't
-	# crash — the next _refresh() rebuilds from scratch anyway.
-	var n := mini(plans.size(), _rows.get_child_count())
-	for i in range(n):
-		var row := _rows.get_child(i) as Control
-		if row == null:
+	# Walk the children and rewrite the countdown label on every row
+	# that carries a `plan_index` meta. Group headers don't carry one
+	# and are skipped automatically. A mid-frame mutation that drops
+	# the source plan just falls through the bounds check — the next
+	# _refresh() rebuilds from scratch anyway.
+	for child in _rows.get_children():
+		var row := child as Control
+		if row == null or not row.has_meta("plan_index"):
+			continue
+		var idx: int = int(row.get_meta("plan_index"))
+		if idx < 0 or idx >= plans.size():
 			continue
 		var time_label := row.get_node_or_null("Time") as RichTextLabel
 		if time_label == null:
 			continue
-		var apply_at: float = float(plans[i].get("apply_at", 0.0))
+		var apply_at: float = float(plans[idx].get("apply_at", 0.0))
 		var eta: float = maxf(apply_at - sim_time, 0.0)
 		time_label.text = _format_eta_bbcode(eta, apply_at)
 
@@ -184,12 +242,15 @@ func _clear_rows() -> void:
 func _build_row(
 	index: int, plan: Dictionary, is_selected: bool, sim_time: float,
 ) -> Control:
-	var sat: Satellite = plan.get("sat")
 	var btn := Button.new()
 	btn.flat = true
 	btn.toggle_mode = false
 	btn.custom_minimum_size = Vector2(0.0, ROW_HEIGHT)
 	btn.focus_mode = Control.FOCUS_NONE
+	# Tag the row with its plan index so _refresh_time_labels can
+	# rebind the countdown without needing the parent-container order
+	# to match the plans array.
+	btn.set_meta("plan_index", index)
 	# Whole-row click target. Apply a coloured panel under the contents
 	# rather than tinting the button itself so the green-selected state
 	# reads cleanly even in Godot's default Button skin.
@@ -211,28 +272,17 @@ func _build_row(
 	hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(hbox)
 
-	var left := VBoxContainer.new()
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.add_theme_constant_override("separation", 2)
-	left.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(left)
-
-	var name_label := Label.new()
-	name_label.text = (
-		sat.unit_name if sat != null and sat.unit_name != "" else "Unnamed unit"
-	)
-	name_label.add_theme_font_size_override("font_size", 13)
-	name_label.add_theme_color_override("font_color", ROW_FG)
-	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left.add_child(name_label)
-
+	# Owning-unit name lives on the group header, so each row collapses
+	# to a single line of Δv plus the countdown on the right.
 	var dv: Vector3 = plan.get("dv", Vector3.ZERO)
 	var dv_label := Label.new()
 	dv_label.text = "Δv  %s" % _format_dv(dv)
-	dv_label.add_theme_font_size_override("font_size", 11)
-	dv_label.add_theme_color_override("font_color", ROW_FG_DIM)
+	dv_label.add_theme_font_size_override("font_size", 12)
+	dv_label.add_theme_color_override("font_color", ROW_FG)
+	dv_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dv_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	dv_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left.add_child(dv_label)
+	hbox.add_child(dv_label)
 
 	var time_label := RichTextLabel.new()
 	time_label.name = "Time"

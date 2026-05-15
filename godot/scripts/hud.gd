@@ -92,6 +92,11 @@ const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 # this constant only governs how long the box / marker stays tinted.
 const HIT_DURATION: float = 0.25
 
+# Back-reference to the controller. Set once by EarthSystem._ready so
+# the per-unit boxes can route click input back into the same
+# select-ship code path Tab drives.
+var earth_system: Node = null
+
 @onready var info_label: RichTextLabel = $InfoLabel as RichTextLabel
 @onready var player_roster: HBoxContainer = (
 	$PlayerRosters/PlayerRoster as HBoxContainer
@@ -405,6 +410,25 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 		surface_player_roster.visible = not surface_players.is_empty()
 
 
+# Forward a left-click on any unit box to the controller's "select
+# this ship" path — same target the Tab cycle drives. Picking from
+# the roster also opens the planning preview (entering planning mode
+# if not already in it) so the operator can immediately stage a
+# maneuver for the chosen unit.
+func _on_unit_box_input(event: InputEvent, box: PanelContainer) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mb := event as InputEventMouseButton
+	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if earth_system == null:
+		return
+	var sat: Satellite = box.get_meta("sat", null)
+	if sat == null:
+		return
+	earth_system.select_ship_by_ref(sat)
+
+
 # Generic renderer that fills any HBoxContainer with one player-style
 # box per sat. Both the orbital and surface rosters share this idiom so
 # the per-row UI (selection tint, weapon bars, FC / TGT / RG meta lines)
@@ -426,7 +450,12 @@ func _render_player_roster_into(
 func _make_box() -> PanelContainer:
 	var box := PanelContainer.new()
 	box.custom_minimum_size = BOX_MIN_SIZE
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Click-to-select. The current sat reference rides on the box as a
+	# `sat` meta entry rewritten every frame by _update_box, so the
+	# gui_input handler can stay bound for the box's lifetime without
+	# re-connecting per render.
+	box.mouse_filter = Control.MOUSE_FILTER_STOP
+	box.gui_input.connect(_on_unit_box_input.bind(box))
 	# Per-box StyleBoxFlat so we can mutate bg_color in place rather than
 	# reallocating on every selection change.
 	var sb := StyleBoxFlat.new()
@@ -542,6 +571,10 @@ func _update_box(
 	sat: Satellite,
 	is_selected: bool,
 ) -> void:
+	# Stash the current sat on the panel so the click handler (bound
+	# once at _make_box time) can resolve which unit was hit without
+	# walking the parent container's child index.
+	box.set_meta("sat", sat)
 	var sb := box.get_theme_stylebox("panel") as StyleBoxFlat
 	if sb != null:
 		if _is_hit_target(sat):

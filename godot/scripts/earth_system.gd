@@ -247,6 +247,11 @@ func _ready() -> void:
 		# committed_plans / selected_plan_index live and call back into
 		# select_committed_plan when the operator clicks a row.
 		plans_list.earth_system = self
+	if hud != null:
+		# Same back-reference so unit-roster clicks can route into
+		# select_ship_by_ref without the HUD needing to know how to
+		# index into real_satellites itself.
+		hud.earth_system = self
 	_apply_map_mode()
 
 	spawn_director = SpawnDirector.new()
@@ -937,7 +942,15 @@ func _process_continuous_input(delta: float) -> void:
 
 func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("select_next"):
-		select_next_ship()
+		# Shift+Tab walks the player roster backwards. Same action
+		# binding either way — branch on modifier rather than adding
+		# a second key event with shift_pressed=true, since plain Tab
+		# would still fire under exact-match-off semantics and we'd
+		# end up driving both directions on the same press.
+		if Input.is_key_pressed(KEY_SHIFT):
+			select_prev_ship()
+		else:
+			select_next_ship()
 	if Input.is_action_just_pressed("add_satellite"):
 		add_satellite()
 	if Input.is_action_just_pressed("remove_satellite"):
@@ -1243,27 +1256,79 @@ func remove_satellite() -> void:
 		real_satellites[selected_ship].select()
 
 
-# Cycle through *player* ships only — enemies aren't operator-targets.
+# Cycle forward through *player* ships only — enemies aren't
+# operator-targets. Tab fires this; Shift+Tab calls select_prev_ship().
 func select_next_ship() -> void:
+	_cycle_selected_ship(1)
+
+
+# Reverse-cycle through player ships. Wired to Shift+Tab via the same
+# action — the dispatcher in _process_one_shot_input chooses direction
+# based on Shift state so we don't need a separate input binding.
+func select_prev_ship() -> void:
+	_cycle_selected_ship(-1)
+
+
+# Step `direction` (±1) through real_satellites, skipping non-player
+# bodies, and apply the selection-change side effects (planning sync,
+# planning dv drop) shared by Tab / Shift+Tab.
+func _cycle_selected_ship(direction: int) -> void:
 	if real_satellites.is_empty():
 		return
 	var n := real_satellites.size()
 	var start := selected_ship
 	for offset in range(1, n + 1):
-		var i: int = (start + int(offset)) % n
+		var i: int = posmod(start + direction * int(offset), n)
 		if real_satellites[i].team == Satellite.TEAM_PLAYER:
 			real_satellites[selected_ship].unselect()
 			selected_ship = i
 			real_satellites[selected_ship].select()
 			break
+	_after_selection_changed()
+
+
+# Select the ship matching `sat` (reference equality against
+# real_satellites). Same selection-change side effects as the Tab
+# cycle — applies the highlight, syncs planning, and drops the
+# queued planning Δv. Used by the unit-roster click handler.
+func select_ship_by_ref(sat: Satellite) -> void:
+	if sat == null:
+		return
+	var idx := real_satellites.find(sat)
+	if idx < 0:
+		return
+	if sat.team != Satellite.TEAM_PLAYER:
+		return
+	if idx == selected_ship and planning_mode:
+		# Already selected and previewing — clicking again shouldn't
+		# clobber the in-progress planning Δv.
+		return
+	if not real_satellites.is_empty():
+		real_satellites[selected_ship].unselect()
+	selected_ship = idx
+	real_satellites[selected_ship].select()
+	# Picking a unit from the roster opens the planning preview for
+	# that unit. If the operator's already in planning mode the call
+	# is a no-op past the selection swap; otherwise it pauses the sim
+	# and clones the current fleet into planning satellites.
+	if not planning_mode:
+		toggle_planning()
+	_after_selection_changed()
+
+
+func _after_selection_changed() -> void:
 	if planning_mode and not planning_satellites.is_empty():
 		planning_satellites[planning_selected].unselect()
 		planning_selected = clampi(selected_ship, 0, planning_satellites.size() - 1)
 		planning_satellites[planning_selected].select()
 		# Drop any queued planning Δv when the selection moves — the dv
 		# is staged for one ship at a time, and silently re-applying it
-		# to whichever ship Tab lands on would be a footgun.
+		# to whichever ship the new selection lands on would be a footgun.
 		_planning_dv = Vector3.ZERO
+		# Re-entering the panel from a different ship clears the
+		# previously-highlighted plan so cancel doesn't accidentally
+		# delete the wrong entry.
+		selected_plan_index = -1
 
 
 func toggle_planning() -> void:
