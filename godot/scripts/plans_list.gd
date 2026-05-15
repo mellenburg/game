@@ -359,6 +359,6 @@ func _update_hint(plan_count: int) -> void:
 	else:
 		_hint.text = (
 			"[font_size=11][color=#9aa9b8]"
-			+ "Click a plan to inspect.  X removes the selected plan."
+			+ "Click a plan to inspect.  R removes the selected plan."
 			+ "[/color][/font_size]"
 		)

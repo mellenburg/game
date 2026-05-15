@@ -979,12 +979,15 @@ func _process_one_shot_input() -> void:
 			select_next_ship()
 	if Input.is_action_just_pressed("add_satellite"):
 		add_satellite()
-	# remove_satellite (R) is intentionally not dispatched here. The
-	# action remains bound for any external tooling that wants to
-	# script a teardown, but routing it through gameplay input was a
-	# footgun — a stray R press during planning would silently free
-	# the operator's selected ship, dropping every committed plan on
-	# it. Use the menu or a tool path if a unit needs to come off.
+	# R is now the plan-cancel / plan-remove key. The action binding
+	# was previously routed to remove_satellite — a footgun during
+	# planning, since a stray press silently freed the selected ship
+	# along with every committed plan on it. The destructive
+	# remove_satellite() function is left in place but no input path
+	# fires it; this binding instead drives the same delete/undo
+	# flow X used to carry before we un-overloaded the railgun toggle.
+	if Input.is_action_just_pressed("remove_satellite"):
+		cancel_or_remove_plan()
 	if Input.is_action_just_pressed("toggle_planning"):
 		toggle_planning()
 	if Input.is_action_just_pressed("add_enemies"):
@@ -1009,13 +1012,7 @@ func _process_one_shot_input() -> void:
 		else:
 			_toggle_targeting_mode_on_selected()
 	if Input.is_action_just_pressed("toggle_railgun"):
-		# X is overloaded: in planning mode (or with a row picked
-		# in the plans panel) it acts as the delete / undo key —
-		# remove the selected plan, or scrub the in-progress Δv.
-		# Falls back to the fleet-wide railgun toggle when neither
-		# context applies.
-		if not cancel_or_remove_plan():
-			_toggle_railgun_on_all()
+		_toggle_railgun_on_all()
 	if Input.is_action_just_pressed("toggle_slug_render"):
 		# Visual-only toggle — the simulation has already applied damage
 		# at fire-time. Off ⇒ railguns route through the laser-style
