@@ -979,8 +979,12 @@ func _process_one_shot_input() -> void:
 			select_next_ship()
 	if Input.is_action_just_pressed("add_satellite"):
 		add_satellite()
-	if Input.is_action_just_pressed("remove_satellite"):
-		remove_satellite()
+	# remove_satellite (R) is intentionally not dispatched here. The
+	# action remains bound for any external tooling that wants to
+	# script a teardown, but routing it through gameplay input was a
+	# footgun — a stray R press during planning would silently free
+	# the operator's selected ship, dropping every committed plan on
+	# it. Use the menu or a tool path if a unit needs to come off.
 	if Input.is_action_just_pressed("toggle_planning"):
 		toggle_planning()
 	if Input.is_action_just_pressed("add_enemies"):
@@ -1371,10 +1375,18 @@ func _cycle_selected_ship(direction: int) -> void:
 func select_ship_by_ref(sat: Satellite) -> void:
 	if sat == null:
 		return
+	# In planning mode the HUD roster shows the planning clones (see
+	# `satellites` getter) and hands their refs to friendly_clicked.
+	# Translate by index — planning_satellites[i] mirrors
+	# real_satellites[i] — so a click on a planning preview's tile
+	# still picks the right live ship out of real_satellites below.
 	var idx := real_satellites.find(sat)
 	if idx < 0:
+		idx = planning_satellites.find(sat)
+	if idx < 0 or idx >= real_satellites.size():
 		return
-	if sat.team != Satellite.TEAM_PLAYER:
+	var real_sat := real_satellites[idx]
+	if real_sat.team != Satellite.TEAM_PLAYER:
 		return
 	if idx == selected_ship and planning_mode:
 		# Already selected and previewing — clicking again shouldn't
@@ -1383,7 +1395,7 @@ func select_ship_by_ref(sat: Satellite) -> void:
 	if not real_satellites.is_empty():
 		real_satellites[selected_ship].unselect()
 	selected_ship = idx
-	real_satellites[selected_ship].select()
+	real_sat.select()
 	# Picking a unit from the roster opens the planning preview for
 	# that unit. If the operator's already in planning mode the call
 	# is a no-op past the selection swap; otherwise it pauses the sim
