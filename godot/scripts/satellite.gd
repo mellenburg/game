@@ -863,6 +863,13 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 	if is_planning_preview and not has_planned_maneuver:
 		path_visual.visible = false
 		return
+	# Past every hide branch — the path should be on screen this tick.
+	# render_orbit is the single place that toggles visibility, so we
+	# need to flip it back on explicitly: a previous frame may have
+	# parked the visual at false (no-maneuver planning preview, dead /
+	# surface sat, etc.) and OrbitalPath.update_orbit doesn't touch
+	# visibility on its own.
+	path_visual.visible = true
 	# Refresh the enemy path tint from the live ETA gradient so the 3D
 	# ribbon tracks the same yellow → red ramp the HUD enemy boxes use.
 	# Cheap: render_orbit is already throttled to the orbit-render
