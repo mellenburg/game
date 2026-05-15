@@ -48,6 +48,10 @@ const COLOR_SELECTED := Color(0.15, 0.7, 0.5)
 # Tab-selected while an asteroid is grid-highlighted at the same time.
 const COLOR_HIGHLIGHTED := Color.WHITE
 const COLOR_PLAYER := Color(0.4, 0.6, 1.0)
+# Bright neon blue — exclusively used for planning-preview orbits, so
+# the projection of a future maneuver is unmistakable against the
+# duller blue of the live (real) trajectory it forks off from.
+const COLOR_PLANNING_PREVIEW := Color(0.20, 0.85, 1.0)
 const COLOR_ENEMY := Color(1.0, 0.35, 0.35)
 const COLOR_ASTEROID := Color(1.0, 0.85, 0.4)
 const COLOR_DECAYING := Color(0.95, 0.45, 0.95)
@@ -94,6 +98,17 @@ const ENEMY_PATH_ALPHA_MAX: float = 1.0
 # off their own roster. Use a constant readable thickness + full
 # opacity so the operator's own orbits stay legible.
 const PLAYER_PATH_WIDTH_PX: float = 1.5
+# Planning previews draw a touch thicker than the live trajectory so
+# they read clearly through the dull-blue live orbit they overlap.
+# Still narrower than the selection bump so the operator can layer
+# the two cues — neon-blue width 2 for "this is a projection",
+# selected-width 3 for "this is the unit I'm steering".
+const PLANNING_PATH_WIDTH_PX: float = 2.0
+# Width the selected satellite's orbit line is drawn at — twice the
+# default player path so an overlap between the live and planning
+# trajectories doesn't visually swallow the line the operator is
+# actively steering.
+const SELECTED_PATH_WIDTH_PX: float = 3.0
 # Surface installations: yellow-green tint, distinct from the orbital
 # blue + selected green so a glance at the 3D view (or the in-game HUD
 # roster) tells the player which units are anchored to the ground.
@@ -396,6 +411,18 @@ var path_visual: OrbitalPath
 # the underlying tint.
 var _path_color_base: Color = COLOR_PLAYER
 var _path_alpha: float = 1.0
+# Base path thickness derived from team / HP / preview state, written
+# by _apply_path_style and read by _apply_path_width. The visible
+# width applied to the OrbitalPath is the larger of this and the
+# SELECTED_PATH_WIDTH_PX bump when `selected` is true.
+var _base_path_width: float = PLAYER_PATH_WIDTH_PX
+# Planning-preview marker. Set true on every Satellite living in
+# `planning_satellites`, false on the live `real_satellites` copies.
+# Drives path color (neon blue override in _apply_path_color) and
+# base width (PLANNING_PATH_WIDTH_PX in _apply_path_style). Survives
+# clone_orbit_from since the preview-vs-real distinction is a property
+# of the container, not the orbit state being synced from.
+var is_planning_preview: bool = false
 
 
 func _init() -> void:
@@ -473,12 +500,14 @@ func select() -> void:
 	selected = true
 	_apply_color()
 	_apply_path_color()
+	_apply_path_width()
 
 
 func unselect() -> void:
 	selected = false
 	_apply_color()
 	_apply_path_color()
+	_apply_path_width()
 
 
 func highlight() -> void:
@@ -1151,7 +1180,13 @@ func _apply_path_color() -> void:
 	if path_visual == null:
 		return
 	var rgb: Color
-	if highlighted:
+	if is_planning_preview:
+		# Neon-blue wins over both highlight and selection on planning
+		# previews — the live sat next to it carries the green-selected
+		# / white-highlighted cues, so the projection stays
+		# unambiguously colour-coded as a projection.
+		rgb = COLOR_PLANNING_PREVIEW
+	elif highlighted:
 		rgb = COLOR_HIGHLIGHTED
 	elif selected:
 		rgb = COLOR_SELECTED
@@ -1159,6 +1194,18 @@ func _apply_path_color() -> void:
 		rgb = _path_color_base
 	rgb.a = _path_alpha
 	path_visual.color = rgb
+
+
+# Pick the visible line width based on selection. Selected sats get a
+# noticeable bump so an overlap between the live and planning
+# trajectories doesn't visually swallow the unit the operator is
+# steering. Called from select/unselect and from _apply_path_style
+# after the base width is recomputed.
+func _apply_path_width() -> void:
+	if path_visual == null:
+		return
+	var w: float = SELECTED_PATH_WIDTH_PX if selected else _base_path_width
+	path_visual.line_width_px = w
 
 
 ## Yellow → red tint for this body's orbit / status overlay, keyed by
@@ -1203,14 +1250,16 @@ func _apply_path_style() -> void:
 	var alpha: float
 	if is_deflected:
 		_path_color_base = COLOR_DEFLECTED
-		path_visual.line_width_px = ENEMY_PATH_WIDTH_MIN_PX
+		_base_path_width = ENEMY_PATH_WIDTH_MIN_PX
 		_path_alpha = 0.85
+		_apply_path_width()
 		_apply_path_color()
 		return
 	if is_stable_orbit:
 		_path_color_base = COLOR_STABLE
-		path_visual.line_width_px = ENEMY_PATH_WIDTH_MIN_PX
+		_base_path_width = ENEMY_PATH_WIDTH_MIN_PX
 		_path_alpha = 0.85
+		_apply_path_width()
 		_apply_path_color()
 		return
 	if team == TEAM_ENEMY:
@@ -1231,10 +1280,14 @@ func _apply_path_style() -> void:
 			ENEMY_PATH_ALPHA_MIN, ENEMY_PATH_ALPHA_MAX, hp_norm
 		)
 	else:
-		width = PLAYER_PATH_WIDTH_PX
+		# Planning previews carry a slightly fatter base width so the
+		# neon-blue projection still reads against the live trajectory
+		# even before the selection bump kicks in.
+		width = PLANNING_PATH_WIDTH_PX if is_planning_preview else PLAYER_PATH_WIDTH_PX
 		alpha = 1.0
 		_path_color_base = COLOR_PLAYER
-	path_visual.line_width_px = width
+	_base_path_width = width
+	_apply_path_width()
 	_path_alpha = alpha
 	_apply_path_color()
 

@@ -1344,6 +1344,11 @@ func toggle_planning() -> void:
 	_clear_planning()
 	for sat in real_satellites:
 		var clone := Satellite.new()
+		# Flag the clone before clone_from so _apply_path_style fires
+		# with the preview path width / colour baked in on first
+		# render. clone_orbit_from doesn't copy this flag back from the
+		# real sat, so the marker survives every per-tick re-sync.
+		clone.is_planning_preview = true
 		planning_container.add_child(clone)
 		clone.clone_from(sat)
 		planning_satellites.append(clone)
@@ -1610,6 +1615,11 @@ func _apply_due_plans() -> void:
 func _sync_planning_to_reality() -> void:
 	while planning_satellites.size() < real_satellites.size():
 		var clone := Satellite.new()
+		# Mirror toggle_planning's tagging — every Satellite in the
+		# planning container is a projection, never a live unit, so
+		# the neon-blue path styling holds regardless of which code
+		# path created the clone.
+		clone.is_planning_preview = true
 		planning_container.add_child(clone)
 		clone.clone_from(real_satellites[planning_satellites.size()])
 		planning_satellites.append(clone)
