@@ -1580,10 +1580,13 @@ func commit_current_plan() -> void:
 		selected_plan_index = -1
 	else:
 		committed_plans.append(new_plan)
-	# Wipe the in-progress state so the next arrow-key press starts a
-	# fresh plan rather than stacking onto the one we just committed.
+	# Clear the in-progress kick so a follow-up arrow press starts a
+	# fresh plan rather than stacking onto the one we just locked in.
+	# planning_dt is intentionally kept where the operator left it —
+	# the scrub now sits at the just-committed burn point, and the
+	# next chain pass walks the committed list (this plan included)
+	# so the freshly-locked projection stays on screen.
 	_planning_dv = Vector3.ZERO
-	planning_dt = 0
 
 
 # Cancel/uncommit dispatch — wired to the cancel_plan input.
