@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=19 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/mass_center_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/mass_center.gd" id="2_mass_center"]
@@ -16,6 +16,7 @@
 [ext_resource type="Script" path="res://scripts/slug_renderer.gd" id="14_slugs"]
 [ext_resource type="Script" path="res://scripts/tessellation_grid.gd" id="15_tess"]
 [ext_resource type="Script" path="res://scripts/hp_bar.gd" id="16_hp_bar"]
+[ext_resource type="Script" path="res://scripts/plans_list.gd" id="17_plans_list"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_asteroid_panel"]
 bg_color = Color(0.04, 0.05, 0.08, 0.78)
@@ -268,6 +269,20 @@ offset_right = -10.0
 offset_bottom = -10.0
 mouse_filter = 2
 script = ExtResource("10_radar_map")
+
+[node name="PlansList" type="Control" parent="CanvasLayer/HUD"]
+visible = false
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -446.0
+offset_top = -388.0
+offset_right = -10.0
+offset_bottom = -10.0
+script = ExtResource("17_plans_list")
 
 [node name="ThreatAlert" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1

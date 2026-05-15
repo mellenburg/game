@@ -23,6 +23,7 @@ const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 const RangeCircle = preload("res://scripts/range_circle.gd")
+const PlansList = preload("res://scripts/plans_list.gd")
 const SpawnDirector = preload("res://scripts/spawn_director.gd")
 const CombatController = preload("res://scripts/combat_controller.gd")
 const Mission = preload("res://scripts/mission.gd")
@@ -38,8 +39,21 @@ const Launch = preload("res://scripts/launch.gd")
 
 const TIME_FACTOR_MIN: int = 0
 const TIME_FACTOR_MAX: int = 5000
-const TIME_FACTOR_RATE: int = 60       # changes per second while held
+const TIME_FACTOR_RATE: int = 400      # changes per second while held
 const PLANNING_DT_MAX: int = 86400 * 7  # one week of plan window
+# Planning-dt scrub speed scales with the current window so the operator
+# can hold Q/E and walk through close-in seconds at human granularity,
+# then accelerate naturally into hour- and day-long horizons. At dt=0
+# the rate matches TIME_FACTOR_RATE; at dt=300 it's doubled, at
+# dt=86400 it's ~290× — sweeping a full week of plan in a few seconds.
+const PLANNING_DT_SCALE: float = 300.0
+# Local-frame Δv (km/s) added to the queued planning maneuver per
+# wall-clock second a thrust key is held. Matches the per-second burn
+# the live sim applies at the 30 Hz physics tick (DELTA_V_MAGNITUDE *
+# physics_ticks_per_second), so a player holding an arrow key for one
+# second in planning mode previews the same delta as one second of
+# real-time thrust at default time factor.
+const PLANNING_DV_RATE_KMS: float = 1.5
 
 # Engagement-range adjustment rate while shift+up/down is held. Sized
 # so an operator can sweep the full settable band (MIN_ENGAGEMENT_RANGE
@@ -56,6 +70,21 @@ const MAX_RADIUS_RATE_KM_PER_SEC: float = 25000.0
 @export var time_factor: int = 300
 var planning_dt: int = 0
 var planning_mode: bool = false
+# Snapshot of time_factor at the moment planning mode was entered.
+# Planning mode is a soft pause: we force time_factor to 0 so the
+# simulation freezes while the operator scrubs planning_dt, then
+# restore the prior speed on exit so the run resumes at the same
+# pace it had before the pause. sim_time naturally lands "back where
+# it was" because time_factor=0 means _physics_process advances it
+# by 0 each tick.
+var _pre_pause_time_factor: int = 0
+# Sticky local-frame Δv the operator has queued for the selected
+# planning satellite. Accumulated by arrow-key input while paused;
+# applied as a single instantaneous kick to the planning preview
+# every physics tick. Cleared on planning-mode entry so each pause
+# starts with a clean slate, and never propagated to real satellites
+# — the projection is read-only.
+var _planning_dv: Vector3 = Vector3.ZERO
 
 # Simulated seconds elapsed since the scene came up. Advanced in
 # _physics_process by sim_delta — same units satellites use for orbital
@@ -169,6 +198,7 @@ var _mission_settings: ReconSettings = null
 @onready var range_circle: RangeCircle = $RangeCircle as RangeCircle
 @onready var impact_map: ImpactMap = $CanvasLayer/HUD/ImpactMap as ImpactMap
 @onready var radar_map: RadarMap = $CanvasLayer/HUD/RadarMap as RadarMap
+@onready var plans_list: PlansList = $CanvasLayer/HUD/PlansList as PlansList
 @onready var threat_alert: ThreatAlert = (
 	$CanvasLayer/HUD/ThreatAlert as ThreatAlert
 )
@@ -177,17 +207,32 @@ var _mission_settings: ReconSettings = null
 )
 
 # Lower-right overlay cycle: surface impact map → wave radar →
-# asteroid inspector → off → ... Driven by the "toggle_impact_map"
-# input (K). Asteroid mode is operator-sticky: the rising / falling
-# wave edge that swings the slot between SURFACE and RADAR is gated on
-# the slot already being in one of those two modes, so a deliberate
-# pick of the asteroid screen survives a fresh threat-detection alert.
+# asteroid inspector → planned maneuvers → off → ... Driven by the
+# "toggle_impact_map" input (K). Asteroid mode is operator-sticky:
+# the rising / falling wave edge that swings the slot between
+# SURFACE and RADAR is gated on the slot already being in one of
+# those two modes, so a deliberate pick of the asteroid screen
+# survives a fresh threat-detection alert.
 const MAP_MODE_SURFACE: int = 0
 const MAP_MODE_RADAR: int = 1
 const MAP_MODE_ASTEROID: int = 2
-const MAP_MODE_OFF: int = 3
-const MAP_MODE_COUNT: int = 4
+const MAP_MODE_PLANS: int = 3
+const MAP_MODE_OFF: int = 4
+const MAP_MODE_COUNT: int = 5
 var map_mode: int = MAP_MODE_SURFACE
+
+# Committed planning maneuvers waiting to fire. Each entry is a
+# Dictionary { "sat": Satellite, "apply_at": float (absolute sim_time),
+# "dv": Vector3 (local frame, km/s), "applied": bool }. The list is
+# kept in commit order so the plans panel renders chronologically by
+# default. Plans are removed once they fire (or once the owning sat
+# dies); the panel reads off this array directly each frame.
+var committed_plans: Array[Dictionary] = []
+# Operator-selected plan from the plans panel (-1 ⇒ no selection). The
+# cancel_plan action in planning mode removes this plan when set, and
+# clears the in-progress _planning_dv otherwise. Reset whenever the
+# list mutates so a stale index never points at a different plan.
+var selected_plan_index: int = -1
 
 # Wall-clock cadence at which orbit visuals get rebuilt. Decoupled from
 # the physics tick: the orbit/trajectory mesh doesn't need to refresh
@@ -216,6 +261,11 @@ func _ready() -> void:
 		# Bound by reference, so the minimap reflects every spawn /
 		# destruction of a surface installation without explicit refresh.
 		impact_map.satellites = real_satellites
+	if plans_list != null:
+		# Bind the controller back-reference so the panel can read
+		# committed_plans / selected_plan_index live and call back into
+		# select_committed_plan when the operator clicks a row.
+		plans_list.controller = self
 	_apply_map_mode()
 
 	spawn_director = SpawnDirector.new()
@@ -367,6 +417,19 @@ func _load_albedo_image() -> Image:
 	return tex.get_image()
 
 
+# Intercept commit_plan before it propagates to the end-game overlay
+# (Enter) when we're actively planning. Consuming the event via
+# set_input_as_handled() prevents that overlay from opening on the
+# same keypress. cancel_or_remove_plan is wired through
+# _process_one_shot_input (X key) instead — polled rather than event-
+# driven because X also drives the fleet-wide railgun toggle.
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed("commit_plan"):
+		if planning_mode and _planning_dv.length_squared() > 0.0 and planning_dt > 0:
+			commit_current_plan()
+			get_viewport().set_input_as_handled()
+
+
 func _process(delta: float) -> void:
 	camera.process_movement(delta)
 	_process_continuous_input(delta)
@@ -452,6 +515,13 @@ func _physics_process(delta: float) -> void:
 	# Convert wall-clock seconds to simulated seconds.
 	var sim_delta := float(time_factor) * delta
 	sim_time += sim_delta
+	# Fire any committed plans whose absolute sim_time has elapsed
+	# before propagating the satellites this tick — the kick lands at
+	# the body's current orbit state, which is the closest approximation
+	# of "apply at the scrub point" we can get without sub-stepping the
+	# physics for each plan. Pause-mode (time_factor=0) skips this
+	# branch naturally since sim_time stops advancing.
+	_apply_due_plans()
 	mass_center.advance_phase(sim_delta)
 	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
@@ -476,23 +546,17 @@ func _physics_process(delta: float) -> void:
 		_sync_planning_to_reality()
 		var window := float(planning_dt)
 		for i in range(planning_satellites.size()):
-			# Snap orbit-state from reality but keep the operator's queued
-			# maneuver. Then advance by planning_dt so the path shows
-			# "where this satellite would be after planning_dt seconds
-			# given the queued thrust".
+			# Compose the preview as a chain: reality → propagate-and-
+			# apply for every committed plan on this ship inside the
+			# scrub window, in chronological order → propagate any
+			# remaining time → apply the in-progress _planning_dv at
+			# the scrub point. That chain makes the planning preview
+			# reflect what the operator has actually queued, so a
+			# second planned burn after an earlier committed one
+			# starts from the post-first-burn trajectory.
 			var plan_sat := planning_satellites[i]
 			plan_sat.clone_orbit_from(real_satellites[i])
-			if plan_sat.orbit_alive and plan_sat.alive and window > 0.0:
-				if plan_sat.is_surface:
-					# Surface installation — extrapolate the planet's
-					# rotation rather than the orbit so the planning
-					# preview shows the unit's future ECI position.
-					var future_phase: float = (
-						mass_center.rotation_phase + mass_center.rotation_rate * window
-					)
-					plan_sat.update_surface_position(future_phase)
-				else:
-					plan_sat.advance_time(window)
+			_run_planning_chain(plan_sat, real_satellites[i], i, window)
 			plan_sat.visible = true
 	else:
 		for sat in planning_satellites:
@@ -583,6 +647,11 @@ func _remove_dead_satellites() -> void:
 			var plan_sat: Satellite = planning_satellites[i]
 			planning_satellites.remove_at(i)
 			plan_sat.queue_free()
+		# Drop any committed plans pointing at the dying ship before
+		# the satellite is freed — committed_plans holds a direct
+		# Satellite reference and the next panel refresh would walk a
+		# freed Object if we didn't sweep it here.
+		_drop_committed_plans_for(sat)
 		real_satellites.remove_at(i)
 		sat.queue_free()
 		if i < selected_ship:
@@ -754,20 +823,43 @@ func _process_continuous_input(delta: float) -> void:
 	# incremented per frame which made the rate framerate-dependent and
 	# unbounded; that drove orbit propagation into NaN within ~30 seconds
 	# of holding Q.
-	var rate := float(TIME_FACTOR_RATE) * delta
-	_time_factor_accum += rate * (
-		(1.0 if Input.is_action_pressed("speed_up") else 0.0)
-		- (1.0 if Input.is_action_pressed("speed_down") else 0.0)
-	)
-	var step_int := int(_time_factor_accum)
-	if step_int != 0:
-		time_factor = clampi(time_factor + step_int, TIME_FACTOR_MIN, TIME_FACTOR_MAX)
-		_time_factor_accum -= float(step_int)
+	#
+	# While paused in planning mode, Q/E (speed_up/speed_down) double as
+	# the planning-dt scrub controls — Q advances the projection, E
+	# rewinds it. time_factor is held at 0 by toggle_planning() until
+	# exit, so we suppress the time-factor accumulator entirely in that
+	# branch; otherwise releasing the keys mid-pause would leave behind
+	# a fractional carry that fires on resume.
+	#
+	# Planning-dt rate scales with the current window (PLANNING_DT_SCALE)
+	# so close-in seconds tick at a granular rate while hour- and
+	# day-long horizons sweep past quickly under one continuous press.
+	if planning_mode:
+		var planning_rate := (
+			float(TIME_FACTOR_RATE)
+			* (1.0 + float(planning_dt) / PLANNING_DT_SCALE)
+		)
+		_planning_dt_accum += planning_rate * delta * (
+			(1.0 if Input.is_action_pressed("speed_up") else 0.0)
+			- (1.0 if Input.is_action_pressed("speed_down") else 0.0)
+			+ (1.0 if Input.is_action_pressed("planning_advance") else 0.0)
+			- (1.0 if Input.is_action_pressed("planning_retard") else 0.0)
+		)
+	else:
+		var rate := float(TIME_FACTOR_RATE) * delta
+		_time_factor_accum += rate * (
+			(1.0 if Input.is_action_pressed("speed_up") else 0.0)
+			- (1.0 if Input.is_action_pressed("speed_down") else 0.0)
+		)
+		var step_int := int(_time_factor_accum)
+		if step_int != 0:
+			time_factor = clampi(time_factor + step_int, TIME_FACTOR_MIN, TIME_FACTOR_MAX)
+			_time_factor_accum -= float(step_int)
 
-	_planning_dt_accum += rate * (
-		(1.0 if Input.is_action_pressed("planning_advance") else 0.0)
-		- (1.0 if Input.is_action_pressed("planning_retard") else 0.0)
-	)
+		_planning_dt_accum += rate * (
+			(1.0 if Input.is_action_pressed("planning_advance") else 0.0)
+			- (1.0 if Input.is_action_pressed("planning_retard") else 0.0)
+		)
 	var dt_step := int(_planning_dt_accum)
 	if dt_step != 0:
 		planning_dt = clampi(planning_dt + dt_step, 0, PLANNING_DT_MAX)
@@ -777,17 +869,40 @@ func _process_continuous_input(delta: float) -> void:
 	# operator-controlled, so refuse thrust input on them; a stale
 	# selection pointing at an enemy after a player ship died just means
 	# the keys do nothing this frame.
-	var target_satellites: Array[Satellite] = (
-		planning_satellites if planning_mode else real_satellites
-	)
+	#
+	# In planning mode we accumulate into a sticky local-frame Δv on the
+	# controller instead of round-tripping through the planning sat's
+	# raw_maneuver field — the planning sat gets its orbit re-cloned
+	# from reality every physics tick, and advance_time consumes
+	# raw_maneuver, so a tap-then-release would otherwise erase the
+	# preview the operator just queued. The accumulator persists for
+	# the duration of the pause and is cleared on entry/exit by
+	# _clear_planning.
 	var idx := planning_selected if planning_mode else selected_ship
-	if not target_satellites.is_empty() and idx >= 0 and idx < target_satellites.size():
-		var sat := target_satellites[idx]
-		# Surface installations are anchored to Earth's surface — thrust
-		# inputs are silently ignored on them, otherwise the queued Δv
-		# would land in raw_maneuver and confuse the planning preview.
-		if sat.team == Satellite.TEAM_PLAYER and not sat.is_surface:
-			sat.set_maneuver(thrust)
+	if planning_mode:
+		var pool := planning_satellites
+		if (
+			not pool.is_empty()
+			and idx >= 0
+			and idx < pool.size()
+			and thrust.length_squared() > 0.0
+		):
+			var plan_sat := pool[idx]
+			if plan_sat.team == Satellite.TEAM_PLAYER and not plan_sat.is_surface:
+				_planning_dv += thrust * (PLANNING_DV_RATE_KMS * delta)
+	else:
+		if (
+			not real_satellites.is_empty()
+			and idx >= 0
+			and idx < real_satellites.size()
+		):
+			var sat := real_satellites[idx]
+			# Surface installations are anchored to Earth's surface —
+			# thrust inputs are silently ignored on them, otherwise the
+			# queued Δv would land in raw_maneuver and confuse the
+			# planning preview.
+			if sat.team == Satellite.TEAM_PLAYER and not sat.is_surface:
+				sat.set_maneuver(thrust)
 
 	# Engagement-range nudge. Always written to the *real* satellite —
 	# the planning clone is overwritten from reality every physics tick
@@ -853,11 +968,26 @@ func _process_continuous_input(delta: float) -> void:
 
 func _process_one_shot_input() -> void:
 	if Input.is_action_just_pressed("select_next"):
-		select_next_ship()
+		# Shift+Tab walks the player roster backwards. Same action
+		# binding either way — branch on modifier rather than adding
+		# a second key event with shift_pressed=true, since plain Tab
+		# would still fire under exact-match-off semantics and we'd
+		# end up driving both directions on the same press.
+		if Input.is_key_pressed(KEY_SHIFT):
+			select_prev_ship()
+		else:
+			select_next_ship()
 	if Input.is_action_just_pressed("add_satellite"):
 		add_satellite()
+	# R is now the plan-cancel / plan-remove key. The action binding
+	# was previously routed to remove_satellite — a footgun during
+	# planning, since a stray press silently freed the selected ship
+	# along with every committed plan on it. The destructive
+	# remove_satellite() function is left in place but no input path
+	# fires it; this binding instead drives the same delete/undo
+	# flow X used to carry before we un-overloaded the railgun toggle.
 	if Input.is_action_just_pressed("remove_satellite"):
-		remove_satellite()
+		cancel_or_remove_plan()
 	if Input.is_action_just_pressed("toggle_planning"):
 		toggle_planning()
 	if Input.is_action_just_pressed("add_enemies"):
@@ -1040,6 +1170,8 @@ func _apply_map_mode() -> void:
 		radar_map.visible = (map_mode == MAP_MODE_RADAR)
 	if hud != null and hud.asteroid_panel != null:
 		hud.asteroid_panel.visible = (map_mode == MAP_MODE_ASTEROID)
+	if plans_list != null:
+		plans_list.visible = (map_mode == MAP_MODE_PLANS)
 
 
 # Auto-switch the lower-right overlay around incoming-wave and grid-
@@ -1194,66 +1326,123 @@ func remove_satellite() -> void:
 		real_satellites[selected_ship].select()
 
 
-# Cycle through *player* ships only — enemies aren't operator-targets.
-# HUD roster click handler. Selects the clicked friendly satellite by
-# locating it in the active array (planning vs real). Silent no-op if
-# the ref is stale, the unit isn't a player team member, or it's
-# already selected — same idiom as Tab cycling.
+# HUD roster click handler. Routes through select_ship_by_ref so a
+# click does everything Tab does — highlight the unit, open planning
+# mode if not already paused, sync the planning preview — instead of
+# only mutating selection state.
 func _on_friendly_clicked(sat: Satellite) -> void:
-	if sat == null or not is_instance_valid(sat):
-		return
-	if sat.team != Satellite.TEAM_PLAYER:
-		return
-	if planning_mode:
-		var idx := planning_satellites.find(sat)
-		if idx < 0 or idx == planning_selected:
-			return
-		if planning_selected < planning_satellites.size():
-			planning_satellites[planning_selected].unselect()
-		planning_selected = idx
-		planning_satellites[planning_selected].select()
-		return
-	var idx := real_satellites.find(sat)
-	if idx < 0 or idx == selected_ship:
-		return
-	if selected_ship < real_satellites.size():
-		real_satellites[selected_ship].unselect()
-	selected_ship = idx
-	real_satellites[selected_ship].select()
+	select_ship_by_ref(sat)
 
 
+# Cycle forward through *player* ships only — enemies aren't
+# operator-targets. Tab fires this; Shift+Tab calls select_prev_ship().
 func select_next_ship() -> void:
+	_cycle_selected_ship(1)
+
+
+# Reverse-cycle through player ships. Wired to Shift+Tab via the same
+# action — the dispatcher in _process_one_shot_input chooses direction
+# based on Shift state so we don't need a separate input binding.
+func select_prev_ship() -> void:
+	_cycle_selected_ship(-1)
+
+
+# Step `direction` (±1) through real_satellites, skipping non-player
+# bodies, and apply the selection-change side effects (planning sync,
+# planning dv drop) shared by Tab / Shift+Tab.
+func _cycle_selected_ship(direction: int) -> void:
 	if real_satellites.is_empty():
 		return
 	var n := real_satellites.size()
 	var start := selected_ship
 	for offset in range(1, n + 1):
-		var i: int = (start + int(offset)) % n
+		var i: int = posmod(start + direction * int(offset), n)
 		if real_satellites[i].team == Satellite.TEAM_PLAYER:
 			real_satellites[selected_ship].unselect()
 			selected_ship = i
 			real_satellites[selected_ship].select()
 			break
+	_after_selection_changed()
+
+
+# Select the ship matching `sat` (reference equality against
+# real_satellites). Same selection-change side effects as the Tab
+# cycle — applies the highlight, syncs planning, and drops the
+# queued planning Δv. Used by the unit-roster click handler.
+func select_ship_by_ref(sat: Satellite) -> void:
+	if sat == null:
+		return
+	# In planning mode the HUD roster shows the planning clones (see
+	# `satellites` getter) and hands their refs to friendly_clicked.
+	# Translate by index — planning_satellites[i] mirrors
+	# real_satellites[i] — so a click on a planning preview's tile
+	# still picks the right live ship out of real_satellites below.
+	var idx := real_satellites.find(sat)
+	if idx < 0:
+		idx = planning_satellites.find(sat)
+	if idx < 0 or idx >= real_satellites.size():
+		return
+	var real_sat := real_satellites[idx]
+	if real_sat.team != Satellite.TEAM_PLAYER:
+		return
+	if idx == selected_ship and planning_mode:
+		# Already selected and previewing — clicking again shouldn't
+		# clobber the in-progress planning Δv.
+		return
+	if not real_satellites.is_empty():
+		real_satellites[selected_ship].unselect()
+	selected_ship = idx
+	real_sat.select()
+	# Picking a unit from the roster opens the planning preview for
+	# that unit. If the operator's already in planning mode the call
+	# is a no-op past the selection swap; otherwise it pauses the sim
+	# and clones the current fleet into planning satellites.
+	if not planning_mode:
+		toggle_planning()
+	_after_selection_changed()
+
+
+func _after_selection_changed() -> void:
 	if planning_mode and not planning_satellites.is_empty():
 		planning_satellites[planning_selected].unselect()
 		planning_selected = clampi(selected_ship, 0, planning_satellites.size() - 1)
 		planning_satellites[planning_selected].select()
+		# Drop any queued planning Δv when the selection moves — the dv
+		# is staged for one ship at a time, and silently re-applying it
+		# to whichever ship the new selection lands on would be a footgun.
+		_planning_dv = Vector3.ZERO
+		# Re-entering the panel from a different ship clears the
+		# previously-highlighted plan so cancel doesn't accidentally
+		# delete the wrong entry.
+		selected_plan_index = -1
 
 
 func toggle_planning() -> void:
 	if planning_mode:
 		planning_mode = false
 		_clear_planning()
+		# Drop the panel highlight on the way out — re-entering
+		# planning mode opens with no plan loaded, matching the panel
+		# rendering (no row painted as selected).
+		selected_plan_index = -1
+		time_factor = _pre_pause_time_factor
 		return
 	_clear_planning()
 	for sat in real_satellites:
 		var clone := Satellite.new()
+		# Flag the clone before clone_from so _apply_path_style fires
+		# with the preview path width / colour baked in on first
+		# render. clone_orbit_from doesn't copy this flag back from the
+		# real sat, so the marker survives every per-tick re-sync.
+		clone.is_planning_preview = true
 		planning_container.add_child(clone)
 		clone.clone_from(sat)
 		planning_satellites.append(clone)
 	planning_selected = clampi(selected_ship, 0, maxi(planning_satellites.size() - 1, 0))
 	if not planning_satellites.is_empty():
 		planning_satellites[planning_selected].select()
+	_pre_pause_time_factor = time_factor
+	time_factor = 0
 	planning_mode = true
 
 
@@ -1262,6 +1451,270 @@ func _clear_planning() -> void:
 		sat.queue_free()
 	planning_satellites.clear()
 	planning_dt = 0
+	# Drop any partial accumulator carry from the previous session so the
+	# next pause starts cleanly at planning_dt = 0 instead of jumping by
+	# whatever fractional step was sitting in the bucket.
+	_planning_dt_accum = 0.0
+	# Discard the queued planning-mode Δv so the next pause opens with
+	# the satellite's real trajectory, not a phantom maneuver staged
+	# during a previous pause.
+	_planning_dv = Vector3.ZERO
+
+
+# Advance the planning satellite from "now" through every committed
+# plan that fires inside the scrub window, applying each Δv at its
+# absolute sim_time, then propagating any tail to the scrub point and
+# finally applying the in-progress _planning_dv (selected ship only).
+# Surface installations skip the orbit-chain branch and just rotate
+# their phase forward.
+func _run_planning_chain(
+	plan_sat: Satellite, real_sat: Satellite, sat_idx: int, window: float
+) -> void:
+	# Default: this preview is identical to the live trajectory until a
+	# maneuver actually lands. The has_planned_maneuver flag drives both
+	# the path colour (neon blue) and the path-suppression branch in
+	# render_orbit, so resetting it here keeps an un-queued unit's
+	# planning preview invisible.
+	var maneuver_applied: bool = false
+	if not plan_sat.alive or not plan_sat.orbit_alive:
+		plan_sat.has_planned_maneuver = maneuver_applied
+		return
+	if plan_sat.is_surface:
+		if window > 0.0:
+			var future_phase: float = (
+				mass_center.rotation_phase + mass_center.rotation_rate * window
+			)
+			plan_sat.update_surface_position(future_phase)
+		# Surface previews can never carry a maneuver; flag stays false
+		# and the planning path-suppression branch in render_orbit
+		# keeps the preview line off.
+		plan_sat.has_planned_maneuver = maneuver_applied
+		return
+	# Gather plans owned by this ship that fire inside the scrub
+	# window, sorted by burn time. The plan currently selected in the
+	# panel is skipped because _planning_dv already represents it —
+	# applying both would double-fire that maneuver.
+	var ordered: Array[Dictionary] = []
+	for j in range(committed_plans.size()):
+		if j == selected_plan_index:
+			continue
+		var plan: Dictionary = committed_plans[j]
+		if plan.get("sat") != real_sat:
+			continue
+		var apply_at: float = float(plan.get("apply_at", INF))
+		var lead: float = apply_at - sim_time
+		if lead <= 0.0 or lead > window:
+			continue
+		ordered.append(plan)
+	ordered.sort_custom(
+		func(a: Dictionary, b: Dictionary) -> bool:
+			return float(a["apply_at"]) < float(b["apply_at"])
+	)
+	var t_done: float = 0.0
+	for plan in ordered:
+		var lead: float = float(plan["apply_at"]) - sim_time
+		var step: float = lead - t_done
+		if step > 0.0:
+			plan_sat.advance_time(step)
+			t_done += step
+		if not plan_sat.orbit_alive or not plan_sat.alive:
+			plan_sat.has_planned_maneuver = maneuver_applied
+			return
+		var dv: Vector3 = plan.get("dv", Vector3.ZERO)
+		if dv.length_squared() > 0.0:
+			if not plan_sat.orbit.relative_maneuver(
+				dv, 0.0, Satellite.safe_periapsis_km()
+			):
+				plan_sat.orbit_alive = false
+				plan_sat.has_planned_maneuver = maneuver_applied
+				return
+			maneuver_applied = true
+	var remaining: float = window - t_done
+	if remaining > 0.0:
+		plan_sat.advance_time(remaining)
+	if (
+		plan_sat.orbit_alive and plan_sat.alive
+		and sat_idx == planning_selected
+		and _planning_dv.length_squared() > 0.0
+		and plan_sat.team == Satellite.TEAM_PLAYER
+	):
+		if not plan_sat.orbit.relative_maneuver(
+			_planning_dv, 0.0, Satellite.safe_periapsis_km()
+		):
+			plan_sat.orbit_alive = false
+		else:
+			maneuver_applied = true
+	# Push the flag — the setter rebuilds the path style if the value
+	# changed, so the neon-blue tint / fatter width appears on the
+	# same physics tick that landed the maneuver.
+	plan_sat.has_planned_maneuver = maneuver_applied
+
+
+# Snapshot the in-progress plan (selected ship, planning_dt, _planning_dv)
+# into committed_plans so it fires when the sim clock reaches the burn
+# point. Resets the in-progress queue so the operator can immediately
+# stage another maneuver from the same scrub point. No-op if there's
+# nothing to commit — silent failure rather than spurious empty plans
+# in the panel.
+func commit_current_plan() -> void:
+	if not planning_mode:
+		return
+	if _planning_dv.length_squared() <= 0.0:
+		return
+	if planning_dt <= 0:
+		return
+	if real_satellites.is_empty():
+		return
+	if planning_selected < 0 or planning_selected >= real_satellites.size():
+		return
+	var sat := real_satellites[planning_selected]
+	if sat.team != Satellite.TEAM_PLAYER or sat.is_surface:
+		return
+	var new_plan: Dictionary = {
+		"sat": sat,
+		"apply_at": sim_time + float(planning_dt),
+		"dv": _planning_dv,
+		"applied": false,
+	}
+	# If the operator pulled an existing plan into the in-progress
+	# state (click in the plans panel) and is now committing again,
+	# treat that as an edit-in-place rather than a duplicate — the
+	# panel would otherwise grow a new row every time they nudged a
+	# previously-committed maneuver.
+	if (
+		selected_plan_index >= 0
+		and selected_plan_index < committed_plans.size()
+	):
+		committed_plans[selected_plan_index] = new_plan
+		selected_plan_index = -1
+	else:
+		committed_plans.append(new_plan)
+	# Clear the in-progress kick so a follow-up arrow press starts a
+	# fresh plan rather than stacking onto the one we just locked in.
+	# planning_dt is intentionally kept where the operator left it —
+	# the scrub now sits at the just-committed burn point, and the
+	# next chain pass walks the committed list (this plan included)
+	# so the freshly-locked projection stays on screen.
+	_planning_dv = Vector3.ZERO
+
+
+# Cancel/uncommit dispatch — wired to the cancel_plan input.
+# Behaviour by context:
+#   * A committed plan is highlighted in the plans panel: drop it.
+#   * Planning mode is active with a non-empty queue: clear the queue.
+#   * Otherwise: no-op (the pause menu's Backspace binding fires via
+#     its own _unhandled_input path).
+# Returns true if the action consumed the input so the dispatcher can
+# stop event propagation and the pause menu doesn't open on the same
+# keypress.
+func cancel_or_remove_plan() -> bool:
+	if selected_plan_index >= 0 and selected_plan_index < committed_plans.size():
+		committed_plans.remove_at(selected_plan_index)
+		selected_plan_index = -1
+		# Drop the loaded preview Δv so the orbit snaps back to its
+		# un-maneuvered trajectory immediately. planning_dt is left as
+		# is so the operator stays scrubbed to roughly the same point
+		# in time and can keep planning from there.
+		_planning_dv = Vector3.ZERO
+		return true
+	if planning_mode and _planning_dv.length_squared() > 0.0:
+		_planning_dv = Vector3.ZERO
+		planning_dt = 0
+		return true
+	return false
+
+
+# Plans panel click handler. Loads the chosen plan back into the
+# in-progress state so the planning preview redraws against the
+# committed maneuver — same view the operator saw at commit time.
+# Snaps planning_dt to the plan's lead time and selects the plan's
+# owning ship; works whether or not the sim is currently paused
+# (entering planning mode if not).
+func select_committed_plan(index: int) -> void:
+	if index < 0 or index >= committed_plans.size():
+		return
+	var plan: Dictionary = committed_plans[index]
+	var sat: Satellite = plan.get("sat")
+	if sat == null or not sat.alive:
+		# Owning ship is gone — drop the orphan and bail rather than
+		# trying to render a preview against a freed Satellite.
+		committed_plans.remove_at(index)
+		selected_plan_index = -1
+		return
+	if not planning_mode:
+		toggle_planning()
+	var sat_idx := real_satellites.find(sat)
+	if sat_idx < 0:
+		committed_plans.remove_at(index)
+		selected_plan_index = -1
+		return
+	if planning_selected >= 0 and planning_selected < planning_satellites.size():
+		planning_satellites[planning_selected].unselect()
+	selected_ship = sat_idx
+	planning_selected = clampi(sat_idx, 0, planning_satellites.size() - 1)
+	if planning_selected < planning_satellites.size():
+		planning_satellites[planning_selected].select()
+	_planning_dv = plan.get("dv", Vector3.ZERO)
+	planning_dt = clampi(
+		int(round(float(plan.get("apply_at", sim_time)) - sim_time)),
+		0, PLANNING_DT_MAX,
+	)
+	selected_plan_index = index
+
+
+# Sweep committed_plans, dropping any entry that targets `dying_sat`.
+# Called from _remove_dead_satellites before the sat is queue_free'd
+# so the panel never reads a freed Object reference. Selection cursor
+# slides down to match the new indices, or clears entirely if the
+# selected plan was the one removed.
+func _drop_committed_plans_for(dying_sat: Satellite) -> void:
+	var i := 0
+	while i < committed_plans.size():
+		if committed_plans[i].get("sat") == dying_sat:
+			committed_plans.remove_at(i)
+			if selected_plan_index == i:
+				selected_plan_index = -1
+				_planning_dv = Vector3.ZERO
+			elif selected_plan_index > i:
+				selected_plan_index -= 1
+		else:
+			i += 1
+
+
+# Sweep committed_plans, applying any plan whose sim_time has elapsed.
+# Called from _physics_process before the per-sat advance so the kick
+# affects the same tick's propagation. Drops plans owned by dead /
+# missing sats so the panel never holds orphaned entries.
+func _apply_due_plans() -> void:
+	var i := 0
+	while i < committed_plans.size():
+		var plan: Dictionary = committed_plans[i]
+		var sat: Satellite = plan.get("sat")
+		if sat == null or not sat.alive or not sat.orbit_alive or sat.is_surface:
+			# Owner died (combat / impact) — drop the orphan and shift
+			# the selection cursor down so the panel highlight tracks.
+			committed_plans.remove_at(i)
+			if selected_plan_index == i:
+				selected_plan_index = -1
+			elif selected_plan_index > i:
+				selected_plan_index -= 1
+			continue
+		var apply_at: float = float(plan.get("apply_at", INF))
+		if sim_time < apply_at:
+			i += 1
+			continue
+		var dv: Vector3 = plan.get("dv", Vector3.ZERO)
+		if dv.length_squared() > 0.0:
+			if not sat.orbit.relative_maneuver(
+				dv, 0.0, Satellite.safe_periapsis_km()
+			):
+				sat.orbit_alive = false
+			sat.invalidate_impact_cache()
+		committed_plans.remove_at(i)
+		if selected_plan_index == i:
+			selected_plan_index = -1
+		elif selected_plan_index > i:
+			selected_plan_index -= 1
 
 
 # Keep planning_satellites length matched to real_satellites. add/remove
@@ -1270,6 +1723,11 @@ func _clear_planning() -> void:
 func _sync_planning_to_reality() -> void:
 	while planning_satellites.size() < real_satellites.size():
 		var clone := Satellite.new()
+		# Mirror toggle_planning's tagging — every Satellite in the
+		# planning container is a projection, never a live unit, so
+		# the neon-blue path styling holds regardless of which code
+		# path created the clone.
+		clone.is_planning_preview = true
 		planning_container.add_child(clone)
 		clone.clone_from(real_satellites[planning_satellites.size()])
 		planning_satellites.append(clone)
