@@ -34,7 +34,7 @@ class _MarkerLayer extends Control:
 	const _Tracker = preload("res://scripts/impact_tracker.gd")
 	const _Physics = preload("res://scripts/asteroid_physics.gd")
 	var tracker: _Tracker = null
-	# Bound to EarthSystem.real_satellites; the layer filters for
+	# Bound to MassCenterSystem.real_satellites; the layer filters for
 	# is_surface each draw call so newly-placed or destroyed surface
 	# installations show up without any signal plumbing. Plain Array
 	# typing because the inner class can't reach the outer file's typed-
@@ -202,7 +202,7 @@ var tracker: ImpactTracker:
 		tracker = value
 		if _marker_layer != null:
 			_marker_layer.tracker = value
-# Reference to the live game's satellite list. Bound from EarthSystem
+# Reference to the live game's satellite list. Bound from MassCenterSystem
 # at _ready; the marker layer filters for is_surface each draw call.
 var satellites: Array[Satellite] = []:
 	set(value):

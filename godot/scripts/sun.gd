@@ -10,7 +10,7 @@ extends Node3D
 ## constant so a single edit moves both the lit hemisphere and the
 ## visible disc.
 
-const Earth = preload("res://scripts/earth.gd")
+const MassCenter = preload("res://scripts/mass_center.gd")
 const LosCheck = preload("res://scripts/los_check.gd")
 
 # Direction from Earth toward the sun, in world (ECI) coordinates.
@@ -61,5 +61,5 @@ func _ready() -> void:
 ## `viewer_scene_pos` (scene units) to this sun. Used by the lens-flare
 ## overlay to fade ghosts when the sun goes behind the planet.
 func is_occluded(viewer_scene_pos: Vector3) -> bool:
-	var to_km := 1.0 / Earth.SCENE_SCALE
+	var to_km := 1.0 / MassCenter.SCENE_SCALE
 	return LosCheck.is_blocked(viewer_scene_pos * to_km, position * to_km)

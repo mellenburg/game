@@ -1,18 +1,18 @@
 extends "res://tests/framework.gd"
 ## Asteroid trajectory tests. Pure-math: an asteroid is just an
-## EarthOrbit whose periapsis is below Earth's surface. The Satellite
+## MassCenterOrbit whose periapsis is below Earth's surface. The Satellite
 ## entity keys ground-impact off the same propagator, so verifying the
 ## trajectory crosses the surface here covers the gameplay rule.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 
-func _make_inbound() -> EarthOrbit:
+func _make_inbound() -> MassCenterOrbit:
 	# 5000 km altitude, 4 km/s radially inward, 0.5 km/s tangential.
 	# Periapsis ~ tens of km — well below the surface.
-	var r0 := Vector3(EarthOrbit.EARTH_RADIUS_KM + 5000.0, 0.0, 0.0)
+	var r0 := Vector3(MassCenterOrbit.BODY_RADIUS_KM + 5000.0, 0.0, 0.0)
 	var v0 := Vector3(-4.0, 0.5, 0.0)
-	return EarthOrbit.new(r0, v0)
+	return MassCenterOrbit.new(r0, v0)
 
 
 func test_initial_state_valid() -> void:
@@ -25,7 +25,7 @@ func test_periapsis_below_surface() -> void:
 	# The defining property of an asteroid trajectory: closer approach
 	# than Earth's radius, so propagation must eventually impact.
 	var o := _make_inbound()
-	assert_true(o.r_p < EarthOrbit.EARTH_RADIUS_KM)
+	assert_true(o.r_p < MassCenterOrbit.BODY_RADIUS_KM)
 
 
 func test_propagation_reaches_ground() -> void:
@@ -37,7 +37,7 @@ func test_propagation_reaches_ground() -> void:
 	for _i in range(120):
 		if not o.propagate(60.0):
 			break
-		if o.norm_r <= EarthOrbit.EARTH_RADIUS_KM:
+		if o.norm_r <= MassCenterOrbit.BODY_RADIUS_KM:
 			hit = true
 			break
 	assert_true(hit, "asteroid never crossed Earth surface")
@@ -46,13 +46,13 @@ func test_propagation_reaches_ground() -> void:
 func test_surface_crossing_anomaly_lies_on_ellipse() -> void:
 	# The trajectory renderer needs to know at what true anomaly the
 	# orbit dips through Earth's surface. r(nu) = p_slr / (1 + e*cos(nu))
-	# evaluated at that nu must equal EARTH_RADIUS_KM exactly.
+	# evaluated at that nu must equal BODY_RADIUS_KM exactly.
 	var o := _make_inbound()
-	var cos_nu_surf := (o.p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / o.ecc
+	var cos_nu_surf := (o.p_slr / MassCenterOrbit.BODY_RADIUS_KM - 1.0) / o.ecc
 	assert_true(cos_nu_surf >= -1.0 and cos_nu_surf <= 1.0)
 	var nu_surf := acos(cos_nu_surf)
 	var r_at := o.p_slr / (1.0 + o.ecc * cos(nu_surf))
-	assert_close(r_at, EarthOrbit.EARTH_RADIUS_KM, 1.0e-3)
+	assert_close(r_at, MassCenterOrbit.BODY_RADIUS_KM, 1.0e-3)
 
 
 func test_inbound_nu_is_before_surface_nu() -> void:
@@ -64,7 +64,7 @@ func test_inbound_nu_is_before_surface_nu() -> void:
 	var nu0: float = o.nu
 	if nu0 > 0.0:
 		nu0 -= TAU
-	var cos_nu_surf := (o.p_slr / EarthOrbit.EARTH_RADIUS_KM - 1.0) / o.ecc
+	var cos_nu_surf := (o.p_slr / MassCenterOrbit.BODY_RADIUS_KM - 1.0) / o.ecc
 	var nu_target := -acos(cos_nu_surf)
 	assert_true(nu_target > nu0,
 		"nu0=%f vs nu_target=%f" % [nu0, nu_target])
@@ -74,15 +74,15 @@ func test_tangential_only_does_not_impact() -> void:
 	# Sanity check: a circular-ish orbit at the same altitude must NOT
 	# trip the impact condition — we only want sub-orbital trajectories
 	# to be flagged as asteroids.
-	var radius := EarthOrbit.EARTH_RADIUS_KM + 5000.0
-	var v_circ := sqrt(EarthOrbit.MU / radius)
-	var o := EarthOrbit.new(
+	var radius := MassCenterOrbit.BODY_RADIUS_KM + 5000.0
+	var v_circ := sqrt(MassCenterOrbit.MU / radius)
+	var o := MassCenterOrbit.new(
 		Vector3(radius, 0.0, 0.0),
 		Vector3(0.0, v_circ, 0.0),
 	)
 	for _i in range(60):
 		assert_true(o.propagate(60.0))
-		assert_true(o.norm_r > EarthOrbit.EARTH_RADIUS_KM)
+		assert_true(o.norm_r > MassCenterOrbit.BODY_RADIUS_KM)
 
 
 func test_clamp_velocity_for_periapsis_pulls_flyby_into_impact() -> void:
@@ -90,15 +90,15 @@ func test_clamp_velocity_for_periapsis_pulls_flyby_into_impact() -> void:
 	# 50,000 km altitude, mostly inward, but with a tangential share
 	# big enough to lift periapsis above the surface (a hyperbolic
 	# flyby — the bug the clamp is here to fix).
-	var pos := Vector3(EarthOrbit.EARTH_RADIUS_KM + 50000.0, 0.0, 0.0)
+	var pos := Vector3(MassCenterOrbit.BODY_RADIUS_KM + 50000.0, 0.0, 0.0)
 	var vel := Vector3(-5.0, 1.5, 0.3)
-	var bad := EarthOrbit.new(pos, vel)
-	assert_true(bad.r_p > EarthOrbit.EARTH_RADIUS_KM,
+	var bad := MassCenterOrbit.new(pos, vel)
+	assert_true(bad.r_p > MassCenterOrbit.BODY_RADIUS_KM,
 		"setup expected periapsis above surface, got r_p=%f" % bad.r_p)
 
-	var target := EarthOrbit.EARTH_RADIUS_KM * 0.9
-	var fixed_vel := EarthOrbit.clamp_velocity_for_periapsis(pos, vel, target)
-	var fixed := EarthOrbit.new(pos, fixed_vel)
+	var target := MassCenterOrbit.BODY_RADIUS_KM * 0.9
+	var fixed_vel := MassCenterOrbit.clamp_velocity_for_periapsis(pos, vel, target)
+	var fixed := MassCenterOrbit.new(pos, fixed_vel)
 	assert_true(fixed.r_p <= target + 1.0e-3,
 		"clamp left r_p=%f above target %f" % [fixed.r_p, target])
 	# Radial component is preserved; only tangential is shrunk.
@@ -109,11 +109,11 @@ func test_clamp_velocity_for_periapsis_pulls_flyby_into_impact() -> void:
 func test_clamp_velocity_is_a_noop_when_already_below_target() -> void:
 	# Already an asteroid (r_p well below surface) — clamp must not
 	# perturb the orbit.
-	var pos := Vector3(EarthOrbit.EARTH_RADIUS_KM + 50000.0, 0.0, 0.0)
+	var pos := Vector3(MassCenterOrbit.BODY_RADIUS_KM + 50000.0, 0.0, 0.0)
 	var vel := Vector3(-6.0, 0.4, 0.0)
-	var before := EarthOrbit.new(pos, vel)
-	assert_true(before.r_p < EarthOrbit.EARTH_RADIUS_KM)
-	var clamped := EarthOrbit.clamp_velocity_for_periapsis(
-		pos, vel, EarthOrbit.EARTH_RADIUS_KM * 0.9
+	var before := MassCenterOrbit.new(pos, vel)
+	assert_true(before.r_p < MassCenterOrbit.BODY_RADIUS_KM)
+	var clamped := MassCenterOrbit.clamp_velocity_for_periapsis(
+		pos, vel, MassCenterOrbit.BODY_RADIUS_KM * 0.9
 	)
 	assert_vec_close(clamped, vel, 1.0e-9)

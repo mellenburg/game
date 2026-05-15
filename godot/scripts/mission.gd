@@ -11,7 +11,7 @@ extends RefCounted
 ##
 ## Live-edit policy: edits made while the mission is running queue for
 ## the *next* launch. Mission never re-reads its source ReconSettings
-## after start(); EarthSystem rebuilds a fresh Mission from the latest
+## after start(); MassCenterSystem rebuilds a fresh Mission from the latest
 ## settings when the player launches again.
 ##
 ## Pure RefCounted, no SceneTree dependency, so the timing logic is

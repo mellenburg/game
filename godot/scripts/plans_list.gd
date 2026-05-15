@@ -6,9 +6,9 @@ extends Control
 ## scrub point so the operator can inspect (and with cancel_plan,
 ## remove) the entry.
 ##
-## EarthSystem owns the plan list; this panel reads it directly each
+## MassCenterSystem owns the plan list; this panel reads it directly each
 ## frame — same no-signal pattern ImpactMap / RadarMap use. The
-## EarthSystem reference is bound at scene boot.
+## MassCenterSystem reference is bound at scene boot.
 
 const Satellite = preload("res://scripts/satellite.gd")
 const SimClock = preload("res://scripts/sim_clock.gd")
@@ -31,10 +31,10 @@ const PAD_TOP: float = 22.0
 const PAD_BOTTOM: float = 32.0
 const ROW_GAP: float = 4.0
 
-# Bound by EarthSystem at scene boot. The panel reads .committed_plans
+# Bound by MassCenterSystem at scene boot. The panel reads .committed_plans
 # and .selected_plan_index directly off the controller, and calls back
 # into select_plan() / clear_selection() when the operator clicks a row.
-var earth_system: Node = null
+var controller: Node = null
 
 var _panel: Panel
 var _title: Label
@@ -119,14 +119,14 @@ func _process(_delta: float) -> void:
 # touching the satellites themselves — order, count, Δv, and burn time
 # are enough to detect any mutation that needs a redraw.
 func _refresh() -> void:
-	if earth_system == null:
+	if controller == null:
 		_last_signature = ""
 		_clear_rows()
 		_update_hint(0)
 		return
-	var plans: Array = earth_system.committed_plans
-	var selected: int = earth_system.selected_plan_index
-	var sim_time: float = earth_system.sim_time
+	var plans: Array = controller.committed_plans
+	var selected: int = controller.selected_plan_index
+	var sim_time: float = controller.sim_time
 	var sig := _signature(plans, selected, sim_time)
 	if sig == _last_signature:
 		# Even with stable rows, the "in N seconds" countdown moves —
@@ -308,9 +308,9 @@ func _row_stylebox(color: Color) -> StyleBoxFlat:
 
 
 func _on_row_pressed(index: int) -> void:
-	if earth_system == null:
+	if controller == null:
 		return
-	earth_system.select_committed_plan(index)
+	controller.select_committed_plan(index)
 
 
 func _format_dv(dv: Vector3) -> String:

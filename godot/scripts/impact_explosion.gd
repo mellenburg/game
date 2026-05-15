@@ -23,7 +23,7 @@ const DURATION: float = 0.5
 # invisible from the default camera distance.
 const VISUAL_GAIN: float = 4.0
 # Floor / ceiling on the peak radius so a sub-threshold impact
-# (which shouldn't render in the first place — EarthSystem gates
+# (which shouldn't render in the first place — MassCenterSystem gates
 # spawn) still produces a recognisable speck if it ever leaks
 # through, and an extinction-class impactor doesn't fill the entire
 # globe with a single white ball.

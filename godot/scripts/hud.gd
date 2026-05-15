@@ -1,10 +1,14 @@
 class_name HUD
 extends Control
-## Roster + targeting overlay. Player units render as green-tinted
-## panels along the top-left and surface HP / energy / cooldown rows.
-## The bottom-left slot that previously hosted enemy status boxes is
-## now driven by TessellationGrid (a separate node) — the HUD no
-## longer renders per-enemy panels.
+## Roster + targeting overlay. Player units render as small clickable
+## tiles along the top strip (orbital row above, surface row below);
+## each tile shows just the operator-set name and a row of small
+## weapon icons. Detailed state (HP, energy, propellant, weapon
+## readiness, FC / TGT / RG) lives in the upper-right detail panel and
+## tracks the currently selected unit. The bottom-left slot is driven
+## by TessellationGrid (a separate node) — the HUD no longer renders
+## per-enemy panels. The bottom-right slot cycles through the surface
+## impact map, wave radar, and asteroid inspector.
 ##
 ## BBCode / panel rebuilds throttle to ~10 Hz; per-frame allocations
 ## are avoided by reusing children across ticks (we only add/remove
@@ -17,8 +21,13 @@ const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
 const SimClock = preload("res://scripts/sim_clock.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const HPBar = preload("res://scripts/hp_bar.gd")
+
+## Emitted when the operator clicks a friendly roster tile. MassCenterSystem
+## owns the selection index and resolves the satellite ref against the
+## active (real or planning) array.
+signal friendly_clicked(sat: Satellite)
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
@@ -28,59 +37,49 @@ const PLAYER_BG_SEL := Color(0.20, 0.65, 0.25, 0.90)
 # orange used on the 3D marker and BeamRenderer beam so the two
 # surfaces don't blur into the same visual signal.
 const BOX_HIT_FLASH := Color(0.95, 0.15, 0.15, 0.95)
-# Player roster width is fixed so the boxes line up evenly along the
-# top strip. Height auto-sizes from the contained HP / energy /
-# weapon rows. Enemy boxes don't share this — they're area-scaled.
-const BOX_MIN_SIZE := Vector2(105, 0)
+# Square tiles — name on top, weapon icons below. Detailed state
+# (HP, energy, weapon readiness, FC / TGT / RG) has moved to the
+# upper-right detail panel, so the per-tile footprint shrank to fit
+# more units along the strip without wrapping.
+const BOX_MIN_SIZE := Vector2(78, 60)
 
-# Bar row colors. The energy reservoir is blue; weapon recovery starts
-# orange ("recharging") and snaps to green when ready, so a glance
-# tells the player which lasers can fire.
-const BAR_BG := Color(0.04, 0.04, 0.06, 0.85)
+# Detail-panel bar / status colors. Reused by the upper-right unit
+# detail block: blue energy reservoir, purple/magenta propellant, and
+# the orange/green weapon-readiness states. Bar visuals are inline in
+# the detail BBCode now — the per-tile bars are gone — but the palette
+# stayed where the rest of the HUD already references it.
 const BAR_ENERGY := Color(0.20, 0.50, 0.95, 0.90)
 const BAR_COOLDOWN := Color(0.95, 0.55, 0.10, 0.90)
 const BAR_READY := Color(0.25, 0.80, 0.30, 0.90)
-# Propellant — purple/magenta, distinct from the cyan engagement-range
-# tint and the blue energy fill so the operator can read remaining
-# delta-v at a glance without confusing it with the weapon pool. The
-# overlay text reports m/s so the number maps directly onto the
-# delta-v budget the menu enforces pre-game.
 const BAR_PROPELLANT := Color(0.65, 0.35, 0.85, 0.90)
-const BAR_ROW_HEIGHT: float = 13.0
-const BAR_FONT_SIZE: int = 9
 
-# Fire-control readout — green to match the on-orbit range circle so
-# the two surfaces read as the same control surfaced twice. Sized
-# slightly smaller than the bar text since it's a single line of meta
-# rather than a per-tick gauge.
+# Detail-panel meta colours. Match the legacy per-tile FC / TGT / RG
+# tints so the operator's color memory carries over from the old box
+# layout: green for fire control, cyan for targeting, orange for the
+# railgun gate.
 const FC_TEXT_COLOR := Color(0.55, 0.95, 0.65, 1.0)
-const FC_FONT_SIZE: int = 10
-const FC_NODE_NAME: String = "FCStatus"
-
-# Targeting-mode readout. Always present on armed player ships (unlike
-# the FC line which only shows when fire control is on) — it's a
-# persistent gameplay setting, not a toggle-into-an-overlay state. Cyan
-# tint is distinct from the FC green so the two single-line meta
-# readouts don't blend visually.
 const TGT_TEXT_COLOR := Color(0.55, 0.85, 0.95, 1.0)
-const TGT_FONT_SIZE: int = 10
-const TGT_NODE_NAME: String = "TargetingStatus"
-
-# Railgun readout — orange-tinted to distinguish from the FC green and
-# TGT cyan, since this line carries two pieces of state (on/off + max
-# orbital radius cap). Only present on armed player ships that carry
-# at least one railgun; unarmed bodies and laser-only loadouts skip it.
 const RG_TEXT_COLOR := Color(0.95, 0.65, 0.30, 1.0)
-const RG_FONT_SIZE: int = 10
-const RG_NODE_NAME: String = "RailgunStatus"
 
 # Unit name header — the operator-facing string set in the Hangar
 # editor (e.g. "T-01", "ARTEMIS"). Drawn at the top of every player
-# roster box so a glance maps an in-game unit back to the row the
+# roster tile so a glance maps an in-game unit back to the row the
 # operator built.
 const NAME_NODE_NAME: String = "UnitName"
+const ICONS_NODE_NAME: String = "WeaponIcons"
 const NAME_TEXT_COLOR := Color(1.0, 0.706, 0.329, 1.0)  # accent
 const NAME_FONT_SIZE: int = 11
+
+# Weapon icon palette. Each tile draws one small square per equipped
+# weapon, tinted by the weapon's class — blue for lasers, orange for
+# railguns. The single-character glyph centred inside is redundant
+# with the colour but reads clearly even at a glance under heavy
+# combat clutter.
+const WEAPON_ICON_SIZE := Vector2(15.0, 15.0)
+const WEAPON_ICON_LASER := Color(0.20, 0.50, 0.95, 0.95)
+const WEAPON_ICON_RAILGUN := Color(0.95, 0.55, 0.10, 0.95)
+const WEAPON_ICON_FONT_SIZE: int = 10
+const WEAPON_ICON_TEXT_COLOR := Color(1.0, 1.0, 1.0, 1.0)
 
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
@@ -92,29 +91,42 @@ const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 # this constant only governs how long the box / marker stays tinted.
 const HIT_DURATION: float = 0.25
 
-# Back-reference to the controller. Set once by EarthSystem._ready so
-# the per-unit boxes can route click input back into the same
-# select-ship code path Tab drives.
-var earth_system: Node = null
-
 @onready var info_label: RichTextLabel = $InfoLabel as RichTextLabel
-@onready var player_roster: HBoxContainer = (
-	$PlayerRosters/PlayerRoster as HBoxContainer
+# Rosters are HFlowContainers so a long fleet wraps onto a second row
+# instead of spilling past the upper-right detail panel. Typed as
+# Container here so the same code can drive either layout if we swap
+# back to HBox later (the Container API is all we use).
+@onready var player_roster: Container = (
+	$PlayerRosters/PlayerRoster as Container
 )
-@onready var surface_player_roster: HBoxContainer = (
-	$PlayerRosters/SurfacePlayerRoster as HBoxContainer
+@onready var surface_player_roster: Container = (
+	$PlayerRosters/SurfacePlayerRoster as Container
 )
 @onready var target_container: Control = $TargetContainer as Control
 @onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
-# Top-right RichTextLabel — used to host the static controls cheatsheet,
-# now repurposed as a live status panel for the asteroid the operator
-# clicks in the bottom-left tessellation grid. Renders a "no selection"
-# placeholder when nothing is highlighted.
+# Asteroid inspector — moved from the upper-right slot into the lower-
+# right map cycle. MassCenterSystem flips visibility on the panel via
+# `asteroid_panel`; this script just renders into the contained label
+# / HP bar each tick so the readout stays fresh whether or not the
+# panel is currently showing.
+@onready var asteroid_panel: PanelContainer = (
+	$AsteroidPanel as PanelContainer
+)
 @onready var asteroid_status: RichTextLabel = (
 	$AsteroidPanel/VBox/HelpLabel as RichTextLabel
 )
 @onready var asteroid_hp_bar: HPBar = (
 	$AsteroidPanel/VBox/HPBar as HPBar
+)
+# Upper-right unit inspector. Tracks the currently selected friendly
+# satellite (Tab cycles, click on a tile selects directly). Hidden
+# whenever the selection isn't a player unit so an empty box never
+# steals visual real estate from the map cycle below.
+@onready var unit_detail_panel: PanelContainer = (
+	$UnitDetailPanel as PanelContainer
+)
+@onready var unit_detail_label: RichTextLabel = (
+	$UnitDetailPanel/VBox/DetailLabel as RichTextLabel
 )
 
 var _camera: Camera3D
@@ -126,7 +138,7 @@ var _last_text_update: float = 0.0
 # lives in BeamRenderer; this list is just timed metadata for the
 # box / marker feedback so it outlives the firing tick.
 var _hits: Array[Dictionary] = []
-# Driven by EarthSystem from the "toggle_los" input action — true only
+# Driven by MassCenterSystem from the "toggle_los" input action — true only
 # while the V key is held. The yellow / pink LOS lines from the
 # selected satellite to opposing units render only during that window;
 # hit pulses remain visible regardless.
@@ -192,6 +204,7 @@ func update_hud(
 	_update_info_label(planning_mode, time_factor, dt, sim_time)
 	_update_rosters(orbital_set, planning_mode)
 	_update_kill_stats(orbital_set)
+	_update_unit_detail(orbital_set, planning_mode)
 	var grid_node: Node = null
 	if has_node("TessellationGrid"):
 		grid_node = get_node("TessellationGrid")
@@ -249,6 +262,17 @@ func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 	elif sat.is_asteroid:
 		kind = "sub-orbital asteroid"
 	lines.append("[color=#5a6470]type[/color]    %s" % kind)
+	# Numeric HP alongside the bar visual below — the bar conveys a
+	# ratio, but the operator needs the digit count to read whether
+	# their fire is actively chipping HP off rather than just nicking
+	# it. Format the same way the friendly detail panel reports
+	# damage tallies.
+	lines.append(
+		"[color=#5a6470]hp[/color]      %s / %s" % [
+			_format_scientific(maxf(sat.hp, 0.0)),
+			_format_scientific(maxf(sat.max_hp, 0.0)),
+		]
+	)
 	lines.append("[color=#5a6470]mass[/color]    %s kg" % _format_scientific(sat.mass))
 	lines.append("[color=#5a6470]density[/color] %.2f g/cm³" % sat.density_g_cm3)
 	if sat.composition >= 0:
@@ -273,7 +297,7 @@ func _format_asteroid_status(sat: Satellite, sim_time: float) -> String:
 	if is_finite(eta) and eta > 0.0:
 		eta_str = _format_eta(eta)
 	lines.append("[color=#5a6470]eta[/color]     %s" % eta_str)
-	var alt_km: float = sat.orbit.r.length() - EarthOrbit.EARTH_RADIUS_KM
+	var alt_km: float = sat.orbit.r.length() - MassCenterOrbit.BODY_RADIUS_KM
 	lines.append("[color=#5a6470]alt[/color]     %s km" % _format_scientific(alt_km))
 	lines.append("[/color][/font_size]")
 	return "\n".join(lines)
@@ -410,31 +434,12 @@ func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
 		surface_player_roster.visible = not surface_players.is_empty()
 
 
-# Forward a left-click on any unit box to the controller's "select
-# this ship" path — same target the Tab cycle drives. Picking from
-# the roster also opens the planning preview (entering planning mode
-# if not already in it) so the operator can immediately stage a
-# maneuver for the chosen unit.
-func _on_unit_box_input(event: InputEvent, box: PanelContainer) -> void:
-	if not (event is InputEventMouseButton):
-		return
-	var mb := event as InputEventMouseButton
-	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
-		return
-	if earth_system == null:
-		return
-	var sat: Satellite = box.get_meta("sat", null)
-	if sat == null:
-		return
-	earth_system.select_ship_by_ref(sat)
-
-
-# Generic renderer that fills any HBoxContainer with one player-style
-# box per sat. Both the orbital and surface rosters share this idiom so
-# the per-row UI (selection tint, weapon bars, FC / TGT / RG meta lines)
-# stays consistent across both strips.
+# Generic renderer that fills any Container (HFlowContainer in the
+# scene today) with one tile per sat. Both the orbital and surface
+# rosters share this idiom so the per-row UI (selection tint, click
+# handling, weapon icons) stays consistent across both strips.
 func _render_player_roster_into(
-	host: HBoxContainer, sats: Array[Satellite], selected: int
+	host: Container, sats: Array[Satellite], selected: int
 ) -> void:
 	while host.get_child_count() < sats.size():
 		host.add_child(_make_box())
@@ -450,12 +455,10 @@ func _render_player_roster_into(
 func _make_box() -> PanelContainer:
 	var box := PanelContainer.new()
 	box.custom_minimum_size = BOX_MIN_SIZE
-	# Click-to-select. The current sat reference rides on the box as a
-	# `sat` meta entry rewritten every frame by _update_box, so the
-	# gui_input handler can stay bound for the box's lifetime without
-	# re-connecting per render.
+	# Tiles are click targets — STOP so the InputEvent reaches gui_input
+	# rather than passing through to whatever sits behind the HUD.
 	box.mouse_filter = Control.MOUSE_FILTER_STOP
-	box.gui_input.connect(_on_unit_box_input.bind(box))
+	box.gui_input.connect(_on_box_gui_input.bind(box))
 	# Per-box StyleBoxFlat so we can mutate bg_color in place rather than
 	# reallocating on every selection change.
 	var sb := StyleBoxFlat.new()
@@ -469,101 +472,84 @@ func _make_box() -> PanelContainer:
 
 	var rows := VBoxContainer.new()
 	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rows.add_theme_constant_override("separation", 2)
+	rows.alignment = BoxContainer.ALIGNMENT_CENTER
+	rows.add_theme_constant_override("separation", 4)
 	box.add_child(rows)
 
-	# Index 0 is the unit-name header (operator-set string from the
-	# Hangar editor) and index 1 is the plain HP label. Bar rows for
-	# energy + each weapon are added on demand by _update_box so the
-	# per-team child count matches the actual satellite (an unarmed
-	# enemy gets just name + HP).
 	var name_label := Label.new()
 	name_label.name = NAME_NODE_NAME
 	name_label.add_theme_font_size_override("font_size", NAME_FONT_SIZE)
 	name_label.add_theme_color_override("font_color", NAME_TEXT_COLOR)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rows.add_child(name_label)
 
-	var hp := Label.new()
-	hp.add_theme_font_size_override("font_size", 11)
-	hp.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rows.add_child(hp)
+	# Weapon-icon strip. One small panel per equipped weapon, tinted by
+	# weapon class. Children are added on demand in _update_box so the
+	# tile auto-shrinks for unarmed satellites.
+	var icons := HBoxContainer.new()
+	icons.name = ICONS_NODE_NAME
+	icons.alignment = BoxContainer.ALIGNMENT_CENTER
+	icons.add_theme_constant_override("separation", 3)
+	icons.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rows.add_child(icons)
 
 	return box
 
 
-# A bar row: dark background, color-tinted fill that grows left→right
-# with `fraction`, and a centered text overlay that shows the readout
-# (e.g. "Energy 25%" or "Laser 1 50%" or "Laser 2 READY").
-func _make_bar_row() -> Control:
-	var row := Control.new()
-	row.custom_minimum_size = Vector2(0, BAR_ROW_HEIGHT)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.clip_contents = true
-
-	var bg := ColorRect.new()
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = BAR_BG
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(bg)
-
-	# Anchor-driven fill: anchor_right is the fraction we want filled,
-	# so we never need to know the row's pixel width to scale it.
-	var fill := ColorRect.new()
-	fill.anchor_left = 0.0
-	fill.anchor_top = 0.0
-	fill.anchor_right = 0.0
-	fill.anchor_bottom = 1.0
-	fill.color = BAR_ENERGY
-	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(fill)
-
-	var overlay := Label.new()
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	overlay.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	overlay.add_theme_font_size_override("font_size", BAR_FONT_SIZE)
-	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(overlay)
-
-	return row
+# Click handler bound at make-time. The current Satellite ref is stashed
+# on the box via set_meta so the closure captures only `box` — that way
+# we don't need to rebind on every selection change.
+func _on_box_gui_input(event: InputEvent, box: PanelContainer) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mb: InputEventMouseButton = event
+	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if not box.has_meta("sat"):
+		return
+	var sat: Satellite = box.get_meta("sat") as Satellite
+	if sat == null or not is_instance_valid(sat):
+		return
+	friendly_clicked.emit(sat)
 
 
-func _make_fc_label() -> Label:
-	var l := Label.new()
-	l.name = FC_NODE_NAME
-	l.add_theme_font_size_override("font_size", FC_FONT_SIZE)
-	l.add_theme_color_override("font_color", FC_TEXT_COLOR)
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return l
+# Single weapon icon: a small color-tinted Panel with a centred glyph
+# overlay. Mutated in place by _update_weapon_icon so the per-tile
+# allocation cost stays at one Panel + one Label per weapon.
+func _make_weapon_icon() -> Panel:
+	var p := Panel.new()
+	p.custom_minimum_size = WEAPON_ICON_SIZE
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = WEAPON_ICON_LASER
+	sb.set_corner_radius_all(2)
+	p.add_theme_stylebox_override("panel", sb)
+
+	var glyph := Label.new()
+	glyph.set_anchors_preset(Control.PRESET_FULL_RECT)
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	glyph.add_theme_font_size_override("font_size", WEAPON_ICON_FONT_SIZE)
+	glyph.add_theme_color_override("font_color", WEAPON_ICON_TEXT_COLOR)
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(glyph)
+	return p
 
 
-func _make_targeting_label() -> Label:
-	var l := Label.new()
-	l.name = TGT_NODE_NAME
-	l.add_theme_font_size_override("font_size", TGT_FONT_SIZE)
-	l.add_theme_color_override("font_color", TGT_TEXT_COLOR)
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return l
-
-
-func _make_railgun_label() -> Label:
-	var l := Label.new()
-	l.name = RG_NODE_NAME
-	l.add_theme_font_size_override("font_size", RG_FONT_SIZE)
-	l.add_theme_color_override("font_color", RG_TEXT_COLOR)
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return l
-
-
-func _update_bar_row(row: Control, fill_color: Color, text: String, fraction: float) -> void:
-	var fill := row.get_child(1) as ColorRect
-	if fill != null:
-		fill.color = fill_color
-		fill.anchor_right = clampf(fraction, 0.0, 1.0)
-	var overlay := row.get_child(2) as Label
-	if overlay != null:
-		overlay.text = text
+func _update_weapon_icon(icon: Panel, weapon: Weapon) -> void:
+	var sb := icon.get_theme_stylebox("panel") as StyleBoxFlat
+	var glyph := icon.get_child(0) as Label
+	if weapon is RailgunWeapon:
+		if sb != null:
+			sb.bg_color = WEAPON_ICON_RAILGUN
+		if glyph != null:
+			glyph.text = "R"
+	else:
+		if sb != null:
+			sb.bg_color = WEAPON_ICON_LASER
+		if glyph != null:
+			glyph.text = "L"
 
 
 func _update_box(
@@ -571,10 +557,12 @@ func _update_box(
 	sat: Satellite,
 	is_selected: bool,
 ) -> void:
-	# Stash the current sat on the panel so the click handler (bound
-	# once at _make_box time) can resolve which unit was hit without
-	# walking the parent container's child index.
+	# Stash the Satellite ref so the click handler can recover it
+	# without a back-reference into the HUD's state. Kept fresh every
+	# tick so a roster shuffle (death, planning swap) lands the click
+	# on the right satellite.
 	box.set_meta("sat", sat)
+
 	var sb := box.get_theme_stylebox("panel") as StyleBoxFlat
 	if sb != null:
 		if _is_hit_target(sat):
@@ -586,11 +574,6 @@ func _update_box(
 	if rows == null:
 		return
 
-	# Index 0 is the unit-name header, index 1 the HP label; bar rows
-	# follow; an optional FC status label and targeting-mode label tail
-	# the box. Detach all three meta labels first so the bar-resize
-	# loop's child-count math stays clean — we re-append (or drop)
-	# them after the bars settle.
 	var name_label := rows.get_node_or_null(NAME_NODE_NAME) as Label
 	if name_label != null:
 		# Empty unit_name (legacy / unnamed) collapses the row by hiding
@@ -599,191 +582,154 @@ func _update_box(
 		name_label.visible = has_name
 		if has_name:
 			name_label.text = sat.unit_name
-	var hp_label := rows.get_child(1) as Label
-	if hp_label != null:
-		hp_label.text = "HP %d/%d" % [int(sat.hp), int(sat.max_hp)]
 
-	var fc_label := rows.get_node_or_null(FC_NODE_NAME) as Label
-	if fc_label != null:
-		rows.remove_child(fc_label)
-	var tgt_label := rows.get_node_or_null(TGT_NODE_NAME) as Label
-	if tgt_label != null:
-		rows.remove_child(tgt_label)
-	var rg_label := rows.get_node_or_null(RG_NODE_NAME) as Label
-	if rg_label != null:
-		rows.remove_child(rg_label)
+	var icons := rows.get_node_or_null(ICONS_NODE_NAME) as HBoxContainer
+	if icons == null:
+		return
+	while icons.get_child_count() < sat.weapons.size():
+		icons.add_child(_make_weapon_icon())
+	while icons.get_child_count() > sat.weapons.size():
+		var stale := icons.get_child(icons.get_child_count() - 1)
+		icons.remove_child(stale)
+		stale.queue_free()
+	for i in range(sat.weapons.size()):
+		var icon := icons.get_child(i) as Panel
+		if icon != null:
+			_update_weapon_icon(icon, sat.weapons[i])
+	icons.visible = not sat.weapons.is_empty()
 
-	# Bars below the name + HP rows, in display order:
-	#   [energy] [propellant] [weapon 0..N]
-	# Energy is gated on the unit being armed; propellant on the unit
-	# being a player orbital ship with a non-zero tank (surface
-	# installations and enemies skip it — they don't burn propellant
-	# in the maneuver branch). Each gate maps to a flag so the
-	# rendering loop below can compute its slot index without a tangle
-	# of conditional offsets.
-	var has_energy_bar := not sat.weapons.is_empty()
-	var has_propellant_bar := (
+
+# Upper-right detail panel. Tracks the currently selected friendly unit
+# and renders the rich state that used to live in the per-tile box:
+# HP, energy, propellant Δv, per-weapon readiness (with railgun ammo),
+# fire control, targeting mode, railgun gate. Hidden whenever the
+# selection isn't a player unit so the slot doesn't carry an empty
+# panel.
+func _update_unit_detail(orbital_set: Node, planning_mode: bool) -> void:
+	if unit_detail_panel == null or unit_detail_label == null:
+		return
+	var sats: Array = orbital_set.satellites
+	var idx: int = (
+		orbital_set.planning_selected if planning_mode
+		else orbital_set.selected_ship
+	)
+	if idx < 0 or idx >= sats.size():
+		unit_detail_panel.visible = false
+		return
+	var sat: Satellite = sats[idx]
+	if sat == null or not sat.alive or sat.team != Satellite.TEAM_PLAYER:
+		unit_detail_panel.visible = false
+		return
+	unit_detail_panel.visible = true
+	unit_detail_label.text = _format_unit_detail(sat)
+
+
+# BBCode card for the upper-right unit inspector. Mirrors the legacy
+# per-tile readout — header / HP / energy / Δv / per-weapon line /
+# FC + TGT + RG — but reformatted as a column with subdued labels and
+# colour-coded state values so the operator's eye lands on the live
+# numbers rather than the field titles.
+func _format_unit_detail(sat: Satellite) -> String:
+	var lines := PackedStringArray()
+	var header := sat.unit_name if sat.unit_name != "" else "Unit"
+	lines.append(
+		"[font_size=12][color=#f5b455]◆ %s[/color][/font_size]" % header
+	)
+	lines.append("[font_size=10][color=#9aa9b8]")
+	lines.append(
+		"[color=#5a6470]HP[/color]      %d / %d" % [int(sat.hp), int(sat.max_hp)]
+	)
+	if not sat.weapons.is_empty():
+		lines.append(
+			"[color=#5a6470]Energy[/color]  %s / %s" % [
+				_format_joules(sat.energy), _format_joules(sat.energy_max),
+			]
+		)
+	if (
 		sat.team == Satellite.TEAM_PLAYER
 		and not sat.is_surface
 		and sat.max_propellant_kg > 0.0
-	)
-	var desired_bars := sat.weapons.size()
-	if has_energy_bar:
-		desired_bars += 1
-	if has_propellant_bar:
-		desired_bars += 1
-	# Two fixed rows above the bars (name + HP) — subtract both from
-	# the current child count so the bar-resize loop targets only the
-	# bar rows.
-	var current_bars := rows.get_child_count() - 2
-	while current_bars < desired_bars:
-		rows.add_child(_make_bar_row())
-		current_bars += 1
-	while current_bars > desired_bars:
-		var stale := rows.get_child(rows.get_child_count() - 1)
-		rows.remove_child(stale)
-		stale.queue_free()
-		current_bars -= 1
-
-	# Reattach (or drop) the FC label after the bars are in their
-	# final shape. Fire control adjusts engagement_range_km, which is
-	# read only by the laser, so the line is gated on the satellite
-	# carrying at least one laser — railgun-only ships don't render
-	# it even if some upstream code flipped fire_control_active.
-	var has_laser := sat.has_laser()
-	var want_fc := sat.fire_control_active and has_laser
-	if want_fc:
-		if fc_label == null:
-			fc_label = _make_fc_label()
-		fc_label.text = "FC ON  %d km" % int(round(sat.engagement_range_km))
-		rows.add_child(fc_label)
-	elif fc_label != null:
-		fc_label.queue_free()
-
-	# Targeting mode (MAX DAMAGE / MAX DANGER) is a laser-only setting
-	# — the railgun ignores attacker.targeting_mode and picks randomly
-	# from in-envelope LOS targets. Show the line only on satellites
-	# that actually carry a laser; railgun-only ships skip it.
-	if has_laser:
-		if tgt_label == null:
-			tgt_label = _make_targeting_label()
-		tgt_label.text = (
-			"TGT MAX DANGER" if sat.targeting_mode == LaserWeapon.TARGETING_MAX_DANGER
-			else "TGT MAX DAMAGE"
+	):
+		lines.append(
+			"[color=#5a6470]Δv[/color]      %d m/s" % int(round(sat.delta_v_remaining_ms()))
 		)
-		rows.add_child(tgt_label)
-	elif tgt_label != null:
-		tgt_label.queue_free()
-
-	# Railgun status — only on satellites that carry at least one
-	# railgun. Two readouts on one line: ON/OFF gate (X) and the
-	# operator-set max orbital radius cap (Shift+Left/Right). Players
-	# without a railgun never see this row.
-	if sat.has_railgun():
-		if rg_label == null:
-			rg_label = _make_railgun_label()
-		var on_text: String = "ON" if sat.railgun_enabled else "OFF"
-		rg_label.text = "RG %s  MAX R %d km" % [
-			on_text, int(round(sat.max_orbital_radius_km))
-		]
-		rows.add_child(rg_label)
-	elif rg_label != null:
-		rg_label.queue_free()
-
-	if desired_bars == 0:
-		return
-
-	# Bar rows live at index 2..; the slot order matches the flags
-	# set above (energy → propellant → weapons). Track a running
-	# index so any combination of present/absent bars indexes
-	# correctly without a tangle of conditional offsets.
-	var bar_idx := 2
-	if has_energy_bar:
-		var energy_row := rows.get_child(bar_idx) as Control
-		if energy_row != null:
-			var frac: float = (
-				sat.energy / sat.energy_max if sat.energy_max > 0.0 else 0.0
-			)
-			_update_bar_row(
-				energy_row,
-				BAR_ENERGY,
-				"Energy  %s / %s" % [
-					_format_joules(sat.energy),
-					_format_joules(sat.energy_max),
-				],
-				frac,
-			)
-		bar_idx += 1
-	if has_propellant_bar:
-		var prop_row := rows.get_child(bar_idx) as Control
-		if prop_row != null:
-			var dv_ms: float = sat.delta_v_remaining_ms()
-			# Fraction is propellant remaining vs. tank capacity — the
-			# bar drains as the unit burns, even though the m/s
-			# readout overlaid on it is non-linear in propellant (the
-			# rocket equation's logarithm). Players see "tank empties"
-			# and "delta-v shrinks" simultaneously, which is the
-			# correct shared mental model.
-			var frac: float = (
-				sat.propellant_kg / sat.max_propellant_kg
-				if sat.max_propellant_kg > 0.0 else 0.0
-			)
-			_update_bar_row(
-				prop_row, BAR_PROPELLANT,
-				"Δv  %d m/s" % int(round(dv_ms)), frac,
-			)
-		bar_idx += 1
-
 	# Per-type counter so multiple lasers number 1, 2, 3 while a single
-	# railgun reads as just "Railgun" (no index). Keeps the bar text
+	# railgun reads as just "Railgun" (no index). Keeps the readout
 	# sensible regardless of how the weapon array is composed.
 	var per_type_idx: Dictionary = {}
 	var per_type_total: Dictionary = {}
 	for w_count: Weapon in sat.weapons:
 		var n := w_count.display_name()
 		per_type_total[n] = int(per_type_total.get(n, 0)) + 1
-	for i in range(sat.weapons.size()):
-		var w: Weapon = sat.weapons[i]
-		var row := rows.get_child(bar_idx + i) as Control
-		if row == null:
-			continue
-		var prog := w.ready_progress()
-		var pct := int(round(prog * 100.0))
+	for w: Weapon in sat.weapons:
 		var name := w.display_name()
 		var idx := int(per_type_idx.get(name, 0)) + 1
 		per_type_idx[name] = idx
 		var label := name
 		if int(per_type_total[name]) > 1:
 			label = "%s %d" % [name, idx]
-		# Railgun rows append the magazine count so the operator sees
-		# both readiness and ammo remaining on a single line. Lasers
-		# don't carry ammo, so the suffix is railgun-only.
-		var ammo_suffix: String = ""
-		if w is RailgunWeapon:
-			var rg: RailgunWeapon = w
-			ammo_suffix = "  %d/%d" % [rg.ammo_count, RailgunWeapon.MAGAZINE_SIZE]
-		# Three states: OVERHEAT (locked, cooling back to 100%), READY
-		# (full and unlocked), or partial (firing or recovering toward
-		# READY without having tripped the lockout). The railgun's
-		# single-shot semantics use the same overheated latch as the
-		# laser, so this branch handles both weapon types cleanly.
-		# Empty magazine overrides the cooldown label — a cool railgun
-		# with no rounds reads as EMPTY, not READY.
-		var text: String
-		var fill_color: Color
-		if w is RailgunWeapon and (w as RailgunWeapon).ammo_count <= 0:
-			text = "%s  EMPTY%s" % [label, ammo_suffix]
-			fill_color = BAR_COOLDOWN
-		elif w.overheated:
-			text = "%s  COOLDOWN %d%%%s" % [label, pct, ammo_suffix]
-			fill_color = BAR_COOLDOWN
-		elif prog >= 1.0:
-			text = "%s  READY%s" % [label, ammo_suffix]
-			fill_color = BAR_READY
-		else:
-			text = "%s  %d%%%s" % [label, pct, ammo_suffix]
-			fill_color = BAR_COOLDOWN
-		_update_bar_row(row, fill_color, text, prog)
+		lines.append("[color=#5a6470]%s[/color]  %s" % [label, _weapon_status_bbcode(w)])
+	if sat.has_laser():
+		var fc_text: String = (
+			"[color=#%s]FC ON %d km[/color]" % [
+				_color_hex(FC_TEXT_COLOR), int(round(sat.engagement_range_km))
+			]
+			if sat.fire_control_active
+			else "[color=#5a6470]FC OFF[/color]"
+		)
+		var tgt_text := (
+			"[color=#%s]TGT %s[/color]" % [
+				_color_hex(TGT_TEXT_COLOR),
+				"MAX DANGER" if sat.targeting_mode == LaserWeapon.TARGETING_MAX_DANGER
+				else "MAX DAMAGE",
+			]
+		)
+		lines.append("%s   %s" % [fc_text, tgt_text])
+	if sat.has_railgun():
+		var rg_text := (
+			"[color=#%s]RG %s · max R %d km[/color]" % [
+				_color_hex(RG_TEXT_COLOR),
+				"ON" if sat.railgun_enabled else "OFF",
+				int(round(sat.max_orbital_radius_km)),
+			]
+		)
+		lines.append(rg_text)
+	lines.append("[/color][/font_size]")
+	return "\n".join(lines)
+
+
+# Per-weapon status fragment for the detail panel. Mirrors the legacy
+# bar text — READY / COOLDOWN / partial — and tacks a magazine count
+# onto railgun lines so ammo readiness and thermal readiness both read
+# off the same line.
+func _weapon_status_bbcode(w: Weapon) -> String:
+	var prog := w.ready_progress()
+	var pct := int(round(prog * 100.0))
+	var ammo_suffix: String = ""
+	if w is RailgunWeapon:
+		var rg: RailgunWeapon = w
+		ammo_suffix = "  %d/%d" % [rg.ammo_count, RailgunWeapon.MAGAZINE_SIZE]
+	if w is RailgunWeapon and (w as RailgunWeapon).ammo_count <= 0:
+		return "[color=#%s]EMPTY[/color]%s" % [_color_hex(BAR_COOLDOWN), ammo_suffix]
+	if w.overheated:
+		return "[color=#%s]COOLDOWN %d%%[/color]%s" % [
+			_color_hex(BAR_COOLDOWN), pct, ammo_suffix
+		]
+	if prog >= 1.0:
+		return "[color=#%s]READY[/color]%s" % [_color_hex(BAR_READY), ammo_suffix]
+	return "[color=#%s]%d%%[/color]%s" % [_color_hex(BAR_COOLDOWN), pct, ammo_suffix]
+
+
+# Color → "rrggbb" hex without the leading '#'. BBCode color tags
+# accept the bare hex form, and inlining the conversion lets us keep
+# the source-of-truth tint constants at the top of the file rather
+# than duplicating them as string literals.
+func _color_hex(c: Color) -> String:
+	return "%02x%02x%02x" % [
+		int(round(c.r * 255.0)),
+		int(round(c.g * 255.0)),
+		int(round(c.b * 255.0)),
+	]
 
 
 func draw_target_lines(orbital_set: Node, cam: Camera3D) -> void:

@@ -5,7 +5,7 @@ extends Node
 ## to each weapon's strategy methods (`pick_target`, `fire`). Weapons
 ## that don't fire this tick cool toward ready instead. Pure
 ## scheduling — no input, no spawning, no planning-mode logic.
-## Splitting this out of EarthSystem makes the hot loop profileable in
+## Splitting this out of MassCenterSystem makes the hot loop profileable in
 ## isolation and gives the eventual server-authoritative refactor a
 ## clean seam.
 
@@ -43,7 +43,7 @@ var _reserved_target_iids: Dictionary = {}
 #   { "position": Vector3, "density": float, "composition": int,
 #     "is_decaying": bool, "children": Array[Dictionary] }
 # where each child entry is { "mass": float, "velocity": Vector3 }.
-# EarthSystem drains this after slug_renderer.tick() and before
+# MassCenterSystem drains this after slug_renderer.tick() and before
 # _remove_dead_satellites() so children are alive in the array before
 # the broken-up parent is swept out.
 var _pending_breakups: Array[Dictionary] = []
@@ -275,7 +275,7 @@ func reserved_target_count() -> int:
 	return _reserved_target_iids.size()
 
 
-## Hand off all breakup events queued since the last call. EarthSystem
+## Hand off all breakup events queued since the last call. MassCenterSystem
 ## calls this once per physics tick between slug_renderer.tick() (which
 ## fires on_arrival callbacks that may queue breakups) and
 ## _remove_dead_satellites() (which sweeps the broken-up parents).

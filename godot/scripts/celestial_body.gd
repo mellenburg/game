@@ -7,12 +7,12 @@ extends RefCounted
 ## entry in `for_stage`, one entry in `PlayerLoadout.STAGES`, and a
 ## directory of textures under `resources/3D/<id>/`.
 ##
-## Consumers (EarthSystem, Earth, ImpactMap, SurfacePlacementMap,
+## Consumers (MassCenterSystem, MassCenter, ImpactMap, SurfacePlacementMap,
 ## Menu's brief panel) ask the body for whatever they need rather than
 ## holding their own per-body switch. That keeps "what's different
 ## about Mars" in this file instead of smeared across the codebase.
 ##
-## μ values use km^3/s^2 so they slot directly into EarthOrbit's
+## μ values use km^3/s^2 so they slot directly into MassCenterOrbit's
 ## propagator without unit conversion. Surface gravity is stored in
 ## Earth-g for the mission brief; it's redundant with (μ, radius) but
 ## the headline value reads more naturally than a recomputed m/s².
@@ -20,7 +20,7 @@ extends RefCounted
 ## Pure RefCounted — no scene dependencies — so this file is safely
 ## loadable from the menu, the in-game system, and headless tests.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 # IDs match the corresponding entry in PlayerLoadout.STAGES so a stage
 # selection trivially looks up its body. Adding a body means appending
@@ -145,14 +145,14 @@ static func active(tree: SceneTree) -> CelestialBody:
 	return for_stage(String(loadout.selected_stage_id))
 
 
-# Apply this body's μ and radius to the static EarthOrbit fields so
+# Apply this body's μ and radius to the static MassCenterOrbit fields so
 # every orbital propagation downstream of this call uses the matching
-# physics. Idempotent; called from EarthSystem._ready before any
+# physics. Idempotent; called from MassCenterSystem._ready before any
 # satellite spawn / propagation work.
 func apply_to_propagator() -> void:
-	EarthOrbit.MU = mu_km3_s2
-	EarthOrbit.EARTH_RADIUS_KM = radius_km
-	EarthOrbit.SAFE_ORBIT_ALT_KM = safe_orbit_altitude_km
+	MassCenterOrbit.MU = mu_km3_s2
+	MassCenterOrbit.BODY_RADIUS_KM = radius_km
+	MassCenterOrbit.SAFE_ORBIT_ALT_KM = safe_orbit_altitude_km
 
 
 # Convenience for the impact-map / surface-placement-map basemaps:

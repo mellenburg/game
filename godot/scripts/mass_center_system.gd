@@ -1,4 +1,4 @@
-class_name EarthSystem
+class_name MassCenterSystem
 extends Node3D
 ## Top-level controller. Simulation runs in _physics_process at a fixed
 ## tick rate so the orbit math is frame-rate independent. _process is
@@ -10,10 +10,10 @@ extends Node3D
 ## input through to the right service.
 
 const Satellite = preload("res://scripts/satellite.gd")
-const Earth = preload("res://scripts/earth.gd")
+const MassCenter = preload("res://scripts/mass_center.gd")
 const HUD = preload("res://scripts/hud.gd")
 const OrbitCamera = preload("res://scripts/orbit_camera.gd")
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const SlugRenderer = preload("res://scripts/slug_renderer.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
@@ -108,6 +108,10 @@ var asteroids_impacted: int = 0
 # every impact flows through one place. Surfaced on the end-of-run
 # summary alongside per-unit damage / kills.
 var total_impact_hp: float = 0.0
+# Sum of body mass (kg) absorbed at the surface — physical analogue
+# to total_impact_hp, surfaced as the human-readable "mass delivered"
+# figure on the end-of-run overlay.
+var total_impact_mass_kg: float = 0.0
 # Bodies the atmosphere finished off — sub-orbital threats whose mass
 # at the moment of surface crossing was at or below the burn-up
 # threshold (either spawned that small or chipped down by player fire
@@ -120,10 +124,12 @@ var atmosphere_burnup_hp: float = 0.0
 # Breakup fragments that escaped the system on a hyperbolic trajectory.
 var asteroids_deflected: int = 0
 var deflected_hp: float = 0.0
+var deflected_mass_kg: float = 0.0
 # Breakup fragments that settled into a stable bound orbit (purple) —
 # neither impacting nor escaping.
 var asteroids_captured: int = 0
 var captured_hp: float = 0.0
+var captured_mass_kg: float = 0.0
 # Snapshots of player satellites that died during the run. Each entry
 # is a Dictionary { "unit_name", "damage_dealt", "kills" } captured at
 # the moment of death so the end-of-run summary can credit a unit
@@ -144,6 +150,14 @@ var _fleet_range_adjusting: bool = false
 # rising edge, surface map auto-selects on falling edge — so manual K
 # presses during a live wave aren't yanked back every frame.
 var _wave_inbound_prev: bool = false
+# Tracks whether the tessellation grid had a highlighted asteroid on
+# the previous tick. Rising edge auto-switches the lower-right slot to
+# the asteroid inspector; falling edge reverts to the wave-driven
+# default. _asteroid_via_highlight latches the auto-switch so a
+# subsequent operator K press un-pins it without strand-leaving the
+# slot stuck in inspector mode after the highlight clears.
+var _highlight_prev: bool = false
+var _asteroid_via_highlight: bool = false
 var impact_tracker := ImpactTracker.new()
 # Day-side albedo loaded once as an Image so we can sample it at an
 # impact's UV without an editor-only Texture readback. Lazily filled
@@ -174,7 +188,7 @@ var _mission_wave_bases: Dictionary = {}
 # class config the player intended at launch time.
 var _mission_settings: ReconSettings = null
 
-@onready var earth: Earth = $Earth as Earth
+@onready var mass_center: MassCenter = $MassCenter as MassCenter
 @onready var camera: OrbitCamera = $OrbitCamera as OrbitCamera
 @onready var hud: HUD = $CanvasLayer/HUD as HUD
 @onready var satellite_container: Node3D = $Satellites as Node3D
@@ -193,13 +207,18 @@ var _mission_settings: ReconSettings = null
 )
 
 # Lower-right overlay cycle: surface impact map → wave radar →
-# planned maneuvers → off → ... Driven by the "toggle_impact_map"
-# input (K). Indices into MAP_MODES.
+# asteroid inspector → planned maneuvers → off → ... Driven by the
+# "toggle_impact_map" input (K). Asteroid mode is operator-sticky:
+# the rising / falling wave edge that swings the slot between
+# SURFACE and RADAR is gated on the slot already being in one of
+# those two modes, so a deliberate pick of the asteroid screen
+# survives a fresh threat-detection alert.
 const MAP_MODE_SURFACE: int = 0
 const MAP_MODE_RADAR: int = 1
-const MAP_MODE_PLANS: int = 2
-const MAP_MODE_OFF: int = 3
-const MAP_MODE_COUNT: int = 4
+const MAP_MODE_ASTEROID: int = 2
+const MAP_MODE_PLANS: int = 3
+const MAP_MODE_OFF: int = 4
+const MAP_MODE_COUNT: int = 5
 var map_mode: int = MAP_MODE_SURFACE
 
 # Committed planning maneuvers waiting to fire. Each entry is a
@@ -231,7 +250,7 @@ var satellites: Array[Satellite]:
 func _ready() -> void:
 	# Apply the active body's μ and surface radius before anything
 	# else looks at orbital state. SpawnDirector and the satellites it
-	# materialises read EarthOrbit.MU / EARTH_RADIUS_KM eagerly at spawn
+	# materialises read MassCenterOrbit.MU / BODY_RADIUS_KM eagerly at spawn
 	# time, so a deferred apply would leave the very first fleet sitting
 	# on Earth physics inside a Mars stage.
 	CelestialBody.active(get_tree()).apply_to_propagator()
@@ -246,12 +265,7 @@ func _ready() -> void:
 		# Bind the controller back-reference so the panel can read
 		# committed_plans / selected_plan_index live and call back into
 		# select_committed_plan when the operator clicks a row.
-		plans_list.earth_system = self
-	if hud != null:
-		# Same back-reference so unit-roster clicks can route into
-		# select_ship_by_ref without the HUD needing to know how to
-		# index into real_satellites itself.
-		hud.earth_system = self
+		plans_list.controller = self
 	_apply_map_mode()
 
 	spawn_director = SpawnDirector.new()
@@ -262,6 +276,12 @@ func _ready() -> void:
 	add_child(combat_controller)
 	combat_controller.setup(hud, beam_renderer, slug_renderer)
 
+	# Roster tiles in the friendly HUD strip emit `friendly_clicked`
+	# when the operator clicks one. The HUD doesn't own the selection
+	# index — that lives here — so it just hands us the satellite ref
+	# and we resolve it against the active (real or planning) array.
+	hud.friendly_clicked.connect(_on_friendly_clicked)
+
 	if radar_map != null:
 		radar_map.waves = spawn_director.asteroid_waves
 
@@ -269,7 +289,7 @@ func _ready() -> void:
 	var pool := _player_loadout_pool()
 	spawn_director.spawn_starting_fleet(launches, pool)
 	spawn_director.spawn_surface_units(
-		_player_loadout_surface_units(), earth.earth_phase
+		_player_loadout_surface_units(), mass_center.rotation_phase
 	)
 	# Position surface units immediately so the very first render frame
 	# already shows them on the ground — _physics_process won't run until
@@ -277,7 +297,7 @@ func _ready() -> void:
 	# briefly sit at orbit.r's spawn placeholder.
 	for sat in real_satellites:
 		if sat.is_surface:
-			sat.update_surface_position(earth.earth_phase)
+			sat.update_surface_position(mass_center.rotation_phase)
 	if not real_satellites.is_empty():
 		selected_ship = _first_orbital_player_index()
 		real_satellites[selected_ship].select()
@@ -502,15 +522,15 @@ func _physics_process(delta: float) -> void:
 	# physics for each plan. Pause-mode (time_factor=0) skips this
 	# branch naturally since sim_time stops advancing.
 	_apply_due_plans()
-	earth.advance_phase(sim_delta)
+	mass_center.advance_phase(sim_delta)
 	impact_tracker.tick(sim_delta)
 	for sat in real_satellites:
 		if sat.is_surface:
 			# Surface installations ride Earth's daily rotation rather
 			# than propagating Keplerian motion — orbit.r is rewritten
-			# from (lat, lon, earth_phase) so combat queries that read
+			# from (lat, lon, rotation_phase) so combat queries that read
 			# attacker.orbit.r still work.
-			sat.update_surface_position(earth.earth_phase)
+			sat.update_surface_position(mass_center.rotation_phase)
 		else:
 			sat.advance_time(sim_delta)
 	combat_controller.process_combat(real_satellites, sim_time, sim_delta)
@@ -585,6 +605,7 @@ func _remove_dead_satellites() -> void:
 		elif sat.is_deflected:
 			asteroids_deflected += 1
 			deflected_hp += sat.hp
+			deflected_mass_kg += maxf(sat.mass, 0.0)
 		# Tally enemy terminations by cause: HP gone -> shot down by a
 		# weapon; sub-orbital body (asteroid or post-burn decaying
 		# enemy) still has HP -> ground impact (advance_time kills it
@@ -610,6 +631,7 @@ func _remove_dead_satellites() -> void:
 					# freed so the end-of-run summary can show "total HP
 					# of impactors", not just a count.
 					total_impact_hp += maxf(sat.hp, 0.0)
+					total_impact_mass_kg += maxf(sat.mass, 0.0)
 					_record_asteroid_impact(sat)
 		elif sat.team == Satellite.TEAM_PLAYER and sat.unit_name != "":
 			# Snapshot the dying player unit's tallies so the summary
@@ -654,7 +676,7 @@ func _remove_dead_satellites() -> void:
 # the broken-up parent is swept out, keeping the array contiguous.
 #
 # Children inherit the parent's position (orbit.r at breakup time), density,
-# and composition. Each gets its own EarthOrbit from the momentum-conserving
+# and composition. Each gets its own MassCenterOrbit from the momentum-conserving
 # velocity vector computed by AsteroidBreakup.compute_children. Their HP is
 # derived from mass × density via AsteroidPhysics.hp_for so the damage
 # model stays consistent with how the parent was scaled.
@@ -679,7 +701,7 @@ func _spawn_breakup_children() -> void:
 			# breakup position instead of at the surface.
 			if mass < 1.0:
 				continue
-			var child_orbit := EarthOrbit.new(pos, velocity)
+			var child_orbit := MassCenterOrbit.new(pos, velocity)
 			if not child_orbit.is_state_valid():
 				continue
 			# A fragment with ecc >= 1.0 and periapsis above Earth's
@@ -689,7 +711,7 @@ func _spawn_breakup_children() -> void:
 			var deflected: bool = (
 				child_orbit.ecc >= 1.0
 				and is_finite(child_orbit.r_p)
-				and child_orbit.r_p > EarthOrbit.EARTH_RADIUS_KM
+				and child_orbit.r_p > MassCenterOrbit.BODY_RADIUS_KM
 			)
 			# Stable-orbit threshold sits above the atmospheric drag zone,
 			# not the bare surface. A bound orbit with periapsis between
@@ -700,7 +722,7 @@ func _spawn_breakup_children() -> void:
 			# check. Requiring r_p above the drag floor means anything
 			# flagged stable here is genuinely free-propagating.
 			var stable_alt_floor: float = (
-				EarthOrbit.EARTH_RADIUS_KM + EarthOrbit.SAFE_ORBIT_ALT_KM
+				MassCenterOrbit.BODY_RADIUS_KM + MassCenterOrbit.SAFE_ORBIT_ALT_KM
 			)
 			var stable: bool = (
 				not deflected
@@ -725,6 +747,7 @@ func _spawn_breakup_children() -> void:
 			if stable:
 				asteroids_captured += 1
 				captured_hp += sat.hp
+				captured_mass_kg += maxf(sat.mass, 0.0)
 
 
 # Build the end-of-run report. Combines live player-satellite tallies
@@ -758,12 +781,15 @@ func end_game_summary() -> Dictionary:
 		"per_unit": per_unit,
 		"total_impacts": asteroids_impacted,
 		"total_impact_hp": total_impact_hp,
+		"total_impact_mass_kg": total_impact_mass_kg,
 		"atmosphere_burnup_count": atmosphere_burnup_count,
 		"atmosphere_burnup_hp": atmosphere_burnup_hp,
 		"asteroids_deflected": asteroids_deflected,
 		"deflected_hp": deflected_hp,
+		"deflected_mass_kg": deflected_mass_kg,
 		"asteroids_captured": asteroids_captured,
 		"captured_hp": captured_hp,
+		"captured_mass_kg": captured_mass_kg,
 	}
 
 
@@ -1124,11 +1150,15 @@ func _railgun_armed_player_sats() -> Array[Satellite]:
 	return out
 
 
-# Cycle the lower-right overlay between surface map / wave radar / off.
-# Both Control nodes share the same anchor slot, so flipping visibility
-# is enough to swap them — there's no transition state to manage.
+# Cycle the lower-right overlay between surface map / wave radar /
+# asteroid inspector / off. All four Control nodes share the same
+# anchor slot, so flipping visibility is enough to swap them — there's
+# no transition state to manage. A manual cycle clears the
+# `_asteroid_via_highlight` latch so the next highlight-clear edge
+# doesn't yank the slot away from an operator-chosen mode.
 func _cycle_map_mode() -> void:
 	map_mode = (map_mode + 1) % MAP_MODE_COUNT
+	_asteroid_via_highlight = false
 	_apply_map_mode()
 
 
@@ -1137,24 +1167,63 @@ func _apply_map_mode() -> void:
 		impact_map.visible = (map_mode == MAP_MODE_SURFACE)
 	if radar_map != null:
 		radar_map.visible = (map_mode == MAP_MODE_RADAR)
+	if hud != null and hud.asteroid_panel != null:
+		hud.asteroid_panel.visible = (map_mode == MAP_MODE_ASTEROID)
 	if plans_list != null:
 		plans_list.visible = (map_mode == MAP_MODE_PLANS)
 
 
-# Auto-switch the lower-right overlay around incoming-wave transitions.
-# Radar selects on rising edge (a wave just appeared in the queue),
-# surface map selects on falling edge (the last wave just drained).
-# Edge-triggered so a manual K press during a live wave doesn't keep
-# snapping the panel back to radar every frame.
+# Auto-switch the lower-right overlay around incoming-wave and grid-
+# highlight transitions:
+#   * highlight rising edge — operator clicked an asteroid in the
+#     tessellation grid: jump to the asteroid inspector regardless of
+#     the current mode, and latch `_asteroid_via_highlight` so the
+#     falling edge can revert.
+#   * highlight falling edge — only revert when the slot got into
+#     ASTEROID via the highlight; an operator who manually cycled to
+#     ASTEROID stays parked there.
+#   * wave rising edge — radar selects.
+#   * wave falling edge — surface map selects.
+# Asteroid mode is otherwise sticky: wave edges only swing the slot
+# when it's currently SURFACE or RADAR, so a deliberate inspector pick
+# survives a fresh threat-detection alert.
 func _auto_switch_map_mode() -> void:
 	var inbound := spawn_director.has_active_waves()
-	if inbound and not _wave_inbound_prev:
-		map_mode = MAP_MODE_RADAR
+	var grid_node: Node = null
+	if hud != null:
+		grid_node = hud.get_node_or_null("TessellationGrid")
+	# Defer to the grid for the freed-instance check — assigning the
+	# typed `highlighted_sat` field into a local Object var across
+	# script boundaries trips Godot when the selected body died this
+	# tick but the grid hasn't cleaned up yet.
+	var has_highlight := false
+	if grid_node != null and grid_node.has_method("has_valid_highlight"):
+		has_highlight = grid_node.has_valid_highlight()
+	if has_highlight and not _highlight_prev:
+		# Pin the slot to the inspector for as long as the highlight
+		# stays. Manual cycle clears the latch so we don't fight the
+		# operator after they K-press out of inspector mode.
+		if map_mode != MAP_MODE_ASTEROID:
+			map_mode = MAP_MODE_ASTEROID
+			_asteroid_via_highlight = true
+			_apply_map_mode()
+	elif not has_highlight and _highlight_prev and _asteroid_via_highlight:
+		map_mode = MAP_MODE_RADAR if inbound else MAP_MODE_SURFACE
+		_asteroid_via_highlight = false
 		_apply_map_mode()
-	elif not inbound and _wave_inbound_prev:
-		map_mode = MAP_MODE_SURFACE
-		_apply_map_mode()
+	else:
+		var auto_switch_eligible := (
+			map_mode == MAP_MODE_SURFACE or map_mode == MAP_MODE_RADAR
+		)
+		if auto_switch_eligible:
+			if inbound and not _wave_inbound_prev:
+				map_mode = MAP_MODE_RADAR
+				_apply_map_mode()
+			elif not inbound and _wave_inbound_prev:
+				map_mode = MAP_MODE_SURFACE
+				_apply_map_mode()
 	_wave_inbound_prev = inbound
+	_highlight_prev = has_highlight
 
 
 # Engagement-range visual. Renders a circle in the ecliptic plane
@@ -1213,8 +1282,8 @@ func _record_asteroid_impact(sat: Satellite) -> void:
 	# nothing else needs unwinding here.
 	if AsteroidPhysics.is_burn_up(sat.mass):
 		return
-	var phase: float = earth.earth_phase if earth != null else 0.0
-	var surface_pos: Vector3 = sat.orbit.r.normalized() * EarthOrbit.EARTH_RADIUS_KM
+	var phase: float = mass_center.rotation_phase if mass_center != null else 0.0
+	var surface_pos: Vector3 = sat.orbit.r.normalized() * MassCenterOrbit.BODY_RADIUS_KM
 	var local := ImpactTracker.eci_to_mesh_local(surface_pos, phase)
 	var uv := ImpactTracker.mesh_local_to_uv(local)
 	var ocean_hint := false
@@ -1254,6 +1323,14 @@ func remove_satellite() -> void:
 	selected_ship = 0
 	if not real_satellites.is_empty():
 		real_satellites[selected_ship].select()
+
+
+# HUD roster click handler. Routes through select_ship_by_ref so a
+# click does everything Tab does — highlight the unit, open planning
+# mode if not already paused, sync the planning preview — instead of
+# only mutating selection state.
+func _on_friendly_clicked(sat: Satellite) -> void:
+	select_ship_by_ref(sat)
 
 
 # Cycle forward through *player* ships only — enemies aren't
@@ -1384,14 +1461,25 @@ func _clear_planning() -> void:
 func _run_planning_chain(
 	plan_sat: Satellite, real_sat: Satellite, sat_idx: int, window: float
 ) -> void:
+	# Default: this preview is identical to the live trajectory until a
+	# maneuver actually lands. The has_planned_maneuver flag drives both
+	# the path colour (neon blue) and the path-suppression branch in
+	# render_orbit, so resetting it here keeps an un-queued unit's
+	# planning preview invisible.
+	var maneuver_applied: bool = false
 	if not plan_sat.alive or not plan_sat.orbit_alive:
+		plan_sat.has_planned_maneuver = maneuver_applied
 		return
 	if plan_sat.is_surface:
 		if window > 0.0:
 			var future_phase: float = (
-				earth.earth_phase + earth.rotation_rate * window
+				mass_center.rotation_phase + mass_center.rotation_rate * window
 			)
 			plan_sat.update_surface_position(future_phase)
+		# Surface previews can never carry a maneuver; flag stays false
+		# and the planning path-suppression branch in render_orbit
+		# keeps the preview line off.
+		plan_sat.has_planned_maneuver = maneuver_applied
 		return
 	# Gather plans owned by this ship that fire inside the scrub
 	# window, sorted by burn time. The plan currently selected in the
@@ -1421,6 +1509,7 @@ func _run_planning_chain(
 			plan_sat.advance_time(step)
 			t_done += step
 		if not plan_sat.orbit_alive or not plan_sat.alive:
+			plan_sat.has_planned_maneuver = maneuver_applied
 			return
 		var dv: Vector3 = plan.get("dv", Vector3.ZERO)
 		if dv.length_squared() > 0.0:
@@ -1428,14 +1517,15 @@ func _run_planning_chain(
 				dv, 0.0, Satellite.safe_periapsis_km()
 			):
 				plan_sat.orbit_alive = false
+				plan_sat.has_planned_maneuver = maneuver_applied
 				return
+			maneuver_applied = true
 	var remaining: float = window - t_done
 	if remaining > 0.0:
 		plan_sat.advance_time(remaining)
-	if not plan_sat.orbit_alive or not plan_sat.alive:
-		return
 	if (
-		sat_idx == planning_selected
+		plan_sat.orbit_alive and plan_sat.alive
+		and sat_idx == planning_selected
 		and _planning_dv.length_squared() > 0.0
 		and plan_sat.team == Satellite.TEAM_PLAYER
 	):
@@ -1443,6 +1533,12 @@ func _run_planning_chain(
 			_planning_dv, 0.0, Satellite.safe_periapsis_km()
 		):
 			plan_sat.orbit_alive = false
+		else:
+			maneuver_applied = true
+	# Push the flag — the setter rebuilds the path style if the value
+	# changed, so the neon-blue tint / fatter width appears on the
+	# same physics tick that landed the maneuver.
+	plan_sat.has_planned_maneuver = maneuver_applied
 
 
 # Snapshot the in-progress plan (selected ship, planning_dt, _planning_dv)

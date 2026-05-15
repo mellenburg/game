@@ -5,7 +5,7 @@ extends Node3D
 ## _ready(); selection / damage just toggles the cached material's
 ## albedo_color.
 
-const EarthOrbit = preload("res://scripts/earth_orbit.gd")
+const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const OrbitalPath = preload("res://scripts/orbital_path.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
@@ -104,11 +104,11 @@ const PLAYER_PATH_WIDTH_PX: float = 1.5
 # the two cues — neon-blue width 2 for "this is a projection",
 # selected-width 3 for "this is the unit I'm steering".
 const PLANNING_PATH_WIDTH_PX: float = 2.0
-# Width the selected satellite's orbit line is drawn at — twice the
-# default player path so an overlap between the live and planning
-# trajectories doesn't visually swallow the line the operator is
-# actively steering.
-const SELECTED_PATH_WIDTH_PX: float = 3.0
+# Width the selected satellite's orbit line is drawn at — wider
+# than the default player path so an overlap between the live and
+# planning trajectories doesn't visually swallow the line the
+# operator is actively steering.
+const SELECTED_PATH_WIDTH_PX: float = 4.5
 # Surface installations: yellow-green tint, distinct from the orbital
 # blue + selected green so a glance at the 3D view (or the in-game HUD
 # roster) tells the player which units are anchored to the ground.
@@ -120,7 +120,7 @@ const COLOR_SURFACE := Color(0.85, 1.0, 0.30)
 # margin — small enough to read as "on the ground", large enough that
 # the LOS-vs-sphere math has clear room to work in.
 const SURFACE_UNIT_ALTITUDE_KM: float = 5.0
-# Finite-difference epsilon (in earth_phase radians) for surface-unit
+# Finite-difference epsilon (in rotation_phase radians) for surface-unit
 # velocity sampling. 1e-4 rad ≈ 1.4 s of sidereal rotation — small
 # enough that the difference is a faithful tangent, large enough that
 # 32-bit Vector3 component precision in (pos_next - pos) doesn't
@@ -160,13 +160,13 @@ const DEFAULT_MAX_ORBITAL_RADIUS_KM: float = 50000.0
 # stays at or above (active body radius + this clearance). 1 km of slack
 # above the surface keeps floating-point slop in the propagator from
 # tipping the body across the surface termination check. Surfaces as a
-# function because EarthOrbit.EARTH_RADIUS_KM is a runtime-mutable
+# function because MassCenterOrbit.BODY_RADIUS_KM is a runtime-mutable
 # static var (per-mission body) — a `const` would refuse to compile
 # against a non-constant initialiser.
 const SAFE_PERIAPSIS_CLEARANCE_KM: float = 1.0
 
 static func safe_periapsis_km() -> float:
-	return EarthOrbit.EARTH_RADIUS_KM + SAFE_PERIAPSIS_CLEARANCE_KM
+	return MassCenterOrbit.BODY_RADIUS_KM + SAFE_PERIAPSIS_CLEARANCE_KM
 # The damage scale (MJ_PER_HP / J_PER_HP) lives on Weapon — Satellite
 # preloads each weapon class for its default loadout, so the constants
 # can't sit here without creating a circular preload. Read them via
@@ -194,7 +194,7 @@ const DEFAULT_REACTOR_POWER_W: float = 1.0e10
 # this number was chosen against.
 const DEFAULT_COOLING_POWER_W: float = LaserWeapon.HEAT_CAPACITY_J / 160.0
 
-var orbit: EarthOrbit
+var orbit: MassCenterOrbit
 var selected: bool = false
 # Operator-chosen highlight from the bottom-left tessellation grid.
 # Independent of `selected` (which is the player-ship Tab cycle); when
@@ -280,8 +280,8 @@ var is_decaying: bool = false
 var perigee_burn_enabled: bool = false
 # Surface installation: anchored to a point on Earth's surface, rotating
 # with the planet's daily phase rather than following Keplerian motion.
-# EarthSystem detects the flag in _physics_process and skips advance_time
-# in favour of update_surface_position(earth_phase) — orbit.r is
+# MassCenterSystem detects the flag in _physics_process and skips advance_time
+# in favour of update_surface_position(rotation_phase) — orbit.r is
 # rewritten each tick from (lat, lon) so combat / LOS / range queries
 # (which all read attacker.orbit.r) keep working without any additional
 # special-casing in the weapon strategies.
@@ -343,7 +343,7 @@ var max_orbital_radius_km: float = DEFAULT_MAX_ORBITAL_RADIUS_KM
 # active; press X to silence the entire fleet's railguns when the
 # operator wants to preserve momentum / energy. Stored per-satellite so
 # the weapon strategy (which only sees its attacker) can read a single
-# field; EarthSystem._toggle_railgun_on_all keeps the flag consistent
+# field; MassCenterSystem._toggle_railgun_on_all keeps the flag consistent
 # across player units.
 var railgun_enabled: bool = true
 
@@ -362,7 +362,7 @@ var breakup_children_min: int = 3
 var breakup_children_max: int = 5
 var breakup_deflection_deg: float = 10.0
 # Set by CombatController when a breakup is triggered on this body.
-# EarthSystem's _remove_dead_satellites checks this to skip the normal
+# MassCenterSystem's _remove_dead_satellites checks this to skip the normal
 # impact-accounting path (the body didn't reach Earth — it broke apart).
 var pending_breakup: bool = false
 # Fragment on an unbound (hyperbolic) trajectory escaping the system.
@@ -377,7 +377,7 @@ var is_stable_orbit: bool = false
 # trajectory crosses Earth's surface. NAN means "unknown — compute on
 # next access"; INF means "no impact within the propagator's horizon"
 # (which collapses to "never" for an orbit that won't be perturbed);
-# any finite value is in the same sim-clock frame EarthSystem.sim_time
+# any finite value is in the same sim-clock frame MassCenterSystem.sim_time
 # advances. Storing the *absolute* impact time means free propagation
 # never has to update it — the body moves through time but the
 # impact instant doesn't. Maneuvers / perigee burns invalidate it
@@ -416,17 +416,32 @@ var _path_alpha: float = 1.0
 # width applied to the OrbitalPath is the larger of this and the
 # SELECTED_PATH_WIDTH_PX bump when `selected` is true.
 var _base_path_width: float = PLAYER_PATH_WIDTH_PX
-# Planning-preview marker. Set true on every Satellite living in
-# `planning_satellites`, false on the live `real_satellites` copies.
-# Drives path color (neon blue override in _apply_path_color) and
-# base width (PLANNING_PATH_WIDTH_PX in _apply_path_style). Survives
-# clone_orbit_from since the preview-vs-real distinction is a property
-# of the container, not the orbit state being synced from.
+# Planning-preview container marker. Set true on every Satellite
+# living in `planning_satellites`, false on the live `real_satellites`
+# copies. Used by render_orbit to suppress the path entirely when
+# no maneuver is queued (a planning preview that perfectly overlaps
+# the live trajectory would just paint redundant pixels).
 var is_planning_preview: bool = false
+# Set per physics tick by _run_planning_chain on planning satellites
+# that actually have a maneuver (committed plan and/or in-progress
+# _planning_dv) applied during the preview. Drives the neon-blue
+# path tint and the PLANNING base width; planning sats with this
+# flag clear render identically to live ones (and have their path
+# suppressed in render_orbit since the projection equals reality).
+# Auto-refreshes the path style on transition so the colour/width
+# changes the moment the chain mutation lands without the caller
+# needing to reach into private apply methods.
+var has_planned_maneuver: bool = false:
+	set(value):
+		if has_planned_maneuver == value:
+			return
+		has_planned_maneuver = value
+		if is_inside_tree():
+			_apply_path_style()
 
 
 func _init() -> void:
-	orbit = EarthOrbit.new(DEFAULT_R, DEFAULT_V)
+	orbit = MassCenterOrbit.new(DEFAULT_R, DEFAULT_V)
 	# Player loadout: two lasers (continuous-fire) plus a single railgun
 	# (impulse, momentum-conserving). Lasers sit first so their HUD
 	# bars line up with prior screenshots; the railgun bar tails the
@@ -548,7 +563,7 @@ func predict_impact_sim_time(current_sim_time: float) -> float:
 		if is_decaying:
 			# Decaying bodies' current orbit has periapsis well above the
 			# surface — only the spiral's final over-shoot burn drops r_p
-			# below ground. EarthOrbit.time_to_impact would short-circuit
+			# below ground. MassCenterOrbit.time_to_impact would short-circuit
 			# every intermediate cycle as INF, leaving the path-color
 			# gradient (and any other ETA-keyed UI) stuck on "no impact"
 			# right up to the kill tick. Sum Kepler tof across the same
@@ -608,7 +623,7 @@ func set_max_orbital_radius(km: float) -> void:
 
 
 ## Flip the railgun-enabled gate. Like toggle_fire_control this is
-## per-instance; EarthSystem keeps the whole fleet in sync via X.
+## per-instance; MassCenterSystem keeps the whole fleet in sync via X.
 func toggle_railgun() -> void:
 	railgun_enabled = not railgun_enabled
 
@@ -809,11 +824,11 @@ func advance_time(delta_time: float) -> void:
 	var crossed_periapsis := r_dot_v_before < 0.0 and orbit.r.dot(orbit.v) > 0.0
 	var impact_r: float
 	if is_asteroid or is_decaying:
-		impact_r = EarthOrbit.EARTH_RADIUS_KM + maxf(
-			EarthOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0
+		impact_r = MassCenterOrbit.BODY_RADIUS_KM + maxf(
+			MassCenterOrbit.SAFE_ORBIT_ALT_KM - 90.0, 0.0
 		)
 	else:
-		impact_r = EarthOrbit.EARTH_RADIUS_KM
+		impact_r = MassCenterOrbit.BODY_RADIUS_KM
 	var sub_impact_periapsis := (
 		is_finite(orbit.r_p) and orbit.r_p <= impact_r
 	)
@@ -838,6 +853,14 @@ func render_orbit(show_path: bool, current_sim_time: float = 0.0) -> void:
 	# meaningless and (because orbit.v is just the surface tangential
 	# speed) numerically ill-conditioned, so we hide the path entirely.
 	if is_surface:
+		path_visual.visible = false
+		return
+	# Planning previews without an applied maneuver perfectly overlap
+	# the live trajectory — drawing them paints redundant pixels and
+	# tints them as if they were a projection. Hide the path; the
+	# marker stays visible so the operator can still see where the
+	# unit will be at planning_dt.
+	if is_planning_preview and not has_planned_maneuver:
 		path_visual.visible = false
 		return
 	# Refresh the enemy path tint from the live ETA gradient so the 3D
@@ -909,7 +932,7 @@ func _perigee_decay_burn() -> void:
 # Continuously lower the apoapsis by atmospheric drag while the body is
 # inside the atmosphere. Called every physics tick from advance_time.
 #
-# Zone structure (relative to EarthOrbit.SAFE_ORBIT_ALT_KM, 150 km for Earth):
+# Zone structure (relative to MassCenterOrbit.SAFE_ORBIT_ALT_KM, 150 km for Earth):
 #   Air brake   (safe - 30 … safe km):  drag 0→20 km/kg/s, no HP loss
 #   Reentry     (safe - 50 … safe - 30): drag 20→40 km/kg/s, 0.001 %/s HP
 #   Ablation    (safe - 90 … safe - 50): drag 40→100 km/kg/s, 0.01 %/s HP
@@ -917,8 +940,8 @@ func _perigee_decay_burn() -> void:
 func _apply_atmospheric_decay(sim_delta: float) -> void:
 	if not is_finite(mass) or mass <= 0.0:
 		return
-	var safe_alt: float = EarthOrbit.SAFE_ORBIT_ALT_KM
-	var alt_km: float = orbit.norm_r - EarthOrbit.EARTH_RADIUS_KM
+	var safe_alt: float = MassCenterOrbit.SAFE_ORBIT_ALT_KM
+	var alt_km: float = orbit.norm_r - MassCenterOrbit.BODY_RADIUS_KM
 	if alt_km >= safe_alt:
 		return
 	var air_brake_bot: float = safe_alt - 30.0
@@ -971,7 +994,7 @@ func _reduce_apoapsis(delta_r_a: float) -> void:
 		return
 	var a_new := 0.5 * (r_p + r_a_new)
 	var r := orbit.norm_r
-	var v_sq_new := EarthOrbit.MU * (2.0 / r - 1.0 / a_new)
+	var v_sq_new := MassCenterOrbit.MU * (2.0 / r - 1.0 / a_new)
 	if v_sq_new <= 0.0:
 		orbit_alive = false
 		_hide_visuals()
@@ -1129,25 +1152,25 @@ func _base_color() -> Color:
 
 
 ## Recompute orbit.r for a surface installation at the given Earth
-## phase. Called from EarthSystem._physics_process for every is_surface
+## phase. Called from MassCenterSystem._physics_process for every is_surface
 ## sat in lieu of advance_time — the body never propagates, it just
 ## rides the planet's daily rotation. orbit.v is set to the local
 ## tangential velocity so any code path that reads it (currently the
 ## railgun's safety check, which we still expect to refuse fire) sees
 ## a kinematically consistent state rather than a static-snapshot zero.
-func update_surface_position(earth_phase: float) -> void:
+func update_surface_position(rotation_phase: float) -> void:
 	if not is_surface:
 		return
-	var radius := EarthOrbit.EARTH_RADIUS_KM + SURFACE_UNIT_ALTITUDE_KM
+	var radius := MassCenterOrbit.BODY_RADIUS_KM + SURFACE_UNIT_ALTITUDE_KM
 	var pos := SurfacePosition.latlon_to_eci(
-		surface_lat_deg, surface_lon_deg, earth_phase, radius
+		surface_lat_deg, surface_lon_deg, rotation_phase, radius
 	)
 	# Sample velocity by finite-difference across a small phase delta —
 	# avoids re-deriving the analytical tangent in the AXIAL_TILT * daily
 	# * POLE_ALIGN frame. dt = phase / (TAU / sidereal_day).
 	var pos_next := SurfacePosition.latlon_to_eci(
 		surface_lat_deg, surface_lon_deg,
-		earth_phase + SURFACE_PHASE_EPS, radius,
+		rotation_phase + SURFACE_PHASE_EPS, radius,
 	)
 	var dt: float = SURFACE_PHASE_EPS * SURFACE_SIDEREAL_DAY_SEC / TAU
 	orbit.r = pos
@@ -1180,11 +1203,14 @@ func _apply_path_color() -> void:
 	if path_visual == null:
 		return
 	var rgb: Color
-	if is_planning_preview:
-		# Neon-blue wins over both highlight and selection on planning
-		# previews — the live sat next to it carries the green-selected
-		# / white-highlighted cues, so the projection stays
-		# unambiguously colour-coded as a projection.
+	if has_planned_maneuver:
+		# Neon-blue wins over selection on planning sats that carry an
+		# actual maneuver result — the live sat next to it still
+		# renders in the green-selected tint, so the projection stays
+		# unambiguously colour-coded as a projection. Planning sats
+		# without a maneuver fall through to the regular colour path
+		# (they're hidden in render_orbit anyway, but the colour stays
+		# correct in case anything else samples it).
 		rgb = COLOR_PLANNING_PREVIEW
 	elif highlighted:
 		rgb = COLOR_HIGHLIGHTED
@@ -1280,10 +1306,12 @@ func _apply_path_style() -> void:
 			ENEMY_PATH_ALPHA_MIN, ENEMY_PATH_ALPHA_MAX, hp_norm
 		)
 	else:
-		# Planning previews carry a slightly fatter base width so the
-		# neon-blue projection still reads against the live trajectory
-		# even before the selection bump kicks in.
-		width = PLANNING_PATH_WIDTH_PX if is_planning_preview else PLAYER_PATH_WIDTH_PX
+		# Planning previews with an actual maneuver applied carry a
+		# slightly fatter base width so the neon-blue projection
+		# reads against the live trajectory; un-maneuvered planning
+		# sats fall back to the player width (they overlap reality
+		# exactly and are hidden in render_orbit anyway).
+		width = PLANNING_PATH_WIDTH_PX if has_planned_maneuver else PLAYER_PATH_WIDTH_PX
 		alpha = 1.0
 		_path_color_base = COLOR_PLAYER
 	_base_path_width = width

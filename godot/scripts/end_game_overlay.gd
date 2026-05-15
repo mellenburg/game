@@ -2,7 +2,7 @@ class_name EndGameOverlay
 extends Control
 ## End-of-run summary overlay. Bound to the `end_game` action (Enter
 ## by default), and also openable programmatically via `show_summary`
-## when EarthSystem detects the mission has cleared. Pauses the
+## when MassCenterSystem detects the mission has cleared. Pauses the
 ## simulation, shows a per-unit damage / kill breakdown plus aggregate
 ## Earth-impact stats, and routes the user back to the pre-game menu
 ## when acknowledged.
@@ -31,6 +31,9 @@ const COLOR_OK := Color(0.40, 0.85, 0.55)
 
 var _root_panel: PanelContainer
 var _content_root: VBoxContainer
+var _per_unit_body: VBoxContainer
+var _per_unit_toggle: Button
+var _per_unit_expanded: bool = false
 
 
 func _ready() -> void:
@@ -66,7 +69,7 @@ func show_summary() -> void:
 func _show_summary() -> void:
 	var summary := _gather_summary()
 	if summary.is_empty():
-		# Defensive: if we can't find an EarthSystem (e.g. the scene
+		# Defensive: if we can't find an MassCenterSystem (e.g. the scene
 		# was reorganised), just open the menu rather than freezing
 		# the player on a blank overlay.
 		get_tree().change_scene_to_file(MENU_SCENE_PATH)
@@ -77,8 +80,8 @@ func _show_summary() -> void:
 	_render_summary(summary)
 
 
-# Walk up to the EarthSystem ancestor and pull its summary dict. The
-# overlay sits under CanvasLayer which sits under EarthSystem, so the
+# Walk up to the MassCenterSystem ancestor and pull its summary dict. The
+# overlay sits under CanvasLayer which sits under MassCenterSystem, so the
 # walk is short — but doing it dynamically keeps the overlay node-path
 # independent of the surrounding scene structure.
 func _gather_summary() -> Dictionary:
@@ -106,11 +109,12 @@ func _build_ui() -> void:
 	_root_panel.anchor_bottom = 0.5
 	_root_panel.offset_left = -300
 	_root_panel.offset_right = 300
-	# Tallened to fit the SURFACE section's atmospheric-burnup pair
-	# (bodies fully ablated + HP lost to atmospheric entry) added
-	# alongside the impact totals.
-	_root_panel.offset_top = -313
-	_root_panel.offset_bottom = 313
+	# Panel height is bounded; the per-unit table can be arbitrarily long
+	# on a busy run, so the middle section is wrapped in a ScrollContainer
+	# (see _build_ui below) rather than letting the panel stretch off-
+	# screen.
+	_root_panel.offset_top = -260
+	_root_panel.offset_bottom = 260
 	add_child(_root_panel)
 
 	var pad := MarginContainer.new()
@@ -122,6 +126,7 @@ func _build_ui() -> void:
 
 	_content_root = VBoxContainer.new()
 	_content_root.add_theme_constant_override("separation", 12)
+	_content_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pad.add_child(_content_root)
 
 
@@ -132,6 +137,9 @@ func _render_summary(summary: Dictionary) -> void:
 	for child in _content_root.get_children():
 		_content_root.remove_child(child)
 		child.queue_free()
+	_per_unit_body = null
+	_per_unit_toggle = null
+	_per_unit_expanded = false
 
 	var title := Label.new()
 	title.text = "MISSION ENDED"
@@ -149,31 +157,61 @@ func _render_summary(summary: Dictionary) -> void:
 
 	_content_root.add_child(_hr())
 
+	# The middle section can overflow on a busy run (long per-unit list,
+	# many surface tally rows). Wrap it in a ScrollContainer so the panel
+	# stays a fixed size and the player can scroll to whatever they care
+	# about, with the title above and Acknowledge button below pinned in
+	# place.
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_content_root.add_child(scroll)
+
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 12)
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(inner)
+
 	var per_unit: Array = summary.get("per_unit", [])
-	_content_root.add_child(_section_header("PER-UNIT"))
+	# Per-unit stats are detail-on-demand: hidden behind a toggle so the
+	# default summary view stays glanceable. The toggle button replaces
+	# the bare PER-UNIT section header for that reason.
+	var per_unit_count := per_unit.size()
+	_per_unit_toggle = Button.new()
+	_per_unit_toggle.toggle_mode = true
+	_per_unit_toggle.text = _per_unit_toggle_text(false, per_unit_count)
+	_per_unit_toggle.add_theme_font_size_override("font_size", 11)
+	_per_unit_toggle.toggled.connect(_on_per_unit_toggled)
+	inner.add_child(_per_unit_toggle)
+
+	_per_unit_body = VBoxContainer.new()
+	_per_unit_body.add_theme_constant_override("separation", 4)
+	_per_unit_body.visible = false
 	if per_unit.is_empty():
 		var none := Label.new()
 		none.text = "No player units logged this run."
 		none.add_theme_color_override("font_color", COLOR_FG_FAINT)
 		none.add_theme_font_size_override("font_size", 11)
-		_content_root.add_child(none)
+		_per_unit_body.add_child(none)
 	else:
-		_content_root.add_child(_per_unit_header())
+		_per_unit_body.add_child(_per_unit_header())
 		for entry: Dictionary in per_unit:
-			_content_root.add_child(_per_unit_row(entry))
+			_per_unit_body.add_child(_per_unit_row(entry))
+	inner.add_child(_per_unit_body)
 
-	_content_root.add_child(_hr())
+	inner.add_child(_hr())
 
 	# Earth-side totals: count of impactors that reached the ground +
-	# the sum of HP they were still carrying at impact (i.e. the damage
-	# the surface absorbed). Both numbers come from EarthSystem's dead-
-	# sat sweep so they stay consistent with the in-game kill counter.
-	_content_root.add_child(_section_header("SURFACE"))
+	# the sum of mass they delivered (i.e. the physical payload the
+	# surface absorbed). Both numbers come from MassCenterSystem's dead-sat
+	# sweep so they stay consistent with the in-game kill counter.
+	inner.add_child(_section_header("SURFACE"))
 	var impacts := int(summary.get("total_impacts", 0))
-	var impact_hp := float(summary.get("total_impact_hp", 0.0))
-	_content_root.add_child(_kv_row("Impacts on surface", "%d" % impacts))
-	_content_root.add_child(_kv_row(
-		"HP delivered to surface", "%.0f" % impact_hp,
+	var impact_mass_kg := float(summary.get("total_impact_mass_kg", 0.0))
+	inner.add_child(_kv_row("Impacts on surface", "%d" % impacts))
+	inner.add_child(_kv_row(
+		"Mass delivered to surface", _format_mass_grams(impact_mass_kg * 1000.0),
 	))
 
 	# Atmospheric defense: bodies the atmosphere finished off — either
@@ -182,29 +220,29 @@ func _render_summary(summary: Dictionary) -> void:
 	# residual HP at burn-up, i.e. the work the atmosphere did for free.
 	var atmo_count := int(summary.get("atmosphere_burnup_count", 0))
 	var atmo_hp := float(summary.get("atmosphere_burnup_hp", 0.0))
-	_content_root.add_child(_kv_row(
+	inner.add_child(_kv_row(
 		"Burned up in atmosphere", "%d" % atmo_count,
 	))
-	_content_root.add_child(_kv_row(
+	inner.add_child(_kv_row(
 		"HP lost to atmospheric entry", "%.0f" % atmo_hp,
 	))
 
 	var deflected_count := int(summary.get("asteroids_deflected", 0))
-	var deflected_hp := float(summary.get("deflected_hp", 0.0))
-	_content_root.add_child(_kv_row(
+	var deflected_mass_kg := float(summary.get("deflected_mass_kg", 0.0))
+	inner.add_child(_kv_row(
 		"Deflected (escaped system)", "%d" % deflected_count,
 	))
-	_content_root.add_child(_kv_row(
-		"HP deflected", "%.0f" % deflected_hp,
+	inner.add_child(_kv_row(
+		"Mass deflected", _format_mass_grams(deflected_mass_kg * 1000.0),
 	))
 
 	var captured_count := int(summary.get("asteroids_captured", 0))
-	var captured_hp := float(summary.get("captured_hp", 0.0))
-	_content_root.add_child(_kv_row(
+	var captured_mass_kg := float(summary.get("captured_mass_kg", 0.0))
+	inner.add_child(_kv_row(
 		"Captured (stable orbit)", "%d" % captured_count,
 	))
-	_content_root.add_child(_kv_row(
-		"Total captured HP", "%.0f" % captured_hp,
+	inner.add_child(_kv_row(
+		"Total captured mass", _format_mass_grams(captured_mass_kg * 1000.0),
 	))
 
 	_content_root.add_child(_hr())
@@ -215,6 +253,61 @@ func _render_summary(summary: Dictionary) -> void:
 	ack.add_theme_font_size_override("font_size", 14)
 	ack.pressed.connect(_on_acknowledge_pressed)
 	_content_root.add_child(ack)
+
+
+func _on_per_unit_toggled(pressed: bool) -> void:
+	_per_unit_expanded = pressed
+	if _per_unit_body != null:
+		_per_unit_body.visible = pressed
+	if _per_unit_toggle != null:
+		var count := 0
+		if _per_unit_body != null:
+			# A "no units logged" placeholder counts as zero rows for the
+			# header so the button still reads "(0)" cleanly.
+			count = _per_unit_body.get_child_count()
+			if count == 1 and _per_unit_body.get_child(0) is Label:
+				count = 0
+		_per_unit_toggle.text = _per_unit_toggle_text(pressed, count)
+
+
+func _per_unit_toggle_text(expanded: bool, count: int) -> String:
+	var arrow := "▼" if expanded else "▶"
+	return "%s  PER-UNIT  (%d)" % [arrow, count]
+
+
+# Format a mass in grams using a unit large enough to keep the leading
+# significant figure ≤ 999, so the display fits in three significant
+# figures. Steps in factor-1000 jumps from grams up through kg, t, kt,
+# Mt, Gt — the asteroid masses involved here can comfortably reach the
+# tonne / kilotonne range so the upper bins matter.
+func _format_mass_grams(grams: float) -> String:
+	var units := [
+		["g", 1.0],
+		["kg", 1.0e3],
+		["t", 1.0e6],
+		["kt", 1.0e9],
+		["Mt", 1.0e12],
+		["Gt", 1.0e15],
+	]
+	var abs_g: float = absf(grams)
+	var label: String = "g"
+	var scale: float = 1.0
+	for entry in units:
+		var entry_label: String = entry[0]
+		var entry_scale: float = entry[1]
+		if abs_g >= entry_scale:
+			label = entry_label
+			scale = entry_scale
+	var value: float = grams / scale
+	var abs_v: float = absf(value)
+	# Three significant figures: pick decimal places by magnitude so the
+	# total digit count stays at 3.
+	var formatted: String = "%.0f" % value
+	if abs_v < 10.0:
+		formatted = "%.2f" % value
+	elif abs_v < 100.0:
+		formatted = "%.1f" % value
+	return "%s %s" % [formatted, label]
 
 
 func _on_acknowledge_pressed() -> void:
