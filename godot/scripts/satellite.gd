@@ -1024,8 +1024,15 @@ func clone_orbit_from(other: Satellite) -> void:
 	# the planning sat — which lives on the same sim clock as reality
 	# — can reuse it as-is until a maneuver invalidates it.
 	impact_sim_time = other.impact_sim_time
-	if other.weapons.is_empty():
-		weapons.clear()
+	# Share weapons by reference. _init seeded this clone with the
+	# default 2-laser + 1-railgun loadout, which would otherwise mask
+	# the real sat's chosen loadout on the planning HUD (every ship
+	# would read as a default-armed unit the moment planning opened).
+	# Sharing is safe because combat only iterates real_satellites —
+	# the planning clone never fires, so it can't mutate Weapon state
+	# out from under the real owner. Cleared (not nulled) when the
+	# real sat is unarmed so the HUD's "no weapons" path still fires.
+	weapons = other.weapons
 	if is_inside_tree():
 		_apply_color()
 		_apply_marker_size()
