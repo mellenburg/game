@@ -479,13 +479,26 @@ func _physics_process(delta: float) -> void:
 		_sync_planning_to_reality()
 		var window := float(planning_dt)
 		for i in range(planning_satellites.size()):
-			# Snap orbit-state from reality, then apply the queued
-			# planning-mode Δv (selected ship only) as a single
-			# instantaneous kick before propagating by planning_dt. The
-			# preview shows "where this satellite would be after the
-			# scrub window, given the maneuver the operator has staged".
+			# Snap orbit-state from reality, propagate to the scrub
+			# point, then apply the queued Δv at that future position.
+			# The kick has to land *after* propagation so the ellipse
+			# the preview draws is the post-maneuver trajectory
+			# emerging from the planned maneuver point — not a new
+			# ellipse whose shape is back-fit to the satellite's
+			# current location.
 			var plan_sat := planning_satellites[i]
 			plan_sat.clone_orbit_from(real_satellites[i])
+			if plan_sat.orbit_alive and plan_sat.alive and window > 0.0:
+				if plan_sat.is_surface:
+					# Surface installation — extrapolate the planet's
+					# rotation rather than the orbit so the planning
+					# preview shows the unit's future ECI position.
+					var future_phase: float = (
+						earth.earth_phase + earth.rotation_rate * window
+					)
+					plan_sat.update_surface_position(future_phase)
+				else:
+					plan_sat.advance_time(window)
 			if (
 				i == planning_selected
 				and _planning_dv.length_squared() > 0.0
@@ -498,17 +511,6 @@ func _physics_process(delta: float) -> void:
 					_planning_dv, 0.0, Satellite.safe_periapsis_km()
 				):
 					plan_sat.orbit_alive = false
-			if plan_sat.orbit_alive and plan_sat.alive and window > 0.0:
-				if plan_sat.is_surface:
-					# Surface installation — extrapolate the planet's
-					# rotation rather than the orbit so the planning
-					# preview shows the unit's future ECI position.
-					var future_phase: float = (
-						earth.earth_phase + earth.rotation_rate * window
-					)
-					plan_sat.update_surface_position(future_phase)
-				else:
-					plan_sat.advance_time(window)
 			plan_sat.visible = true
 	else:
 		for sat in planning_satellites:
