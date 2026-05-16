@@ -172,11 +172,16 @@ const STAGES: Array = [
 ]
 
 const DEFAULT_UNIT_COUNT: int = 15
-# Index where the railgun units begin in the seed roster. Slots
-# [0, DEFAULT_LASER_COUNT) ride the three-plane laser shell; slots
-# [DEFAULT_LASER_COUNT, DEFAULT_UNIT_COUNT) get the railgun chassis on
-# higher elliptical orbits.
+# Roster composition. Slots [0, DEFAULT_LASER_COUNT) ride the
+# three-plane laser shell; slots [DEFAULT_LASER_COUNT,
+# DEFAULT_LASER_COUNT + DEFAULT_RAILGUN_COUNT) get the railgun
+# chassis on higher elliptical orbits; the remaining slot at the end
+# carries the missile launcher on a circular mid-ring. Sums to
+# DEFAULT_UNIT_COUNT so the seed loop and launch_cap agree without
+# hard-coding a 15.
 const DEFAULT_LASER_COUNT: int = 12
+const DEFAULT_RAILGUN_COUNT: int = 2
+const DEFAULT_MISSILE_COUNT: int = 1
 
 
 # Look up the current launch cap from Research. Wrapped in a helper so
@@ -282,10 +287,23 @@ const _LASER_PER_PLANE: int = 4
 const _RAILGUN_ORBITS: Array = [
 	{"inclination_deg": 20.0, "raan_deg": 0.0, "argp_deg": 0.0, "true_anomaly_deg": 0.0},
 	{"inclination_deg": 50.0, "raan_deg": 120.0, "argp_deg": 60.0, "true_anomaly_deg": 120.0},
-	{"inclination_deg": 80.0, "raan_deg": 240.0, "argp_deg": 120.0, "true_anomaly_deg": 240.0},
 ]
 const _RAILGUN_PERIGEE_ALT_KM: float = 8000.0
 const _RAILGUN_ECCENTRICITY: float = 0.5
+
+# Single missile-launcher seed. Circular orbit at 6500 km — between
+# the 5000 km laser shell and the 8000 km railgun perigee — so the
+# unit visually parks on the mid-ring the operator can pick out
+# from the others. Inclination 35° puts it off the equator and off
+# both polar planes too, keeping it from stacking on any laser
+# orbit. Single missile-armed unit in the default fleet so the
+# operator gets one to test the FIRE MISSILE / Z-key path without
+# touching the Hangar; additional missile launchers ship in the
+# parts catalog and can be equipped via the editor.
+const _MISSILE_ORBITS: Array = [
+	{"inclination_deg": 35.0, "raan_deg": 60.0, "true_anomaly_deg": 0.0},
+]
+const _MISSILE_RING_ALT_KM: float = 6500.0
 
 
 func reset_units() -> void:
@@ -297,32 +315,44 @@ func reset_units() -> void:
 	# permits — a player who's somehow lost capacity since the last run
 	# shouldn't end up with launches that immediately fail to schedule.
 	var seed_count: int = mini(DEFAULT_UNIT_COUNT, _launch_cap())
+	# Boundary indices: [0, laser_end) lasers, [laser_end,
+	# railgun_end) railguns, [railgun_end, missile_end) missiles.
+	var laser_end: int = DEFAULT_LASER_COUNT
+	var railgun_end: int = laser_end + DEFAULT_RAILGUN_COUNT
 	for i in range(seed_count):
 		var unit := _make_unit_with_id("T-%02d" % (i + 1))
-		# Slot 0 is laser_default after set_chassis. The first
-		# DEFAULT_LASER_COUNT seeds keep the default; later seeds flip
-		# to the railgun chassis so the starting fleet still ships with
-		# a kinetic weapon for hard targets.
-		if i >= DEFAULT_LASER_COUNT:
-			unit.set_part_id(0, 0, "railgun_default")  # KIND_WEAPON, slot 0
+		# Slot 0 (KIND_WEAPON) is laser_default after set_chassis. Later
+		# seeds flip to railgun or missile launcher so the starting
+		# fleet ships with one of each weapon class for hands-on
+		# testing of the full combat surface.
+		if i >= railgun_end:
+			unit.set_part_id(0, 0, "missile_default")
+		elif i >= laser_end:
+			unit.set_part_id(0, 0, "railgun_default")
 		unit_pool.append(unit)
 		var launch := add_launch()
 		launch.unit_id = unit.id
-		if i < DEFAULT_LASER_COUNT:
+		if i < laser_end:
 			var plane: Dictionary = _LASER_PLANES[i / _LASER_PER_PLANE]
 			var slot_in_plane: int = i % _LASER_PER_PLANE
 			launch.altitude_km = _LASER_RING_ALT_KM
 			launch.inclination_deg = float(plane["inclination_deg"])
 			launch.raan_deg = float(plane["raan_deg"])
 			launch.true_anomaly_deg = float(slot_in_plane) * 90.0
-		else:
-			var orbit: Dictionary = _RAILGUN_ORBITS[i - DEFAULT_LASER_COUNT]
+		elif i < railgun_end:
+			var orbit: Dictionary = _RAILGUN_ORBITS[i - laser_end]
 			launch.altitude_km = _RAILGUN_PERIGEE_ALT_KM
 			launch.eccentricity = _RAILGUN_ECCENTRICITY
 			launch.inclination_deg = float(orbit["inclination_deg"])
 			launch.raan_deg = float(orbit["raan_deg"])
 			launch.argp_deg = float(orbit["argp_deg"])
 			launch.true_anomaly_deg = float(orbit["true_anomaly_deg"])
+		else:
+			var m_orbit: Dictionary = _MISSILE_ORBITS[i - railgun_end]
+			launch.altitude_km = _MISSILE_RING_ALT_KM
+			launch.inclination_deg = float(m_orbit["inclination_deg"])
+			launch.raan_deg = float(m_orbit["raan_deg"])
+			launch.true_anomaly_deg = float(m_orbit["true_anomaly_deg"])
 
 
 # Allocate a fresh unit and append it to the pool. Returns the new unit
