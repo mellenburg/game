@@ -10,6 +10,7 @@ const OrbitalPath = preload("res://scripts/orbital_path.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const MissileWeapon = preload("res://scripts/weapons/missile_weapon.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
 const Propulsion = preload("res://scripts/propulsion.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
@@ -676,6 +677,14 @@ func total_ammo_mass_kg() -> float:
 		if w is RailgunWeapon:
 			var rg: RailgunWeapon = w
 			total += float(rg.ammo_count) * RailgunWeapon.SLUG_MASS_KG
+		elif w is MissileWeapon:
+			var mw: MissileWeapon = w
+			# A remaining missile is its full wet mass (dry +
+			# propellant). When the launcher fires, prepare_shot
+			# decrements ammo_count and calls recompute_mass on the
+			# attacker, so the launcher's mass falls by one missile's
+			# worth — same accounting shape as the railgun slug.
+			total += float(mw.ammo_count) * MissileWeapon.wet_mass_per_missile_kg()
 	return total
 
 

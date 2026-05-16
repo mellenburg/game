@@ -27,6 +27,7 @@ const KIND_LABELS: Array[String] = [
 # enum value threaded through every consumer.
 const WCLASS_LASER: String = "laser"
 const WCLASS_RAILGUN: String = "railgun"
+const WCLASS_MISSILE: String = "missile"
 
 # Tier labels — purely cosmetic, drives the dropdown text.
 const TIER_DEFAULT: String = "default"

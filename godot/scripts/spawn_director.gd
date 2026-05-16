@@ -16,6 +16,7 @@ const ThreatAlert = preload("res://scripts/threat_alert.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const MissileWeapon = preload("res://scripts/weapons/missile_weapon.gd")
 const UnitConfig = preload("res://scripts/unit_config.gd")
 const SurfaceUnitConfig = preload("res://scripts/surface_unit_config.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
@@ -349,6 +350,10 @@ func _build_weapons(unit: UnitConfig) -> Array[Weapon]:
 				var railgun := RailgunWeapon.new()
 				railgun.damage_mult = part.multiplier
 				w = railgun
+			UnitPart.WCLASS_MISSILE:
+				var missile := MissileWeapon.new()
+				missile.damage_mult = part.multiplier
+				w = missile
 		if w != null:
 			out.append(w)
 	return out

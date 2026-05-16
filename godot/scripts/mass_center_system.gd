@@ -16,6 +16,7 @@ const OrbitCamera = preload("res://scripts/orbit_camera.gd")
 const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const SlugRenderer = preload("res://scripts/slug_renderer.gd")
+const MissileSpawner = preload("res://scripts/missile_spawner.gd")
 const ImpactTracker = preload("res://scripts/impact_tracker.gd")
 const ImpactMap = preload("res://scripts/impact_map.gd")
 const RadarMap = preload("res://scripts/radar_map.gd")
@@ -195,6 +196,7 @@ var _mission_settings: ReconSettings = null
 @onready var planning_container: Node3D = $PlanningSatellites as Node3D
 @onready var beam_renderer: BeamRenderer = $BeamRenderer as BeamRenderer
 @onready var slug_renderer: SlugRenderer = $SlugRenderer as SlugRenderer
+@onready var missile_spawner: MissileSpawner = $MissileSpawner as MissileSpawner
 @onready var range_circle: RangeCircle = $RangeCircle as RangeCircle
 @onready var impact_map: ImpactMap = $CanvasLayer/HUD/ImpactMap as ImpactMap
 @onready var radar_map: RadarMap = $CanvasLayer/HUD/RadarMap as RadarMap
@@ -274,7 +276,7 @@ func _ready() -> void:
 
 	combat_controller = CombatController.new()
 	add_child(combat_controller)
-	combat_controller.setup(hud, beam_renderer, slug_renderer)
+	combat_controller.setup(hud, beam_renderer, slug_renderer, missile_spawner)
 
 	# Roster tiles in the friendly HUD strip emit `friendly_clicked`
 	# when the operator clicks one. The HUD doesn't own the selection
@@ -539,6 +541,12 @@ func _physics_process(delta: float) -> void:
 	# position each frame — non-physical but the tracer stays pointed
 	# at something the operator can recognise.
 	slug_renderer.tick(sim_delta)
+	# Advance missiles by the same sim-delta. Each missile propagates
+	# its own Keplerian orbit and checks proximity to its target; a
+	# missile that detonates / expires / loses its target this tick
+	# fires its on_terminate callback (releases the spawner's
+	# reservation) and is queue_free'd.
+	missile_spawner.tick(sim_delta, sim_time)
 	_spawn_breakup_children()
 	_remove_dead_satellites()
 

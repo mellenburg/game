@@ -16,6 +16,8 @@ const BeamRenderer = preload("res://scripts/beam_renderer.gd")
 const HUD = preload("res://scripts/hud.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const MissileWeapon = preload("res://scripts/weapons/missile_weapon.gd")
+const MissileSpawner = preload("res://scripts/missile_spawner.gd")
 const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
 
 # MassCenterOrbit.BODY_RADIUS_KM is now a runtime-mutable static var (each
@@ -231,6 +233,107 @@ func test_clear_all_releases_reservations() -> void:
 	sr.clear_all()
 	assert_eq(sr.active_slug_count(), 0)
 	assert_eq(cc.reserved_target_count(), 0)
+	attacker.queue_free()
+	enemy.queue_free()
+	_free_controller(parts)
+
+
+# --- missile integration ----------------------------------------------------
+
+
+# Same as _make_controller but also wires a MissileSpawner.
+func _make_missile_controller() -> Array:
+	var sr := SlugRenderer.new()
+	sr._ready()
+	var br := BeamRenderer.new()
+	var h := HUD.new()
+	var ms := MissileSpawner.new()
+	var cc := CombatController.new()
+	cc.setup(h, br, sr, ms)
+	return [cc, sr, br, h, ms]
+
+
+# Attacker rigged with a single MissileWeapon — strips the default
+# laser+laser+railgun loadout so the test isolates the missile fire path.
+func _make_missile_attacker(radius: float, team: int) -> Satellite:
+	var s := _make_attacker(radius, team)
+	s.weapons = [MissileWeapon.new()]
+	s.recompute_mass()
+	return s
+
+
+func test_missile_fire_spawns_missile_and_reserves_target() -> void:
+	# End-to-end shape: a satellite with a MissileWeapon and an enemy
+	# inside its envelope fires one missile when process_combat ticks.
+	# The spawner gets the missile, the reservation map gets the
+	# target iid.
+	var parts := _make_missile_controller()
+	var cc: CombatController = parts[0]
+	var ms: MissileSpawner = parts[4]
+	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var enemy := _make_enemy(
+		Vector3(BODY_RADIUS_KM + 5100.0, 1000.0, 0.0), 1
+	)
+	var fleet: Array[Satellite] = [attacker, enemy]
+	cc.process_combat(fleet, 0.0, 0.1)
+	assert_eq(ms.active_missile_count(), 1)
+	assert_eq(ms.reserved_target_count(), 1)
+	assert_true(ms.has_reservation(enemy.get_instance_id()))
+	# Attacker bookkeeping: ammo decremented, energy drained, weapon
+	# overheated (so the next tick refuses to re-fire).
+	var w: MissileWeapon = attacker.weapons[0]
+	assert_eq(w.ammo_count, MissileWeapon.MAGAZINE_SIZE - 1)
+	assert_true(w.overheated)
+	attacker.queue_free()
+	enemy.queue_free()
+	for p in parts:
+		if p != null and is_instance_valid(p):
+			p.queue_free()
+
+
+func test_missile_reservation_blocks_second_launcher() -> void:
+	# Two attackers, one enemy: first attacker fires a missile, the
+	# reservation locks the target out of the second attacker's
+	# pick_target candidate list.
+	var parts := _make_missile_controller()
+	var cc: CombatController = parts[0]
+	var ms: MissileSpawner = parts[4]
+	var attacker_a := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var attacker_b := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var enemy := _make_enemy(
+		Vector3(BODY_RADIUS_KM + 5100.0, 1000.0, 0.0), 1
+	)
+	var fleet: Array[Satellite] = [attacker_a, attacker_b, enemy]
+	cc.process_combat(fleet, 0.0, 0.1)
+	# Exactly one missile should have spawned across both launchers.
+	assert_eq(ms.active_missile_count(), 1, "only one missile must spawn")
+	# Only one of the two attackers got to fire.
+	var fired_a: bool = (attacker_a.weapons[0] as MissileWeapon).ammo_count < MissileWeapon.MAGAZINE_SIZE
+	var fired_b: bool = (attacker_b.weapons[0] as MissileWeapon).ammo_count < MissileWeapon.MAGAZINE_SIZE
+	assert_true(fired_a != fired_b, "exactly one attacker should have fired")
+	attacker_a.queue_free()
+	attacker_b.queue_free()
+	enemy.queue_free()
+	for p in parts:
+		if p != null and is_instance_valid(p):
+			p.queue_free()
+
+
+func test_missile_fire_skipped_without_spawner() -> void:
+	# Backward-compat: a controller wired without a MissileSpawner (old
+	# scenes, tests with no missile setup) must not crash when a
+	# MissileWeapon picks a target — _fire_missile silently no-ops.
+	var parts := _make_controller()  # NO missile spawner
+	var cc: CombatController = parts[0]
+	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var enemy := _make_enemy(
+		Vector3(BODY_RADIUS_KM + 5100.0, 1000.0, 0.0), 1
+	)
+	var fleet: Array[Satellite] = [attacker, enemy]
+	cc.process_combat(fleet, 0.0, 0.1)
+	# Ammo unchanged — _fire_missile returns false when spawner is null.
+	var w: MissileWeapon = attacker.weapons[0]
+	assert_eq(w.ammo_count, MissileWeapon.MAGAZINE_SIZE)
 	attacker.queue_free()
 	enemy.queue_free()
 	_free_controller(parts)
