@@ -283,6 +283,10 @@ func _ready() -> void:
 	# index — that lives here — so it just hands us the satellite ref
 	# and we resolve it against the active (real or planning) array.
 	hud.friendly_clicked.connect(_on_friendly_clicked)
+	# HUD's FIRE MISSILE button emits this when the operator clicks
+	# it. Z key routes through the same handler so both control
+	# surfaces converge on _try_fire_missile_from_selected.
+	hud.fire_missile_requested.connect(_on_hud_fire_missile_requested)
 
 	if radar_map != null:
 		radar_map.waves = spawn_director.asteroid_waves
@@ -1021,6 +1025,8 @@ func _process_one_shot_input() -> void:
 			_toggle_targeting_mode_on_selected()
 	if Input.is_action_just_pressed("toggle_railgun"):
 		_toggle_railgun_on_all()
+	if Input.is_action_just_pressed("fire_missile"):
+		_try_fire_missile_from_selected()
 	if Input.is_action_just_pressed("toggle_slug_render"):
 		# Visual-only toggle — the simulation has already applied damage
 		# at fire-time. Off ⇒ railguns route through the laser-style
@@ -1125,6 +1131,38 @@ func _toggle_railgun_on_all() -> void:
 	for sat in rg_armed:
 		if sat.railgun_enabled != target:
 			sat.toggle_railgun()
+
+
+## Fire one missile from the currently selected player satellite, if
+## it has a missile launcher with ammo and can_fire. Invoked by the
+## Z key handler and by the HUD's FIRE MISSILE button (both wire
+## here through identical paths). No-op during planning-mode soft
+## pause — the missile would spawn at the planning-clone state but
+## immediately freeze, which is confusing. Use sim_delta = physics
+## tick so prepare_shot's sim_delta > 0 gate clears regardless of
+## time_factor scaling.
+## HUD signal hookup for the FIRE MISSILE button. Routes to the same
+## helper the Z key uses — the HUD passes the selected satellite by
+## ref but we re-resolve through selected_ship so a stale signal
+## (fired after the operator changed selection) doesn't fire from
+## the wrong unit.
+func _on_hud_fire_missile_requested(_sat: Satellite) -> void:
+	_try_fire_missile_from_selected()
+
+
+func _try_fire_missile_from_selected() -> void:
+	if planning_mode:
+		return
+	if selected_ship < 0 or selected_ship >= real_satellites.size():
+		return
+	var sat: Satellite = real_satellites[selected_ship]
+	if sat == null or not sat.alive or sat.team != Satellite.TEAM_PLAYER:
+		return
+	# The launch event itself doesn't need true sim_delta — prepare_shot
+	# only gates on sim_delta > 0. The missile's actual flight is
+	# driven by the spawner tick downstream.
+	var tick_delta: float = 1.0 / 30.0
+	combat_controller.try_fire_missile_for(sat, real_satellites, sim_time, tick_delta)
 
 
 func _armed_player_sats() -> Array[Satellite]:

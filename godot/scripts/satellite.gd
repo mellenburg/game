@@ -652,6 +652,26 @@ func has_railgun() -> bool:
 	return false
 
 
+## Whether this satellite carries at least one missile launcher.
+## Used by the HUD to decide whether to show the FIRE MISSILE button
+## on this unit's detail panel.
+func has_missile() -> bool:
+	for w: Weapon in weapons:
+		if w is MissileWeapon:
+			return true
+	return false
+
+
+## First MissileWeapon in the loadout, or null. The HUD uses this to
+## drive the FIRE MISSILE button's enabled state (disabled when the
+## launcher is overheated or out of ammo).
+func first_missile_weapon():
+	for w: Weapon in weapons:
+		if w is MissileWeapon:
+			return w
+	return null
+
+
 func get_current_maneuver() -> Vector3:
 	return DELTA_V_MAGNITUDE * raw_maneuver
 

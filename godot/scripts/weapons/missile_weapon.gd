@@ -42,12 +42,29 @@ const PROPELLANT_PER_MISSILE_KG: float = 150.0
 # from storage rather than tuned for max performance.
 const MISSILE_ISP_S: float = 450.0
 
-# Proximity-fuze trigger radius. 5 km is generous: lethal-radius of a
-# warhead-scale device is well under this; the wide radius compensates
-# for any residual Lambert-solver inaccuracy and target-maneuver
-# unpredictability (Phase 2). Tune downward if missiles become too
-# easy to score with.
-const BLAST_RADIUS_KM: float = 5.0
+# Proximity-fuze trigger radius — also the warhead's lethal envelope.
+# Calibrated for a 100 MT thermonuclear yield (4.184 × 10^17 J)
+# detonated in vacuum:
+#
+#   * ~75% of yield emits as soft X-rays at the speed of light. No
+#     atmospheric shock wave in space, so the X-ray pulse is the
+#     dominant kill mechanism at range.
+#   * Inverse-square fluence at radius R:  F = E_x / (4π R²).
+#   * Damage threshold for typical (unhardened) satellite skin —
+#     vaporises solar panels, sensors, exposed structure: ≈ 1 kJ/cm²
+#     = 10^7 J/m². Hardened military comsats survive ~10× higher
+#     fluence; light commercial sensor platforms die at ~10× lower.
+#   * Solving for the unhardened-target lethal radius:
+#         R = sqrt(0.75 · 4.184e17 / (4π · 10^7)) ≈ 50 km.
+#
+# Set to 50 km accordingly. The proximity fuze trigger equals the
+# damage radius so a missile that enters the X-ray-lethal envelope
+# detonates and applies full damage; outside, the falloff branch in
+# Missile.gd applies scaled damage out to 2× this radius (≈100 km
+# kill-zone for damaged-but-alive outcomes). This calibration is
+# order-of-magnitude; nuclear-effects modelling is approximate by
+# design. Tune if balance changes — and document the physics if so.
+const BLAST_RADIUS_KM: float = 50.0
 
 # Time-of-flight search bounds for the Lambert intercept.
 const MIN_TOF_SEC: float = 30.0
@@ -71,9 +88,17 @@ const WALLPLUG_EFFICIENCY: float = 1.0
 const HEAT_CAPACITY_J: float = ENERGY_PER_LAUNCH_J * 0.3
 const HEAT_FRACTION: float = 0.3
 # Per-shot damage (HP, not joules — the warhead's yield is a fixed
-# property of the missile, not a derived energy quantity). 100 HP
-# = one-shot kill on a default 100-HP target inside the blast radius.
-const DAMAGE_HP: float = 100.0
+# property of the missile, not a derived energy quantity). For the
+# 100 MT yield calibrated above, the lethal-radius X-ray fluence
+# vapourises every exposed surface; HP-wise this should one-shot
+# any reasonable target inside the blast radius with margin for
+# future hardened targets. 500 HP one-shots a default 100-HP
+# satellite at 5× overkill — a tier-3 (~3× hp_mult) heavy still
+# dies, a hypothetical future 1000-HP capital ship survives with
+# half hp. Out-of-radius falloff in Missile.gd scales this by
+# (blast_radius / distance) so a near miss deals proportional
+# damage out to 2× the radius before terminating as a miss.
+const DAMAGE_HP: float = 500.0
 
 # How long a cached Lambert solution stays valid. Five sim-seconds is
 # a balance between staleness (attacker may have drifted, target may

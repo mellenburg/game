@@ -34,8 +34,32 @@ const ENEMY_ALT_MAX_KM: float = 2000.0
 # differ; RAAN is uniformly random per ship; consecutive true anomalies
 # are separated by a random gap inside [NU_GAP_MIN_DEG, NU_GAP_MAX_DEG]
 # so the ships fan out along their orbits instead of bunching at launch.
-const STARTING_SAT_COUNT: int = 3
+const STARTING_SAT_COUNT: int = 4
+# Per-slot altitude (km above surface). Slots 0/1 hold the two
+# laser-armed scouts at the baseline LEO altitude (matches
+# Propulsion.BASELINE_LEO_ALT_KM so a launch from menu-mode pays zero
+# setup dv for those slots). Slot 2 is the high-orbit railgun
+# platform — extra altitude gives recoil-headroom for the slug
+# safety check. Slot 3 sits between them, hosting the missile
+# launcher; the operator visually picks it out as the unit on the
+# middle ring. Keeping these as a switch statement (rather than a
+# parallel array) makes the per-slot intent self-documenting.
 const STARTING_SAT_ALT_KM: float = 500.0
+const STARTING_SAT_ALT_RAILGUN_KM: float = 900.0
+const STARTING_SAT_ALT_MISSILE_KM: float = 700.0
+
+
+# Altitude (km) for the given starting-fleet slot. Slot N ≥ 3 falls
+# back to the laser altitude so future slot additions don't silently
+# inherit the missile band.
+static func _starting_alt_for(index: int) -> float:
+	match index:
+		2:
+			return STARTING_SAT_ALT_RAILGUN_KM
+		3:
+			return STARTING_SAT_ALT_MISSILE_KM
+		_:
+			return STARTING_SAT_ALT_KM
 const STARTING_SAT_INC_MAX_DEG: float = 60.0
 const STARTING_SAT_NU_GAP_MIN_DEG: float = 80.0
 const STARTING_SAT_NU_GAP_MAX_DEG: float = 160.0
@@ -231,7 +255,7 @@ func spawn_starting_fleet(
 		var sat := Satellite.new()
 		sat.unit_name = "T-%02d" % (i + 1)
 		sat.orbit = MassCenterOrbit.make_circular(
-			STARTING_SAT_ALT_KM,
+			_starting_alt_for(i),
 			_rng.randf_range(0.0, inc_max),
 			_rng.randf_range(0.0, TAU),
 			nu,
@@ -360,11 +384,14 @@ func _build_weapons(unit: UnitConfig) -> Array[Weapon]:
 
 
 # Per-slot weapon loadout for the legacy randomised starting fleet.
-# Slots 0 and 1 get a laser, slot 2 gets a railgun. Returning a fresh
-# array per call so every ship gets independent weapon instances
-# (cooldown / heat state is per-weapon, not shared).
+# Slots 0 and 1 get a laser, slot 2 gets a railgun, slot 3 gets the
+# missile launcher. Returning a fresh array per call so every ship
+# gets independent weapon instances (cooldown / heat / ammo state is
+# per-weapon, not shared).
 func _default_loadout_for(index: int) -> Array[Weapon]:
-	if index >= 2:
+	if index == 3:
+		return [MissileWeapon.new()] as Array[Weapon]
+	if index == 2:
 		return [RailgunWeapon.new()] as Array[Weapon]
 	return [LaserWeapon.new()] as Array[Weapon]
 

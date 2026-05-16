@@ -119,6 +119,15 @@ func process_combat(
 			var w: Weapon = sat.weapons[w_idx]
 			if not w.can_fire(sat):
 				continue
+			# Missiles are manual-fire only — the per-shot expense (one
+			# 100 MT warhead from a magazine of eight) makes operator
+			# discretion essential, and the auto-fire loop has no
+			# notion of "is this the right moment to spend a missile".
+			# The HUD's FIRE MISSILE button and the Z key invoke
+			# try_fire_missile_for() instead, which routes through the
+			# same _fire_missile helper this branch would have called.
+			if w is MissileWeapon:
+				continue
 			# Targeting is the weapon's responsibility — laser ranks
 			# in-envelope candidates by attacker.targeting_mode, the
 			# railgun picks randomly across LOS-clear safe shots.
@@ -302,6 +311,46 @@ func _exclude_missile_reserved(cands: Array[Satellite]) -> Array[Satellite]:
 		if not _missile_spawner.has_reservation(c.get_instance_id()):
 			out.append(c)
 	return out
+
+
+## Manual missile fire: invoked by the HUD's FIRE MISSILE button and
+## the Z key. Iterates the attacker's MissileWeapons, picks the first
+## reachable opposing target (lowest dv via the weapon's cached
+## Lambert search), and spawns a missile via _fire_missile. Returns
+## true on a successful launch — caller can play a fire-confirm sound
+## / flash on a true result.
+##
+## satellites is the full fleet (the same array CombatController.process_combat
+## sees each tick) — it's needed to build the candidate list since
+## missiles don't ride the auto-fire path that would otherwise have
+## stashed it.
+func try_fire_missile_for(
+	attacker: Satellite,
+	satellites: Array[Satellite],
+	sim_time: float,
+	sim_delta: float,
+) -> bool:
+	if attacker == null or not attacker.alive:
+		return false
+	var candidates := _collect_targetable(satellites)
+	for w in attacker.weapons:
+		if not (w is MissileWeapon):
+			continue
+		var mw: MissileWeapon = w
+		if not mw.can_fire(attacker):
+			continue
+		var cands: Array = candidates
+		if (
+			_missile_spawner != null
+			and _missile_spawner.reserved_target_count() > 0
+		):
+			cands = _exclude_missile_reserved(candidates)
+		var target: Satellite = mw.pick_target(attacker, cands, sim_time)
+		if target == null:
+			continue
+		if _fire_missile(attacker, mw, target, sim_delta, sim_time):
+			return true
+	return false
 
 
 # Missile fire path. Mirrors _fire_railgun_with_slug but the spawner

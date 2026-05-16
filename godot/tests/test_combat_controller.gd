@@ -287,11 +287,33 @@ func _make_coplanar_enemy(radius_km: float, true_anom_rad: float, team: int) -> 
 	return s
 
 
-func test_missile_fire_spawns_missile_and_reserves_target() -> void:
-	# End-to-end shape: a satellite with a MissileWeapon and an enemy
-	# inside its envelope fires one missile when process_combat ticks.
-	# The spawner gets the missile, the reservation map gets the
-	# target iid.
+func test_process_combat_does_not_auto_fire_missiles() -> void:
+	# Missiles are manual-fire only — every shot is a 100 MT warhead
+	# off a small magazine, so the auto-fire loop deliberately skips
+	# MissileWeapons. process_combat with a missile-armed attacker
+	# and a reachable enemy must leave the magazine untouched; the
+	# operator's button click / Z key is what spends the warhead.
+	var parts := _make_missile_controller()
+	var cc: CombatController = parts[0]
+	var ms: MissileSpawner = parts[4]
+	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
+	var fleet: Array[Satellite] = [attacker, enemy]
+	cc.process_combat(fleet, 0.0, 0.1)
+	assert_eq(ms.active_missile_count(), 0, "auto-fire must not spawn missiles")
+	var w: MissileWeapon = attacker.weapons[0]
+	assert_eq(w.ammo_count, MissileWeapon.MAGAZINE_SIZE)
+	attacker.queue_free()
+	enemy.queue_free()
+	for p in parts:
+		if p != null and is_instance_valid(p):
+			p.queue_free()
+
+
+func test_try_fire_missile_spawns_missile_and_reserves_target() -> void:
+	# Manual-fire entry point: try_fire_missile_for picks a reachable
+	# enemy and spawns one missile. The HUD button / Z key route
+	# through this same method.
 	var parts := _make_missile_controller()
 	var cc: CombatController = parts[0]
 	var ms: MissileSpawner = parts[4]
@@ -299,12 +321,13 @@ func test_missile_fire_spawns_missile_and_reserves_target() -> void:
 	# Coplanar enemy 30° ahead, 100 km higher. Within budget at ~1.7 km/s.
 	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
 	var fleet: Array[Satellite] = [attacker, enemy]
-	cc.process_combat(fleet, 0.0, 0.1)
+	var fired: bool = cc.try_fire_missile_for(attacker, fleet, 0.0, 0.1)
+	assert_true(fired, "manual fire should succeed on reachable enemy")
 	assert_eq(ms.active_missile_count(), 1)
 	assert_eq(ms.reserved_target_count(), 1)
 	assert_true(ms.has_reservation(enemy.get_instance_id()))
 	# Attacker bookkeeping: ammo decremented, energy drained, weapon
-	# overheated (so the next tick refuses to re-fire).
+	# overheated (so the next try_fire refuses to re-fire).
 	var w: MissileWeapon = attacker.weapons[0]
 	assert_eq(w.ammo_count, MissileWeapon.MAGAZINE_SIZE - 1)
 	assert_true(w.overheated)
@@ -315,10 +338,10 @@ func test_missile_fire_spawns_missile_and_reserves_target() -> void:
 			p.queue_free()
 
 
-func test_missile_reservation_blocks_second_launcher() -> void:
-	# Two attackers, one enemy: first attacker fires a missile, the
-	# reservation locks the target out of the second attacker's
-	# pick_target candidate list.
+func test_try_fire_missile_blocks_when_target_already_reserved() -> void:
+	# Two attackers, one enemy: first manual fire spawns a missile,
+	# the reservation locks the target out so a second try_fire on
+	# the other attacker finds no eligible target.
 	var parts := _make_missile_controller()
 	var cc: CombatController = parts[0]
 	var ms: MissileSpawner = parts[4]
@@ -326,13 +349,12 @@ func test_missile_reservation_blocks_second_launcher() -> void:
 	var attacker_b := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
 	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
 	var fleet: Array[Satellite] = [attacker_a, attacker_b, enemy]
-	cc.process_combat(fleet, 0.0, 0.1)
-	# Exactly one missile should have spawned across both launchers.
-	assert_eq(ms.active_missile_count(), 1, "only one missile must spawn")
-	# Only one of the two attackers got to fire.
-	var fired_a: bool = (attacker_a.weapons[0] as MissileWeapon).ammo_count < MissileWeapon.MAGAZINE_SIZE
-	var fired_b: bool = (attacker_b.weapons[0] as MissileWeapon).ammo_count < MissileWeapon.MAGAZINE_SIZE
-	assert_true(fired_a != fired_b, "exactly one attacker should have fired")
+	assert_true(cc.try_fire_missile_for(attacker_a, fleet, 0.0, 0.1))
+	assert_false(
+		cc.try_fire_missile_for(attacker_b, fleet, 0.0, 0.1),
+		"reservation must block the second launcher"
+	)
+	assert_eq(ms.active_missile_count(), 1)
 	attacker_a.queue_free()
 	attacker_b.queue_free()
 	enemy.queue_free()
@@ -341,17 +363,16 @@ func test_missile_reservation_blocks_second_launcher() -> void:
 			p.queue_free()
 
 
-func test_missile_fire_skipped_without_spawner() -> void:
-	# Backward-compat: a controller wired without a MissileSpawner (old
-	# scenes, tests with no missile setup) must not crash when a
-	# MissileWeapon picks a target — _fire_missile silently no-ops.
+func test_try_fire_missile_skipped_without_spawner() -> void:
+	# Backward-compat: a controller wired without a MissileSpawner
+	# (old scenes, tests with no missile setup) must not crash on
+	# try_fire_missile_for — _fire_missile silently returns false.
 	var parts := _make_controller()  # NO missile spawner
 	var cc: CombatController = parts[0]
 	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
 	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
 	var fleet: Array[Satellite] = [attacker, enemy]
-	cc.process_combat(fleet, 0.0, 0.1)
-	# Ammo unchanged — _fire_missile returns false when spawner is null.
+	assert_false(cc.try_fire_missile_for(attacker, fleet, 0.0, 0.1))
 	var w: MissileWeapon = attacker.weapons[0]
 	assert_eq(w.ammo_count, MissileWeapon.MAGAZINE_SIZE)
 	attacker.queue_free()

@@ -19,6 +19,7 @@ const LosCheck = preload("res://scripts/los_check.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const MissileWeapon = preload("res://scripts/weapons/missile_weapon.gd")
 const SimClock = preload("res://scripts/sim_clock.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
 const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
@@ -28,6 +29,13 @@ const HPBar = preload("res://scripts/hp_bar.gd")
 ## owns the selection index and resolves the satellite ref against the
 ## active (real or planning) array.
 signal friendly_clicked(sat: Satellite)
+
+## Emitted when the operator clicks the FIRE MISSILE button on a
+## missile-armed unit's detail panel. MassCenterSystem owns the
+## CombatController hookup and routes the call through
+## try_fire_missile_for. The Z key fires the same path without the
+## HUD signal — both converge on the same selection-aware helper.
+signal fire_missile_requested(sat: Satellite)
 
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
@@ -128,6 +136,17 @@ const HIT_DURATION: float = 0.25
 @onready var unit_detail_label: RichTextLabel = (
 	$UnitDetailPanel/VBox/DetailLabel as RichTextLabel
 )
+@onready var unit_detail_vbox: VBoxContainer = (
+	$UnitDetailPanel/VBox as VBoxContainer
+)
+# Created programmatically in _ready and parented under the detail
+# panel's VBox. Visible only when the selected unit has a missile
+# launcher; disabled when the launcher is overheated or out of ammo.
+var _fire_missile_button: Button = null
+# Last sat the detail panel rendered for. Stashed so the button's
+# pressed handler can resolve the right launcher without re-walking
+# the selection state — the HUD never owns the selection index.
+var _detail_sat: Satellite = null
 
 var _camera: Camera3D
 var _system: Node = null
@@ -147,6 +166,17 @@ var los_visible: bool = false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# FIRE MISSILE button — appended to the detail-panel VBox below
+	# the existing DetailLabel. Stays hidden until the selected unit
+	# carries a missile launcher; greyed out when the launcher is
+	# overheated or empty. The 'Z' hint mirrors the key-bind so the
+	# operator learns both control surfaces from one chip.
+	_fire_missile_button = Button.new()
+	_fire_missile_button.text = "FIRE MISSILE  [Z]"
+	_fire_missile_button.visible = false
+	_fire_missile_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_fire_missile_button.pressed.connect(_on_fire_missile_pressed)
+	unit_detail_vbox.add_child(_fire_missile_button)
 
 
 ## Called by the combat loop when a weapon successfully fires. The HUD
@@ -615,13 +645,49 @@ func _update_unit_detail(orbital_set: Node, planning_mode: bool) -> void:
 	)
 	if idx < 0 or idx >= sats.size():
 		unit_detail_panel.visible = false
+		_detail_sat = null
+		_update_fire_missile_button(null, planning_mode)
 		return
 	var sat: Satellite = sats[idx]
 	if sat == null or not sat.alive or sat.team != Satellite.TEAM_PLAYER:
 		unit_detail_panel.visible = false
+		_detail_sat = null
+		_update_fire_missile_button(null, planning_mode)
 		return
 	unit_detail_panel.visible = true
 	unit_detail_label.text = _format_unit_detail(sat)
+	_detail_sat = sat
+	_update_fire_missile_button(sat, planning_mode)
+
+
+# Show / hide / enable the FIRE MISSILE button based on the selected
+# unit's missile loadout. Hidden when the unit has no missile (saves
+# vertical space). Disabled when the launcher is overheated or out
+# of ammo, OR when the game is in planning-mode pause (firing during
+# a paused sim is confusing — the missile would freeze mid-air).
+func _update_fire_missile_button(sat: Satellite, planning_mode: bool) -> void:
+	if _fire_missile_button == null:
+		return
+	if sat == null or not sat.has_missile():
+		_fire_missile_button.visible = false
+		return
+	_fire_missile_button.visible = true
+	var mw = sat.first_missile_weapon()
+	var can_fire: bool = (
+		mw != null and mw.can_fire(sat) and not planning_mode
+	)
+	_fire_missile_button.disabled = not can_fire
+
+
+# Button signal handler. Re-validates the selected sat (the operator
+# may have shifted selection between rendering and click) and emits
+# the public signal MassCenterSystem connects to.
+func _on_fire_missile_pressed() -> void:
+	if _detail_sat == null or not is_instance_valid(_detail_sat):
+		return
+	if not _detail_sat.alive or _detail_sat.team != Satellite.TEAM_PLAYER:
+		return
+	fire_missile_requested.emit(_detail_sat)
 
 
 # BBCode card for the upper-right unit inspector. Mirrors the legacy
@@ -709,7 +775,12 @@ func _weapon_status_bbcode(w: Weapon) -> String:
 	if w is RailgunWeapon:
 		var rg: RailgunWeapon = w
 		ammo_suffix = "  %d/%d" % [rg.ammo_count, RailgunWeapon.MAGAZINE_SIZE]
+	elif w is MissileWeapon:
+		var mw: MissileWeapon = w
+		ammo_suffix = "  %d/%d" % [mw.ammo_count, MissileWeapon.MAGAZINE_SIZE]
 	if w is RailgunWeapon and (w as RailgunWeapon).ammo_count <= 0:
+		return "[color=#%s]EMPTY[/color]%s" % [_color_hex(BAR_COOLDOWN), ammo_suffix]
+	if w is MissileWeapon and (w as MissileWeapon).ammo_count <= 0:
 		return "[color=#%s]EMPTY[/color]%s" % [_color_hex(BAR_COOLDOWN), ammo_suffix]
 	if w.overheated:
 		return "[color=#%s]COOLDOWN %d%%[/color]%s" % [
