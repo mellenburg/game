@@ -1393,12 +1393,9 @@ func select_ship_by_ref(sat: Satellite) -> void:
 		real_satellites[selected_ship].unselect()
 	selected_ship = idx
 	real_sat.select()
-	# Picking a unit from the roster opens the planning preview for
-	# that unit. If the operator's already in planning mode the call
-	# is a no-op past the selection swap; otherwise it pauses the sim
-	# and clones the current fleet into planning satellites.
-	if not planning_mode:
-		toggle_planning()
+	# Selection only — entering planning mode is a separate operator
+	# action (toggle_planning keybind). Matches Tab / Shift+Tab
+	# cycling, which never auto-enters planning either.
 	_after_selection_changed()
 
 

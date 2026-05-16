@@ -495,18 +495,22 @@ func _group_for(sat: Satellite) -> int:
 
 
 # Build an empty GroupBlock: a vertical container with a clickable
-# header tile on top and a hidden HFlow for unit tiles below. The
-# header click handler toggles the group's expansion state; the unit
-# row is populated lazily in _update_group_block when expanded.
+# header tile on top and an HFlow for unit tiles below. Both rows
+# size to their content (SHRINK_BEGIN vertically) so the parent VBox
+# stacks subsequent blocks immediately below this one without overlap.
+# The HFlow starts empty; _update_group_block keeps its child count
+# in sync with the group's expansion state.
 func _make_group_block() -> VBoxContainer:
 	var block := VBoxContainer.new()
 	block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	block.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	block.add_theme_constant_override("separation", 4)
 
 	var header := PanelContainer.new()
 	header.name = GROUP_BLOCK_NAME_HEADER
 	header.custom_minimum_size = GROUP_HEADER_MIN_SIZE
 	header.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	header.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	header.mouse_filter = Control.MOUSE_FILTER_STOP
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = GROUP_HEADER_BG
@@ -529,9 +533,9 @@ func _make_group_block() -> VBoxContainer:
 	var units := HFlowContainer.new()
 	units.name = GROUP_BLOCK_NAME_UNITS
 	units.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	units.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	units.add_theme_constant_override("h_separation", 6)
 	units.add_theme_constant_override("v_separation", 6)
-	units.visible = false
 	block.add_child(units)
 
 	header.gui_input.connect(_on_group_header_input.bind(block))
@@ -562,18 +566,21 @@ func _update_group_block(
 		var gname: String = GROUP_NAMES.get(group_id, "Group ?")
 		label.text = "%s  %s  (%d)" % [arrow, gname, sats.size()]
 
-	units.visible = expanded
-	if not expanded:
-		# Skip populating the unit tiles when collapsed. The cached
-		# children stay around for re-use on the next expand so we
-		# avoid alloc churn on toggle.
-		return
-	while units.get_child_count() < sats.size():
+	# Match the HFlow's child count to the group's expansion state
+	# (0 when collapsed, sats.size() when expanded). Hiding via
+	# `units.visible = false` instead leaves stale children that bake
+	# their wrap height into the parent VBox layout — subsequent
+	# blocks then overlap visually, and clicks fall through to the
+	# wrong tile.
+	var target_count: int = sats.size() if expanded else 0
+	while units.get_child_count() < target_count:
 		units.add_child(_make_box())
-	while units.get_child_count() > sats.size():
+	while units.get_child_count() > target_count:
 		var stale := units.get_child(units.get_child_count() - 1)
 		units.remove_child(stale)
 		stale.queue_free()
+	if not expanded:
+		return
 	for i in range(sats.size()):
 		var box := units.get_child(i) as PanelContainer
 		_update_box(box, sats[i], sats[i] == selected_sat)
