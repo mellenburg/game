@@ -46,14 +46,14 @@ func _make_sat_circular(radius_km: float, true_anom_rad: float, team: int = 0) -
 
 func test_envelope_rejects_same_team() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var target := _make_sat_circular(7000.0, PI * 0.5, 0)  # same team
+	var target := _make_sat_circular(7000.0, PI / 6.0, 0)  # same team
 	var w := MissileWeapon.new()
 	assert_false(w.is_target_in_engagement_envelope(attacker, target))
 
 
 func test_envelope_rejects_dead_target() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var target := _make_sat_circular(7000.0, PI * 0.5, 1)
+	var target := _make_sat_circular(7000.0, PI / 6.0, 1)
 	target.alive = false
 	var w := MissileWeapon.new()
 	assert_false(w.is_target_in_engagement_envelope(attacker, target))
@@ -61,7 +61,7 @@ func test_envelope_rejects_dead_target() -> void:
 
 func test_envelope_accepts_opposing_team_in_range() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var target := _make_sat_circular(7000.0, PI * 0.5, 1)
+	var target := _make_sat_circular(7000.0, PI / 6.0, 1)
 	var w := MissileWeapon.new()
 	assert_true(w.is_target_in_engagement_envelope(attacker, target))
 
@@ -111,14 +111,18 @@ func test_pick_target_returns_null_with_no_candidates() -> void:
 
 func test_pick_target_returns_null_with_only_friendlies() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var friend := _make_sat_circular(7000.0, PI * 0.5, 0)
+	var friend := _make_sat_circular(7000.0, PI / 6.0, 0)
 	var w := MissileWeapon.new()
 	assert_eq(w.pick_target(attacker, [friend], 0.0), null)
 
 
+# Geometry: enemy 30° ahead at +100 km altitude. dv ≈ 1.7 km/s,
+# comfortably inside the ~4 km/s per-missile budget. A 90° phase
+# enemy at LEO requires > 5 km/s and is correctly rejected as
+# unreachable, so the test uses a moderate phase instead.
 func test_pick_target_picks_reachable_enemy() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var enemy := _make_sat_circular(7100.0, PI * 0.5, 1)
+	var enemy := _make_sat_circular(7100.0, PI / 6.0, 1)
 	var w := MissileWeapon.new()
 	var picked = w.pick_target(attacker, [enemy], 0.0)
 	assert_eq(picked, enemy)
@@ -126,20 +130,19 @@ func test_pick_target_picks_reachable_enemy() -> void:
 
 func test_pick_target_prefers_lowest_dv() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	# Two enemies at the same radius but different phases. The closer
-	# one in phase should require less dv to intercept.
-	var near := _make_sat_circular(7100.0, PI * 0.3, 1)
-	var far := _make_sat_circular(7100.0, PI * 0.9, 1)
+	# Two enemies in the dv-affordable regime. `near` at 10° phase
+	# costs ~0.6 km/s; `far` at 60° phase costs ~3.2 km/s. Both fit
+	# the 4 km/s budget, so pick_target picks the lower-dv one.
+	var near := _make_sat_circular(7000.0, PI / 18.0, 1)  # 10°
+	var far := _make_sat_circular(7100.0, PI / 3.0, 1)    # 60°
 	var w := MissileWeapon.new()
 	var picked = w.pick_target(attacker, [near, far], 0.0)
-	# Should pick the lower-phase-difference target. If the solver
-	# accidentally picks the far one, dv-ordering is broken.
 	assert_eq(picked, near, "pick_target must prefer lower-dv intercept")
 
 
 func test_pick_target_caches_solution() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var enemy := _make_sat_circular(7100.0, PI * 0.5, 1)
+	var enemy := _make_sat_circular(7100.0, PI / 6.0, 1)
 	var w := MissileWeapon.new()
 	# First call populates cache.
 	w.pick_target(attacker, [enemy], 0.0)
@@ -152,7 +155,7 @@ func test_pick_target_caches_solution() -> void:
 
 func test_cache_evicts_after_ttl() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var enemy := _make_sat_circular(7100.0, PI * 0.5, 1)
+	var enemy := _make_sat_circular(7100.0, PI / 6.0, 1)
 	var w := MissileWeapon.new()
 	w.pick_target(attacker, [enemy], 0.0)
 	var pre_size: int = w.cache_size()
@@ -168,7 +171,7 @@ func test_cache_evicts_after_ttl() -> void:
 
 func test_prepare_shot_decrements_ammo_and_energy() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var enemy := _make_sat_circular(7100.0, PI * 0.5, 1)
+	var enemy := _make_sat_circular(7100.0, PI / 6.0, 1)
 	var w := MissileWeapon.new()
 	# Populate cache.
 	w.pick_target(attacker, [enemy], 0.0)
@@ -187,7 +190,7 @@ func test_prepare_shot_decrements_ammo_and_energy() -> void:
 
 func test_prepare_shot_pending_dict_is_well_formed() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var enemy := _make_sat_circular(7100.0, PI * 0.5, 1)
+	var enemy := _make_sat_circular(7100.0, PI / 6.0, 1)
 	var w := MissileWeapon.new()
 	w.pick_target(attacker, [enemy], 0.0)
 	var pending: Dictionary = w.prepare_shot(attacker, enemy, 0.1, 0.0)
@@ -207,7 +210,7 @@ func test_prepare_shot_pending_dict_is_well_formed() -> void:
 
 func test_prepare_shot_refuses_when_ammo_empty() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var enemy := _make_sat_circular(7100.0, PI * 0.5, 1)
+	var enemy := _make_sat_circular(7100.0, PI / 6.0, 1)
 	var w := MissileWeapon.new()
 	w.pick_target(attacker, [enemy], 0.0)
 	w.ammo_count = 0
@@ -217,7 +220,7 @@ func test_prepare_shot_refuses_when_ammo_empty() -> void:
 
 func test_prepare_shot_recompute_mass_called() -> void:
 	var attacker := _make_sat_circular(7000.0, 0.0, 0)
-	var enemy := _make_sat_circular(7100.0, PI * 0.5, 1)
+	var enemy := _make_sat_circular(7100.0, PI / 6.0, 1)
 	var w := MissileWeapon.new()
 	w.pick_target(attacker, [enemy], 0.0)
 	w.prepare_shot(attacker, enemy, 0.1, 0.0)

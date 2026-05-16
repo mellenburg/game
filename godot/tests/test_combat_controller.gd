@@ -262,6 +262,31 @@ func _make_missile_attacker(radius: float, team: int) -> Satellite:
 	return s
 
 
+# Coplanar circular enemy for missile tests. _make_enemy's polar
+# orbit is fine for railgun (instant-shot, no orbital match needed)
+# but forces a 90° plane change on missiles, which exceeds the 4 km/s
+# dv budget. This helper keeps the enemy in the attacker's x-y plane
+# so a normal phasing transfer suffices.
+func _make_coplanar_enemy(radius_km: float, true_anom_rad: float, team: int) -> Satellite:
+	var s := Satellite.new()
+	s.team = team
+	s.alive = true
+	s.orbit_alive = true
+	# Position + tangent velocity in the x-y plane.
+	var pos: Vector3 = Vector3(
+		radius_km * cos(true_anom_rad), radius_km * sin(true_anom_rad), 0.0
+	)
+	var v_circ: float = sqrt(MassCenterOrbit.MU / radius_km)
+	var vel: Vector3 = Vector3(
+		-v_circ * sin(true_anom_rad), v_circ * cos(true_anom_rad), 0.0
+	)
+	s.orbit = MassCenterOrbit.new(pos, vel)
+	s.weapons = []
+	s.hp = 1.0e6
+	s.recompute_mass()
+	return s
+
+
 func test_missile_fire_spawns_missile_and_reserves_target() -> void:
 	# End-to-end shape: a satellite with a MissileWeapon and an enemy
 	# inside its envelope fires one missile when process_combat ticks.
@@ -271,9 +296,8 @@ func test_missile_fire_spawns_missile_and_reserves_target() -> void:
 	var cc: CombatController = parts[0]
 	var ms: MissileSpawner = parts[4]
 	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
-	var enemy := _make_enemy(
-		Vector3(BODY_RADIUS_KM + 5100.0, 1000.0, 0.0), 1
-	)
+	# Coplanar enemy 30° ahead, 100 km higher. Within budget at ~1.7 km/s.
+	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
 	var fleet: Array[Satellite] = [attacker, enemy]
 	cc.process_combat(fleet, 0.0, 0.1)
 	assert_eq(ms.active_missile_count(), 1)
@@ -300,9 +324,7 @@ func test_missile_reservation_blocks_second_launcher() -> void:
 	var ms: MissileSpawner = parts[4]
 	var attacker_a := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
 	var attacker_b := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
-	var enemy := _make_enemy(
-		Vector3(BODY_RADIUS_KM + 5100.0, 1000.0, 0.0), 1
-	)
+	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
 	var fleet: Array[Satellite] = [attacker_a, attacker_b, enemy]
 	cc.process_combat(fleet, 0.0, 0.1)
 	# Exactly one missile should have spawned across both launchers.
@@ -326,9 +348,7 @@ func test_missile_fire_skipped_without_spawner() -> void:
 	var parts := _make_controller()  # NO missile spawner
 	var cc: CombatController = parts[0]
 	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
-	var enemy := _make_enemy(
-		Vector3(BODY_RADIUS_KM + 5100.0, 1000.0, 0.0), 1
-	)
+	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
 	var fleet: Array[Satellite] = [attacker, enemy]
 	cc.process_combat(fleet, 0.0, 0.1)
 	# Ammo unchanged — _fire_missile returns false when spawner is null.
