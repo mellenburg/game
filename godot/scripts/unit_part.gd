@@ -27,6 +27,7 @@ const KIND_LABELS: Array[String] = [
 # enum value threaded through every consumer.
 const WCLASS_LASER: String = "laser"
 const WCLASS_RAILGUN: String = "railgun"
+const WCLASS_MISSILE: String = "missile"
 
 # Tier labels — purely cosmetic, drives the dropdown text.
 const TIER_DEFAULT: String = "default"
@@ -111,6 +112,9 @@ static func catalog() -> Array[UnitPart]:
 	out.append(make("railgun_default", KIND_WEAPON, "Railgun", 1.0, WCLASS_RAILGUN))
 	out.append(make("railgun_advanced", KIND_WEAPON, "Railgun (Advanced)", 2.0, WCLASS_RAILGUN))
 	out.append(make("railgun_elite", KIND_WEAPON, "Railgun (Elite)", 3.0, WCLASS_RAILGUN))
+	out.append(make("missile_default", KIND_WEAPON, "Missile Launcher", 1.0, WCLASS_MISSILE))
+	out.append(make("missile_advanced", KIND_WEAPON, "Missile Launcher (Advanced)", 2.0, WCLASS_MISSILE))
+	out.append(make("missile_elite", KIND_WEAPON, "Missile Launcher (Elite)", 3.0, WCLASS_MISSILE))
 	out.append(make("cooling_system_default", KIND_COOLING_SYSTEM, "Cooling System", 1.0))
 	out.append(make("cooling_system_advanced", KIND_COOLING_SYSTEM, "Cooling System (Advanced)", 2.0))
 	out.append(make("cooling_system_elite", KIND_COOLING_SYSTEM, "Cooling System (Elite)", 3.0))

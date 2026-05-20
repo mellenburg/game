@@ -11,6 +11,7 @@ const UnitPart = preload("res://scripts/unit_part.gd")
 const Satellite = preload("res://scripts/satellite.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const MissileWeapon = preload("res://scripts/weapons/missile_weapon.gd")
 const Propulsion = preload("res://scripts/propulsion.gd")
 
 var id: String = ""
@@ -131,6 +132,14 @@ func total_ammo_mass_kg() -> float:
 		var part := UnitPart.get_by_id(part_id)
 		if part.weapon_class == UnitPart.WCLASS_RAILGUN:
 			total += float(RailgunWeapon.MAGAZINE_SIZE) * RailgunWeapon.SLUG_MASS_KG
+		elif part.weapon_class == UnitPart.WCLASS_MISSILE:
+			# Each missile carries its own dry-mass + propellant. The
+			# launcher's ammo mass scales with both factors at full
+			# magazine; firing a missile peels off one full wet-mass.
+			total += (
+				float(MissileWeapon.MAGAZINE_SIZE)
+				* MissileWeapon.wet_mass_per_missile_kg()
+			)
 	return total
 
 
@@ -249,6 +258,8 @@ func summary_stats() -> Dictionary:
 	var laser_dps_total: float = 0.0
 	var railgun_count: int = 0
 	var railgun_damage_total: float = 0.0
+	var missile_count: int = 0
+	var missile_damage_total: float = 0.0
 	for part_id in weapon_part_ids:
 		var part := UnitPart.get_by_id(part_id)
 		match part.weapon_class:
@@ -262,6 +273,11 @@ func summary_stats() -> Dictionary:
 				railgun_count += 1
 				railgun_damage_total += (
 					RailgunWeapon.base_damage_per_shot() * part.multiplier
+				)
+			UnitPart.WCLASS_MISSILE:
+				missile_count += 1
+				missile_damage_total += (
+					MissileWeapon.base_damage_per_shot() * part.multiplier
 				)
 
 	# Cooldown duration is heat_capacity / cooling_power. With no cooling
@@ -342,6 +358,15 @@ func summary_stats() -> Dictionary:
 			if wet_mass > 0.0 else 0.0
 		),
 		"railgun_target_coupling": RailgunWeapon.TARGET_COUPLING_DEFAULT,
+		"missile_count": missile_count,
+		"missile_damage_total": missile_damage_total,
+		"missile_magazine_size": MissileWeapon.MAGAZINE_SIZE,
+		"missile_blast_radius_km": MissileWeapon.BLAST_RADIUS_KM,
+		"missile_dv_budget_kms": MissileWeapon.dv_budget_per_missile_kms(),
+		"missile_dry_mass_kg": MissileWeapon.MISSILE_DRY_MASS_KG,
+		"missile_propellant_kg": MissileWeapon.PROPELLANT_PER_MISSILE_KG,
+		"missile_isp_s": MissileWeapon.MISSILE_ISP_S,
+		"missile_energy_per_launch_j": MissileWeapon.ENERGY_PER_LAUNCH_J,
 		"energy_storage": Satellite.DEFAULT_ENERGY_MAX_J * storage_mult,
 		"energy_production": Satellite.DEFAULT_REACTOR_POWER_W * reactor_mult,
 		"thrust_n": thrust_n,

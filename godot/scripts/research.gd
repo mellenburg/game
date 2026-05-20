@@ -53,6 +53,16 @@ const COMPONENT_CHAINS: Array = [
 		],
 	},
 	{
+		"category": "Missiles",
+		"shape": "hex",
+		"stat_template": "%.1fx warhead yield",
+		"tiers": [
+			{"id": "missile_basic", "label": "Basic Missile Launcher", "cost": 0, "part_id": "missile_default", "flavor": "Storable-bipropellant interceptor with a 100 MT thermonuclear warhead. The Lambert burn computer handles the orbit-matching the operator can't."},
+			{"id": "missile_advanced", "label": "Advanced Missile Launcher", "cost": 250, "part_id": "missile_advanced", "flavor": "Enhanced fission primary boosts warhead yield. Same magazine, more dead satellites per shot."},
+			{"id": "missile_elite", "label": "Elite Missile Launcher", "cost": 600, "part_id": "missile_elite", "flavor": "Tritium-boosted secondary. The X-ray pulse outshines the sun at lethal range."},
+		],
+	},
+	{
 		"category": "Cooling Systems",
 		"shape": "hex",
 		"stat_template": "%.1fx weapon cooling power",

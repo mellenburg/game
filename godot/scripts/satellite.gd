@@ -10,6 +10,7 @@ const OrbitalPath = preload("res://scripts/orbital_path.gd")
 const Weapon = preload("res://scripts/weapons/weapon.gd")
 const LaserWeapon = preload("res://scripts/weapons/laser_weapon.gd")
 const RailgunWeapon = preload("res://scripts/weapons/railgun_weapon.gd")
+const MissileWeapon = preload("res://scripts/weapons/missile_weapon.gd")
 const SurfacePosition = preload("res://scripts/surface_position.gd")
 const Propulsion = preload("res://scripts/propulsion.gd")
 const AsteroidPhysics = preload("res://scripts/asteroid_physics.gd")
@@ -651,6 +652,26 @@ func has_railgun() -> bool:
 	return false
 
 
+## Whether this satellite carries at least one missile launcher.
+## Used by the HUD to decide whether to show the FIRE MISSILE button
+## on this unit's detail panel.
+func has_missile() -> bool:
+	for w: Weapon in weapons:
+		if w is MissileWeapon:
+			return true
+	return false
+
+
+## First MissileWeapon in the loadout, or null. The HUD uses this to
+## drive the FIRE MISSILE button's enabled state (disabled when the
+## launcher is overheated or out of ammo).
+func first_missile_weapon():
+	for w: Weapon in weapons:
+		if w is MissileWeapon:
+			return w
+	return null
+
+
 func get_current_maneuver() -> Vector3:
 	return DELTA_V_MAGNITUDE * raw_maneuver
 
@@ -676,6 +697,14 @@ func total_ammo_mass_kg() -> float:
 		if w is RailgunWeapon:
 			var rg: RailgunWeapon = w
 			total += float(rg.ammo_count) * RailgunWeapon.SLUG_MASS_KG
+		elif w is MissileWeapon:
+			var mw: MissileWeapon = w
+			# A remaining missile is its full wet mass (dry +
+			# propellant). When the launcher fires, prepare_shot
+			# decrements ammo_count and calls recompute_mass on the
+			# attacker, so the launcher's mass falls by one missile's
+			# worth — same accounting shape as the railgun slug.
+			total += float(mw.ammo_count) * MissileWeapon.wet_mass_per_missile_kg()
 	return total
 
 

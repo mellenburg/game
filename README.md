@@ -116,9 +116,15 @@ them, and (later) coordinate maneuvers or fire control.
   projectile follows a noticeable parabolic / orbital arc and can hit
   beyond a strict-LOS check. The transition from "treat as straight" to
   "must integrate trajectory" is a tuning knob.
-- **Missiles** — full satellites in their own right. They're kamikaze
-  units that deal damage when they get within a kill radius of the
-  target. Their orbital state is simulated like any other satellite.
+- **Missiles** — lightweight kamikaze entities (not full satellites)
+  that fly a Lambert-solved Keplerian intercept arc and detonate via
+  proximity fuze when they enter the warhead's lethal radius. Unlike
+  the energy / kinetic weapons, missiles are **manual-fire only** —
+  each shot spends a 100 MT warhead off a small magazine, so the
+  operator decides when each missile launches (target selection is
+  automatic: lowest-dv reachable enemy). See `docs/missiles.md` for
+  the full system reference — architecture, physics calibration,
+  design decisions, and refactor playbook.
 
 ### Economy
 

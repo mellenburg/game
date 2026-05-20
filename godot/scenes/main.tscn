@@ -1,4 +1,4 @@
-[gd_scene load_steps=19 format=3 uid="uid://b3orbitgameroot0"]
+[gd_scene load_steps=20 format=3 uid="uid://b3orbitgameroot0"]
 
 [ext_resource type="Script" path="res://scripts/mass_center_system.gd" id="1_system"]
 [ext_resource type="Script" path="res://scripts/mass_center.gd" id="2_mass_center"]
@@ -17,6 +17,7 @@
 [ext_resource type="Script" path="res://scripts/tessellation_grid.gd" id="15_tess"]
 [ext_resource type="Script" path="res://scripts/hp_bar.gd" id="16_hp_bar"]
 [ext_resource type="Script" path="res://scripts/plans_list.gd" id="17_plans_list"]
+[ext_resource type="Script" path="res://scripts/missile_spawner.gd" id="18_missiles"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_asteroid_panel"]
 bg_color = Color(0.04, 0.05, 0.08, 0.78)
@@ -82,6 +83,9 @@ script = ExtResource("6_beams")
 
 [node name="SlugRenderer" type="Node3D" parent="."]
 script = ExtResource("14_slugs")
+
+[node name="MissileSpawner" type="Node3D" parent="."]
+script = ExtResource("18_missiles")
 
 [node name="RangeCircle" type="MeshInstance3D" parent="."]
 script = ExtResource("9_range_circle")
