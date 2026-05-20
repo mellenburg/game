@@ -49,9 +49,13 @@ in the fleet's loadout:
   * **Manual fire only** — the combat controller's auto-fire loop
     explicitly skips MissileWeapons. Every shot is a deliberate
     operator decision (button click or Z key).
-  * **Auto-targeted** — once fired, the missile picks the lowest-dv
-    reachable enemy itself. The operator picks *when* to spend the
-    warhead; the physics picks *who* receives it.
+  * **Auto-targeted by default**, with an opt-in **target picker**.
+    The FIRE MISSILE / Z-key path lets the weapon pick the lowest-dv
+    reachable enemy itself. A `▼ PICK TARGET` chip on the detail
+    panel expands a list of reachable enemies (sorted by intercept
+    TOF) — clicking a row fires at that specific enemy instead.
+    The operator picks *when* (always) and optionally *who* (via the
+    picker).
 
 This shape exists because in 2-body Keplerian mechanics, an "auto-fire
 when reachable" rule produces frequent, often-wasteful shots — every
@@ -332,6 +336,76 @@ RANGE", etc.) so the operator can read why a click would fail
 without consulting documentation.
 
 
+## Target picker (Phase 1)
+
+When the launcher state is `READY`, the HUD also shows a
+`▼ PICK TARGET` chip below the FIRE MISSILE button. Clicking the
+chip expands a `VBoxContainer` of row Buttons — one row per
+reachable enemy, sorted by intercept TOF ascending. Each row shows:
+
+```
+ENM-12   HP 100/100   ETA —         TOF 02:13
+AST-04   HP  80/100   ETA 02:27     TOF 05:12
+```
+
+  * **Name** — `target.unit_name`, falling back to `ENM-<iid>` for
+    unnamed bodies.
+  * **HP** — current / max.
+  * **ETA** — `MassCenterOrbit.time_to_impact()`. `—` when the orbit
+    is stable (no atmospheric entry on the current trajectory).
+  * **TOF** — Lambert-solved intercept time-of-flight.
+
+Clicking a row fires at that specific enemy via
+`CombatController.try_fire_missile_for(..., explicit_target=target)`,
+overriding the weapon's auto-pick. The handler re-validates the
+target against the live envelope and reservation filter so a stale
+click (target killed / reserved between the row's render and the
+click) silently no-ops.
+
+### Refresh cadence and cost
+
+The picker refreshes at **2 Hz** (`TARGET_LIST_REFRESH_INTERVAL =
+0.5 s`), independent of the 10 Hz general HUD refresh. This keeps
+the Lambert cache (5 sim-sec TTL on `MissileWeapon._intercept_cache`)
+mostly hot — about 9 refreshes out of 10 are pure dictionary lookups.
+
+Cold-cache spike at the steady state:
+
+| Mode                              | Frequency   | Per-refresh cost (cold) | Amortised |
+| --------------------------------- | ----------- | ----------------------- | --------- |
+| Collapsed (default)               | 10 Hz       | <1 ms                   | <10 ms/s  |
+| Expanded, cache hot               | 2 Hz        | <1 ms                   | <2 ms/s   |
+| Expanded, cache miss (every 5 s)  | once / 5 s  | ~20 ms × N (~200 ms)    | ~40 ms/s  |
+
+Bounded at `TARGET_LIST_MAX_ROWS = 8` to cap the worst-case cold-
+cache pass. Phase-2 hook: swap `find_best_intercept` for
+`find_any_intercept` (4 TOF samples, no fine refinement) to cut the
+per-candidate cost from ~90 ms to ~20 ms — see "Refactor playbook"
+below.
+
+### Row pool
+
+Row Buttons are allocated lazily and reused across refreshes
+(`_target_rows: Array[Button]`). The pool grows up to
+`TARGET_LIST_MAX_ROWS`; rows beyond the current list size hide
+instead of free, so the steady-state cost is one signal-connection
+per row across the run's lifetime. Each row's `pressed` signal
+binds the row index, so `_on_target_row_pressed(idx)` reads the
+current Satellite ref from the parallel `_target_row_targets`
+array regardless of how the list reshuffles between refreshes.
+
+### Selection-change collapse
+
+When the operator switches selection to a different unit
+(`_detail_sat != sat` in `_update_unit_detail`), the picker is
+collapsed automatically — the previous unit's reachable-targets
+list would mislead against the new unit's launcher state.
+
+When the launcher state leaves `READY` (e.g. overheat after firing),
+the chip and container both hide. `_targets_expanded` stays true,
+so when state returns to `READY` the list re-expands automatically.
+
+
 ## Design decisions
 
 These were debated; future refactors should at least understand them
@@ -372,7 +446,8 @@ suite would need extension first.
 
 | Change                                              | Files                                                                          |
 | --------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Player-clickable target (click an enemy on the 3D scene to designate) | `hud.gd`, `mass_center_system.gd`, `combat_controller.gd`, `weapons/missile_weapon.gd` |
+| 3D-scene click-to-designate (vs the existing HUD list picker)        | `hud.gd`, `mass_center_system.gd` (raycast) — the `explicit_target` param on `try_fire_missile_for` is already wired |
+| Replace `find_best_intercept` in the picker with `find_any_intercept` (Phase 2) | `lambert_solver.gd` (add cheap variant), `weapons/missile_weapon.gd` (`list_reachable_targets`) — caller contracts stay the same |
 | Missiles become destructible by lasers / railguns   | `combat_controller.gd`, `missile.gd` (add HP, take_damage), tests              |
 | Multi-stage missiles (boost + glide phases)         | `missile.gd` (new state machine), possibly subclass                            |
 | Auto-fire opt-in flag (per-weapon `auto_fire: bool`)| `weapons/missile_weapon.gd`, `combat_controller.gd`, `hud.gd` (toggle)         |
@@ -438,7 +513,7 @@ test suite today; see smell #7 above.
 | `test_missile_weapon.gd`           | Envelope filtering, can_fire gates, pick_target lowest-dv selection, cache TTL, prepare_shot bookkeeping, pending dict shape |
 | `test_missile.gd`                  | All six termination reasons, on_terminate fires exactly once, attacker-death-still-damages           |
 | `test_missile_spawner.gd`          | Spawn-then-tick removes terminated, reservation map lifecycle, clear_all                              |
-| `test_combat_controller.gd`        | Manual-fire-only invariant (`test_process_combat_does_not_auto_fire_missiles`), try_fire_missile_for end-to-end, reservation blocks second launcher |
+| `test_combat_controller.gd`        | Manual-fire-only invariant (`test_process_combat_does_not_auto_fire_missiles`), try_fire_missile_for end-to-end, reservation blocks second launcher, target picker (`list_missile_targets_for`), explicit-target fire path |
 
 **Tolerances**:
 

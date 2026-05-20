@@ -350,22 +350,25 @@ func has_missile_target_for(
 	return null
 
 
-## Manual missile fire: invoked by the HUD's FIRE MISSILE button and
-## the Z key. Iterates the attacker's MissileWeapons, picks the first
-## reachable opposing target (lowest dv via the weapon's cached
-## Lambert search), and spawns a missile via _fire_missile. Returns
-## true on a successful launch — caller can play a fire-confirm sound
-## / flash on a true result.
+## Manual missile fire: invoked by the HUD's FIRE MISSILE button, the
+## Z key, and (for explicit-target shots) the FIRE-row buttons in the
+## HUD target picker. Iterates the attacker's MissileWeapons; when
+## `explicit_target` is null the weapon's `pick_target` picks the
+## lowest-dv reachable enemy, otherwise the operator-specified target
+## is used (re-validated against the live envelope and reservation
+## filter so a click on a now-stale row fails gracefully). Returns
+## true on a successful launch.
 ##
-## satellites is the full fleet (the same array CombatController.process_combat
-## sees each tick) — it's needed to build the candidate list since
-## missiles don't ride the auto-fire path that would otherwise have
-## stashed it.
+## satellites is the full fleet (the same array
+## CombatController.process_combat sees each tick) — it's needed to
+## build the candidate list since missiles don't ride the auto-fire
+## path that would otherwise have stashed it.
 func try_fire_missile_for(
 	attacker: Satellite,
 	satellites: Array[Satellite],
 	sim_time: float,
 	sim_delta: float,
+	explicit_target: Satellite = null,
 ) -> bool:
 	if attacker == null or not attacker.alive:
 		return false
@@ -382,12 +385,81 @@ func try_fire_missile_for(
 			and _missile_spawner.reserved_target_count() > 0
 		):
 			cands = _exclude_missile_reserved(candidates)
-		var target: Satellite = mw.pick_target(attacker, cands, sim_time)
+		var target: Satellite = explicit_target
+		if target != null:
+			# Operator-picked: re-check that it's still a valid target.
+			# A row click can race the reservation filter (another
+			# launcher fired at the same enemy in the last 0.5 s) or
+			# the envelope (target maneuvered out of reach). Failing
+			# silently here drops the click; the next refresh of the
+			# HUD list will reflect the new state.
+			if not _is_target_eligible_for_missile(attacker, target, mw, cands):
+				continue
+		else:
+			target = mw.pick_target(attacker, cands, sim_time)
 		if target == null:
 			continue
 		if _fire_missile(attacker, mw, target, sim_delta, sim_time):
 			return true
 	return false
+
+
+## Non-mutating query for the HUD target picker. Returns the
+## attacker's reachable-target list with intercept stats, ordered by
+## intercept TOF ascending. Empty array if the attacker has no
+## missile launcher, the launcher can't fire, or no enemy is in
+## range. Mirrors `try_fire_missile_for`'s filter chain (envelope,
+## reservation) so the rows the operator sees match what
+## `try_fire_missile_for` will accept.
+##
+## See docs/missiles.md "Refactor playbook" for the Phase-2
+## optimisation that swaps the per-candidate full Lambert search
+## (~90 ms cold cache) for a `find_any_intercept` survey (~20 ms).
+func list_missile_targets_for(
+	attacker: Satellite,
+	satellites: Array[Satellite],
+	sim_time: float,
+	max_count: int = 8,
+) -> Array[Dictionary]:
+	var empty: Array[Dictionary] = []
+	if attacker == null or not attacker.alive:
+		return empty
+	var candidates := _collect_targetable(satellites)
+	for w in attacker.weapons:
+		if not (w is MissileWeapon):
+			continue
+		var mw: MissileWeapon = w
+		if not mw.can_fire(attacker):
+			return empty
+		var cands: Array = candidates
+		if (
+			_missile_spawner != null
+			and _missile_spawner.reserved_target_count() > 0
+		):
+			cands = _exclude_missile_reserved(candidates)
+		return mw.list_reachable_targets(attacker, cands, sim_time, max_count)
+	return empty
+
+
+# Eligibility check for an operator-specified missile target. Used by
+# try_fire_missile_for when the caller supplies an explicit target
+# from a HUD row click — that target may have gone stale (reserved
+# by another launcher, killed, out of envelope) between the row
+# being rendered and the click landing.
+func _is_target_eligible_for_missile(
+	attacker: Satellite,
+	target: Satellite,
+	weapon: MissileWeapon,
+	cands: Array,
+) -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+	if not target.alive or not target.orbit_alive:
+		return false
+	if not weapon.is_target_in_engagement_envelope(attacker, target):
+		return false
+	# Must survive the (possibly reservation-filtered) candidate list.
+	return target in cands
 
 
 # Missile fire path. Mirrors _fire_railgun_with_slug but the spawner

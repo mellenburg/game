@@ -287,6 +287,14 @@ func _ready() -> void:
 	# it. Z key routes through the same handler so both control
 	# surfaces converge on _try_fire_missile_from_selected.
 	hud.fire_missile_requested.connect(_on_hud_fire_missile_requested)
+	# HUD's target-picker rows emit this with an explicit target —
+	# the operator clicked a specific enemy in the expandable list
+	# rather than the auto-pick FIRE MISSILE button. Routes through
+	# try_fire_missile_for with the operator-supplied target instead
+	# of the weapon's pick_target lowest-dv default.
+	hud.fire_missile_at_target_requested.connect(
+		_on_hud_fire_missile_at_target_requested
+	)
 
 	if radar_map != null:
 		radar_map.waves = spawn_director.asteroid_waves
@@ -1148,6 +1156,35 @@ func _toggle_railgun_on_all() -> void:
 ## the wrong unit.
 func _on_hud_fire_missile_requested(_sat: Satellite) -> void:
 	_try_fire_missile_from_selected()
+
+
+## HUD signal hookup for the target-picker rows. Operator clicked a
+## specific enemy in the expanded target list; fire at it rather
+## than the auto-pick. Re-resolves the attacker through selected_ship
+## (same staleness guard as the auto-pick path) and validates the
+## target is still live before dispatching. The eligibility check
+## inside CombatController is the authority on whether the click
+## lands — failed clicks (target now reserved, killed, or out of
+## range) silently no-op and the operator picks again from the
+## refreshed list 0.5 s later.
+func _on_hud_fire_missile_at_target_requested(
+	_sat: Satellite, target: Satellite
+) -> void:
+	if planning_mode:
+		return
+	if selected_ship < 0 or selected_ship >= real_satellites.size():
+		return
+	var attacker: Satellite = real_satellites[selected_ship]
+	if attacker == null or not attacker.alive:
+		return
+	if attacker.team != Satellite.TEAM_PLAYER:
+		return
+	if target == null or not is_instance_valid(target):
+		return
+	var tick_delta: float = 1.0 / 30.0
+	combat_controller.try_fire_missile_for(
+		attacker, real_satellites, sim_time, tick_delta, target
+	)
 
 
 func _try_fire_missile_from_selected() -> void:

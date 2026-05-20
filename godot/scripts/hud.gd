@@ -37,6 +37,15 @@ signal friendly_clicked(sat: Satellite)
 ## HUD signal — both converge on the same selection-aware helper.
 signal fire_missile_requested(sat: Satellite)
 
+## Emitted when the operator clicks a specific row in the target
+## picker (the expandable list under the FIRE MISSILE button). The
+## target ref is the operator-chosen enemy; MassCenterSystem routes
+## it to CombatController.try_fire_missile_for with the
+## explicit_target argument, overriding the auto-pick. See
+## docs/missiles.md "Refactor playbook" — this is the "click-to-
+## target" Phase-1 affordance.
+signal fire_missile_at_target_requested(sat: Satellite, target: Satellite)
+
 const HUD_UPDATE_INTERVAL: float = 0.1  # seconds
 
 const PLAYER_BG := Color(0.06, 0.25, 0.10, 0.65)
@@ -143,10 +152,39 @@ const HIT_DURATION: float = 0.25
 # panel's VBox. Visible only when the selected unit has a missile
 # launcher; disabled when the launcher is overheated or out of ammo.
 var _fire_missile_button: Button = null
+# Expandable target picker — a "▼ PICK TARGET" chip below the FIRE
+# MISSILE button. When expanded, _targets_container shows a list of
+# reachable enemies (sorted by intercept TOF); each row Button fires
+# at that specific target via try_fire_missile_for's explicit_target
+# parameter. Only visible when the launcher is READY; collapsed
+# automatically when the operator switches selection.
+var _expand_targets_button: Button = null
+var _targets_container: VBoxContainer = null
+# Row pool — Button nodes reused across refreshes to avoid per-tick
+# allocation. Grows on demand up to TARGET_LIST_MAX_ROWS; rows beyond
+# the live list size hide rather than free, so the pool stabilises
+# at the steady-state list length.
+var _target_rows: Array[Button] = []
+# Parallel array indexed alongside _target_rows. The Satellite ref
+# the row currently represents — `_on_target_row_pressed(idx)` reads
+# this to know what to fire at. Untyped Array because a stale row
+# may hold a freed instance briefly between refreshes.
+var _target_row_targets: Array = []
+var _targets_expanded: bool = false
+# Wall-clock time of the last target-list refresh. 2 Hz cadence
+# (TARGET_LIST_REFRESH_INTERVAL) — chosen so the cache (5 sim-sec
+# TTL on MissileWeapon._intercept_cache) hits 9 refreshes out of 10
+# at the steady state. Cold-cache spikes amortise to ~40 ms/s for
+# a typical N=10 candidate list.
+var _last_target_list_refresh: float = 0.0
 # Last sat the detail panel rendered for. Stashed so the button's
 # pressed handler can resolve the right launcher without re-walking
 # the selection state — the HUD never owns the selection index.
 var _detail_sat: Satellite = null
+
+
+const TARGET_LIST_REFRESH_INTERVAL: float = 0.5  # seconds — 2 Hz
+const TARGET_LIST_MAX_ROWS: int = 8
 
 var _camera: Camera3D
 var _system: Node = null
@@ -177,6 +215,24 @@ func _ready() -> void:
 	_fire_missile_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	_fire_missile_button.pressed.connect(_on_fire_missile_pressed)
 	unit_detail_vbox.add_child(_fire_missile_button)
+
+	# Target-picker chip — toggles the target list below. Only shown
+	# when the launcher is READY (otherwise the operator has no
+	# fireable targets to pick from). The down-arrow glyph flips to
+	# up-arrow when expanded.
+	_expand_targets_button = Button.new()
+	_expand_targets_button.text = "▼ PICK TARGET"
+	_expand_targets_button.visible = false
+	_expand_targets_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_expand_targets_button.add_theme_font_size_override("font_size", 10)
+	_expand_targets_button.pressed.connect(_on_expand_targets_pressed)
+	unit_detail_vbox.add_child(_expand_targets_button)
+
+	# Target list — VBox of row Buttons; pool grows lazily.
+	_targets_container = VBoxContainer.new()
+	_targets_container.visible = false
+	_targets_container.add_theme_constant_override("separation", 2)
+	unit_detail_vbox.add_child(_targets_container)
 
 
 ## Called by the combat loop when a weapon successfully fires. The HUD
@@ -646,14 +702,21 @@ func _update_unit_detail(orbital_set: Node, planning_mode: bool) -> void:
 	if idx < 0 or idx >= sats.size():
 		unit_detail_panel.visible = false
 		_detail_sat = null
+		_targets_expanded = false
 		_update_fire_missile_button(null, orbital_set, planning_mode)
 		return
 	var sat: Satellite = sats[idx]
 	if sat == null or not sat.alive or sat.team != Satellite.TEAM_PLAYER:
 		unit_detail_panel.visible = false
 		_detail_sat = null
+		_targets_expanded = false
 		_update_fire_missile_button(null, orbital_set, planning_mode)
 		return
+	# Selection change collapses the picker — different units have
+	# different reachable targets, and showing the previous unit's
+	# list against the new unit's launcher would mislead.
+	if _detail_sat != sat:
+		_targets_expanded = false
 	unit_detail_panel.visible = true
 	unit_detail_label.text = _format_unit_detail(sat)
 	_detail_sat = sat
@@ -681,6 +744,7 @@ func _update_fire_missile_button(
 		return
 	if sat == null or not sat.has_missile():
 		_fire_missile_button.visible = false
+		_set_target_picker_visible(false, false)
 		return
 	_fire_missile_button.visible = true
 	var state: String = _missile_button_state(sat, orbital_set, planning_mode)
@@ -689,6 +753,148 @@ func _update_fire_missile_button(
 	_fire_missile_button.modulate = (
 		_FIRE_READY_TINT if state == "READY" else Color.WHITE
 	)
+	# Target picker is only useful when the launcher could actually
+	# fire — show the expand chip in READY state, hide otherwise.
+	# Collapsing the container when state leaves READY avoids the
+	# operator clicking a row from a now-stale "looked ready" list.
+	var picker_chip_visible: bool = (state == "READY")
+	_set_target_picker_visible(picker_chip_visible, _targets_expanded)
+	if picker_chip_visible and _targets_expanded:
+		_maybe_refresh_target_list(sat, orbital_set)
+
+
+# Manage chip + container visibility together so they never disagree
+# (chip visible but container hidden because the operator collapsed,
+# vs. both hidden because the launcher isn't ready).
+func _set_target_picker_visible(chip_visible: bool, list_visible: bool) -> void:
+	if _expand_targets_button != null:
+		_expand_targets_button.visible = chip_visible
+		_expand_targets_button.text = (
+			"▲ COLLAPSE  [%d]" % _live_row_count() if list_visible
+			else "▼ PICK TARGET"
+		)
+	if _targets_container != null:
+		_targets_container.visible = chip_visible and list_visible
+		if not _targets_container.visible:
+			# Hide rows so a chip-toggle doesn't leak stale rows the
+			# next time the list opens.
+			_hide_all_target_rows()
+
+
+# Refresh the target list on the 2 Hz cadence — only when the list is
+# expanded. Outside the refresh window this is an O(1) clock check;
+# inside it, the full Lambert search runs (cache amortises 9 of 10).
+func _maybe_refresh_target_list(sat: Satellite, orbital_set: Node) -> void:
+	var now: float = _now()
+	if now - _last_target_list_refresh < TARGET_LIST_REFRESH_INTERVAL:
+		return
+	_last_target_list_refresh = now
+	var cc = orbital_set.get("combat_controller")
+	if cc == null:
+		_populate_target_rows([])
+		return
+	var sim_time: float = orbital_set.sim_time
+	var sats_arr: Array = orbital_set.satellites
+	var list: Array = cc.list_missile_targets_for(
+		sat, sats_arr, sim_time, TARGET_LIST_MAX_ROWS
+	)
+	_populate_target_rows(list)
+	# Refresh the chip label so the count stays in sync with the
+	# rendered rows (the ▲ COLLAPSE text shows the row count).
+	if _expand_targets_button != null and _targets_expanded:
+		_expand_targets_button.text = "▲ COLLAPSE  [%d]" % list.size()
+
+
+# Drop the rendered rows into the row pool, growing as needed.
+# Each row carries the corresponding target's iid via the parallel
+# _target_row_targets array — _on_target_row_pressed reads the
+# Satellite ref out and emits the public signal.
+func _populate_target_rows(list: Array) -> void:
+	if _targets_container == null:
+		return
+	# Grow the pool if the list outsized it.
+	while _target_rows.size() < list.size():
+		var btn := Button.new()
+		btn.mouse_filter = Control.MOUSE_FILTER_STOP
+		btn.add_theme_font_size_override("font_size", 10)
+		# bind() captures the row index by value — each row's
+		# pressed signal always fires with its own index, even as
+		# the underlying target changes across refreshes.
+		var row_idx: int = _target_rows.size()
+		btn.pressed.connect(_on_target_row_pressed.bind(row_idx))
+		_targets_container.add_child(btn)
+		_target_rows.append(btn)
+		_target_row_targets.append(null)
+	# Update text + visibility + per-row target ref.
+	for i in range(_target_rows.size()):
+		if i < list.size():
+			var entry: Dictionary = list[i]
+			var t: Satellite = entry["target"]
+			_target_rows[i].text = _format_target_row(t, entry)
+			_target_rows[i].visible = true
+			_target_row_targets[i] = t
+		else:
+			_target_rows[i].visible = false
+			_target_row_targets[i] = null
+
+
+# Operator-facing row text. Compact one-line summary so the row
+# Button stays narrow under the ~280 px detail panel column. Asteroid
+# targets get an inbound ETA (time-to-impact); orbital enemies show
+# "—" because their stable orbit has no finite impact time.
+func _format_target_row(target: Satellite, entry: Dictionary) -> String:
+	var name: String = target.unit_name
+	if name == "":
+		name = "ENM-%d" % (target.get_instance_id() & 0xFFFF)
+	var hp_str: String = "HP %d/%d" % [int(target.hp), int(target.max_hp)]
+	var eta_sec: float = INF
+	if target.orbit != null:
+		eta_sec = target.orbit.time_to_impact()
+	var eta_str: String = "ETA —"
+	if eta_sec != INF:
+		eta_str = "ETA " + _format_eta(eta_sec)
+	var tof_str: String = "TOF " + _format_eta(float(entry["tof"]))
+	return "%s   %s   %s   %s" % [name, hp_str, eta_str, tof_str]
+
+
+func _live_row_count() -> int:
+	var n: int = 0
+	for r in _target_rows:
+		if r != null and r.visible:
+			n += 1
+	return n
+
+
+func _hide_all_target_rows() -> void:
+	for i in range(_target_rows.size()):
+		_target_rows[i].visible = false
+		_target_row_targets[i] = null
+
+
+# Chip click: toggle the picker open/closed. Open forces an immediate
+# refresh by zeroing the last-refresh timestamp; close hides rows so
+# the next open is a clean slate.
+func _on_expand_targets_pressed() -> void:
+	_targets_expanded = not _targets_expanded
+	if _targets_expanded:
+		_last_target_list_refresh = 0.0
+	else:
+		_hide_all_target_rows()
+
+
+# Row click: fire at the operator-chosen target. The MCS handler
+# revalidates the target against the live envelope and reservation
+# filter, so a click on a now-stale row (target killed between the
+# last refresh and the click) silently no-ops.
+func _on_target_row_pressed(row_idx: int) -> void:
+	if row_idx < 0 or row_idx >= _target_row_targets.size():
+		return
+	var target = _target_row_targets[row_idx]
+	if target == null or not is_instance_valid(target):
+		return
+	if _detail_sat == null or not is_instance_valid(_detail_sat):
+		return
+	fire_missile_at_target_requested.emit(_detail_sat, target)
 
 
 # Decide the launch-button state. Order matters: cheap local gates

@@ -378,3 +378,132 @@ func test_try_fire_missile_skipped_without_spawner() -> void:
 	attacker.queue_free()
 	enemy.queue_free()
 	_free_controller(parts)
+
+
+# --- target picker (Phase-1 click-to-target) ---------------------------------
+
+
+func test_list_missile_targets_empty_without_missile_weapon() -> void:
+	var parts := _make_missile_controller()
+	var cc: CombatController = parts[0]
+	# _make_attacker gives a railgun-only loadout — no missile.
+	var attacker := _make_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
+	var fleet: Array[Satellite] = [attacker, enemy]
+	var list: Array = cc.list_missile_targets_for(attacker, fleet, 0.0)
+	assert_eq(list.size(), 0)
+	attacker.queue_free()
+	enemy.queue_free()
+	for p in parts:
+		if p != null and is_instance_valid(p):
+			p.queue_free()
+
+
+func test_list_missile_targets_returns_reachable_enemies() -> void:
+	var parts := _make_missile_controller()
+	var cc: CombatController = parts[0]
+	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var enemy_a := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
+	var enemy_b := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 4.0, 1)
+	var fleet: Array[Satellite] = [attacker, enemy_a, enemy_b]
+	var list: Array = cc.list_missile_targets_for(attacker, fleet, 0.0)
+	assert_true(list.size() >= 1, "expected at least one reachable enemy")
+	# Targets must be enemies (different team from attacker).
+	for entry in list:
+		var d: Dictionary = entry
+		var t: Satellite = d["target"]
+		assert_true(t.team != attacker.team)
+	attacker.queue_free()
+	enemy_a.queue_free()
+	enemy_b.queue_free()
+	for p in parts:
+		if p != null and is_instance_valid(p):
+			p.queue_free()
+
+
+func test_list_missile_targets_excludes_reserved() -> void:
+	# Once a missile is in flight against enemy_a, the reservation
+	# filter drops it from the list — the operator can't double-spend.
+	var parts := _make_missile_controller()
+	var cc: CombatController = parts[0]
+	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var enemy_a := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
+	var enemy_b := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 4.0, 1)
+	var fleet: Array[Satellite] = [attacker, enemy_a, enemy_b]
+	assert_true(cc.try_fire_missile_for(attacker, fleet, 0.0, 0.1))
+	# Cooldown blocks any further fire on this launcher; verify the
+	# *list* still reflects the reservation by listing from a fresh
+	# attacker (so can_fire returns true).
+	var attacker_b := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var fleet2: Array[Satellite] = [attacker_b, enemy_a, enemy_b]
+	var list: Array = cc.list_missile_targets_for(attacker_b, fleet2, 0.0)
+	for entry in list:
+		var d: Dictionary = entry
+		var t: Satellite = d["target"]
+		assert_true(
+			t != enemy_a,
+			"reserved enemy must not appear in the picker list"
+		)
+	attacker.queue_free()
+	attacker_b.queue_free()
+	enemy_a.queue_free()
+	enemy_b.queue_free()
+	for p in parts:
+		if p != null and is_instance_valid(p):
+			p.queue_free()
+
+
+func test_try_fire_missile_with_explicit_target_fires_at_that_target() -> void:
+	# Operator clicks a specific row in the picker. The explicit
+	# target overrides pick_target's auto-pick — the missile spawns
+	# against the chosen enemy even if a different one had lower dv.
+	# Phases (10° / 30°) sit inside the 4 km/s budget at 5000 km
+	# altitude (~1.1 km/s vs ~3.4 km/s) — wider gaps push above
+	# the budget and Lambert correctly rejects them.
+	var parts := _make_missile_controller()
+	var cc: CombatController = parts[0]
+	var ms: MissileSpawner = parts[4]
+	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var near := _make_coplanar_enemy(BODY_RADIUS_KM + 5050.0, PI / 18.0, 1)
+	var far := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
+	var fleet: Array[Satellite] = [attacker, near, far]
+	# Auto-pick would prefer `near` (lower dv). Pass `far` explicitly
+	# and verify the reservation hits `far` instead.
+	assert_true(
+		cc.try_fire_missile_for(attacker, fleet, 0.0, 0.1, far),
+		"explicit fire should succeed against reachable far target"
+	)
+	assert_eq(ms.active_missile_count(), 1)
+	assert_true(ms.has_reservation(far.get_instance_id()))
+	assert_false(ms.has_reservation(near.get_instance_id()))
+	attacker.queue_free()
+	near.queue_free()
+	far.queue_free()
+	for p in parts:
+		if p != null and is_instance_valid(p):
+			p.queue_free()
+
+
+func test_try_fire_missile_with_explicit_target_rejects_dead_target() -> void:
+	# Operator clicks a row after the target died between refreshes.
+	# The eligibility check inside try_fire_missile_for catches it
+	# and the click silently no-ops — no missile, no ammo spent.
+	var parts := _make_missile_controller()
+	var cc: CombatController = parts[0]
+	var ms: MissileSpawner = parts[4]
+	var attacker := _make_missile_attacker(BODY_RADIUS_KM + 5000.0, 0)
+	var enemy := _make_coplanar_enemy(BODY_RADIUS_KM + 5100.0, PI / 6.0, 1)
+	enemy.alive = false
+	var fleet: Array[Satellite] = [attacker, enemy]
+	assert_false(
+		cc.try_fire_missile_for(attacker, fleet, 0.0, 0.1, enemy),
+		"explicit fire at a dead target must fail"
+	)
+	assert_eq(ms.active_missile_count(), 0)
+	var w: MissileWeapon = attacker.weapons[0]
+	assert_eq(w.ammo_count, MissileWeapon.MAGAZINE_SIZE)
+	attacker.queue_free()
+	enemy.queue_free()
+	for p in parts:
+		if p != null and is_instance_valid(p):
+			p.queue_free()

@@ -243,3 +243,64 @@ func test_fire_returns_false() -> void:
 	var enemy := _make_sat_circular(7100.0, PI * 0.5, 1)
 	var w := MissileWeapon.new()
 	assert_false(w.fire(attacker, enemy, 0.1))
+
+
+# list_reachable_targets — HUD target picker query
+
+
+func test_list_reachable_targets_empty_for_no_candidates() -> void:
+	var attacker := _make_sat_circular(7000.0, 0.0, 0)
+	var w := MissileWeapon.new()
+	var list: Array = w.list_reachable_targets(attacker, [], 0.0)
+	assert_eq(list.size(), 0)
+
+
+func test_list_reachable_targets_filters_friendlies() -> void:
+	var attacker := _make_sat_circular(7000.0, 0.0, 0)
+	var friend := _make_sat_circular(7000.0, PI / 6.0, 0)
+	var w := MissileWeapon.new()
+	var list: Array = w.list_reachable_targets(attacker, [friend], 0.0)
+	assert_eq(list.size(), 0, "same-team should be excluded")
+
+
+func test_list_reachable_targets_returns_entry_per_enemy() -> void:
+	var attacker := _make_sat_circular(7000.0, 0.0, 0)
+	var enemy := _make_sat_circular(7100.0, PI / 6.0, 1)
+	var w := MissileWeapon.new()
+	var list: Array = w.list_reachable_targets(attacker, [enemy], 0.0)
+	assert_eq(list.size(), 1)
+	var entry: Dictionary = list[0]
+	# Entry shape: every key the HUD reads must be present.
+	for k in ["target", "tof", "dv_kms", "dv", "v1"]:
+		assert_true(entry.has(k), "missing key: %s" % k)
+	assert_eq(entry["target"], enemy)
+	assert_true(float(entry["tof"]) >= MissileWeapon.MIN_TOF_SEC)
+	assert_finite(float(entry["dv_kms"]))
+
+
+func test_list_reachable_targets_sorted_by_tof_ascending() -> void:
+	var attacker := _make_sat_circular(7000.0, 0.0, 0)
+	# Three enemies at varying phases. The invariant under test is
+	# that the returned list is monotone non-decreasing in TOF.
+	var e1 := _make_sat_circular(7000.0, PI / 18.0, 1)  # 10°
+	var e2 := _make_sat_circular(7100.0, PI / 6.0, 1)   # 30°
+	var e3 := _make_sat_circular(7100.0, PI / 3.0, 1)   # 60°
+	var w := MissileWeapon.new()
+	var list: Array = w.list_reachable_targets(attacker, [e1, e2, e3], 0.0)
+	assert_true(list.size() >= 1, "expected at least one reachable target")
+	for i in range(1, list.size()):
+		var prev: float = float((list[i - 1] as Dictionary)["tof"])
+		var cur: float = float((list[i] as Dictionary)["tof"])
+		assert_true(prev <= cur, "tof must be monotone non-decreasing")
+
+
+func test_list_reachable_targets_caps_at_max_count() -> void:
+	var attacker := _make_sat_circular(7000.0, 0.0, 0)
+	var enemies: Array = []
+	# Eight enemies at evenly-spread small phases so each is reachable.
+	for i in range(8):
+		var phase: float = (float(i + 1) * PI / 20.0)
+		enemies.append(_make_sat_circular(7050.0, phase, 1))
+	var w := MissileWeapon.new()
+	var list: Array = w.list_reachable_targets(attacker, enemies, 0.0, 3)
+	assert_true(list.size() <= 3, "must respect max_count cap")

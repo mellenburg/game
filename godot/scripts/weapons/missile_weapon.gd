@@ -343,6 +343,58 @@ func cache_size() -> int:
 	return _intercept_cache.size()
 
 
+## Return every reachable opposing-team candidate with its cached
+## intercept stats, sorted by intercept TOF ascending (fastest
+## arrival first — the operator's first instinct when scanning a
+## list). Each entry is:
+##     {target: Satellite, tof: float, dv_kms: float, dv: Vector3,
+##      v1: Vector3}
+##
+## Uses the same `_intercept_cache` `pick_target` populates, so a
+## list refresh inside the 5 sim-sec TTL costs O(N) dictionary
+## lookups. Cold-cache cost = one `find_best_intercept` per
+## candidate (~90 ms each in GDScript at the current 12+6 sample
+## resolution). Capped at `max_count` to bound the HUD list and the
+## per-refresh worst case.
+##
+## Phase-2 optimisation: swap the cache miss path to a cheaper
+## `find_any_intercept` (4 TOF samples, no fine refinement) — see
+## docs/missiles.md "Refactor playbook" for the rationale.
+func list_reachable_targets(
+	attacker, candidates: Array, sim_time: float, max_count: int = 8
+) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if attacker == null:
+		return out
+	_evict_expired(sim_time)
+	var dv_budget: float = dv_budget_per_missile_kms()
+	for other in candidates:
+		if other == attacker:
+			continue
+		if not is_target_in_engagement_envelope(attacker, other):
+			continue
+		var entry: Dictionary = _ensure_cache_entry(
+			attacker, other, sim_time, dv_budget
+		)
+		if not entry.reachable:
+			continue
+		if entry.dv_mag > dv_budget:
+			continue
+		out.append({
+			"target": other,
+			"tof": entry.tof,
+			"dv_kms": entry.dv_mag,
+			"dv": entry.dv,
+			"v1": entry.v1,
+		})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["tof"]) < float(b["tof"])
+	)
+	if out.size() > max_count:
+		out.resize(max_count)
+	return out
+
+
 # --- internals -------------------------------------------------------------
 
 
