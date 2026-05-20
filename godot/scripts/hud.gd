@@ -104,9 +104,9 @@ const GROUP_HEADER_BG := Color(0.10, 0.30, 0.45, 0.80)
 const GROUP_HEADER_BG_EXPANDED := Color(0.20, 0.55, 0.80, 0.90)
 const GROUP_HEADER_FONT_SIZE: int = 12
 const GROUP_HEADER_MIN_SIZE := Vector2(160.0, 28.0)
-const GROUP_BLOCK_NAME_HEADER: String = "Header"
-const GROUP_BLOCK_NAME_UNITS: String = "Units"
-const GROUP_BLOCK_NAME_LABEL: String = "HeaderLabel"
+const GROUP_HEADER_NAME: String = "GroupHeader"
+const GROUP_UNITS_NAME: String = "GroupUnits"
+const GROUP_LABEL_NAME: String = "HeaderLabel"
 
 # Wall-clock duration of the hit pulse on the marker / roster box.
 # Wall-clock so the visual feedback survives compression at high
@@ -435,9 +435,9 @@ func _update_groups(orbital_set: Node, planning_mode: bool) -> void:
 		):
 			selected_sat = maybe
 
-	# Bucket friendlies by group_id. Empty groups simply don't get a
-	# GroupBlock so the strip never reserves dead space for an empty
-	# bucket (matches the prior surface-row visibility behaviour).
+	# Bucket friendlies by group_id. Empty groups simply don't get
+	# a header so the strip never reserves dead space for them
+	# (matches the prior surface-row visibility behaviour).
 	var buckets: Dictionary = {}
 	for g_id_init: int in GROUP_ORDER:
 		var empty: Array[Satellite] = []
@@ -460,23 +460,37 @@ func _update_groups(orbital_set: Node, planning_mode: bool) -> void:
 		if not bucket.is_empty():
 			visible_groups.append(g_id)
 
-	# Sync host children to the visible-group count using the same
-	# add/remove idiom the old per-tile renderer used — children are
-	# reused across ticks; only the count delta causes alloc/free.
-	while groups_host.get_child_count() < visible_groups.size():
-		groups_host.add_child(_make_group_block())
-	while groups_host.get_child_count() > visible_groups.size():
-		var stale := groups_host.get_child(groups_host.get_child_count() - 1)
-		groups_host.remove_child(stale)
-		stale.queue_free()
+	# Flat layout: each group occupies two adjacent children of the
+	# host VBox — a clickable header followed by an HFlow of unit
+	# tiles. Earlier revisions wrapped each pair in an extra
+	# VBoxContainer, which made the inner HFlow over-report its
+	# min height; subsequent groups then rendered overlapping the
+	# wrong hit rects and tile clicks fell through to the previous
+	# group. With HFlow as a direct VBox child the wrap calc matches
+	# the original (working) single-row layout.
+	var target_count: int = visible_groups.size() * 2
+	while groups_host.get_child_count() < target_count:
+		groups_host.add_child(_make_group_header())
+		groups_host.add_child(_make_group_units())
+	while groups_host.get_child_count() > target_count:
+		# Remove in pairs so child_count stays even and the
+		# (header, units) interleaving holds.
+		for _step in range(2):
+			if groups_host.get_child_count() == 0:
+				break
+			var stale := groups_host.get_child(groups_host.get_child_count() - 1)
+			groups_host.remove_child(stale)
+			stale.queue_free()
 
 	for i in range(visible_groups.size()):
 		var g_id: int = visible_groups[i]
-		var block := groups_host.get_child(i) as VBoxContainer
-		if block == null:
+		var header := groups_host.get_child(i * 2) as PanelContainer
+		var units := groups_host.get_child(i * 2 + 1) as HFlowContainer
+		if header == null or units == null:
 			continue
 		var members: Array[Satellite] = buckets[g_id]
-		_update_group_block(block, g_id, members, selected_sat)
+		_update_group_header(header, g_id, members.size())
+		_update_group_units(units, g_id, members, selected_sat)
 
 
 # Single source of truth for "which group does this satellite belong
@@ -494,23 +508,16 @@ func _group_for(sat: Satellite) -> int:
 	return GROUP_LASER
 
 
-# Build an empty GroupBlock: a vertical container with a clickable
-# header tile on top and an HFlow for unit tiles below. Both rows
-# size to their content (SHRINK_BEGIN vertically) so the parent VBox
-# stacks subsequent blocks immediately below this one without overlap.
-# The HFlow starts empty; _update_group_block keeps its child count
-# in sync with the group's expansion state.
-func _make_group_block() -> VBoxContainer:
-	var block := VBoxContainer.new()
-	block.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	block.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	block.add_theme_constant_override("separation", 4)
-
+# Build an empty group header tile. Clickable PanelContainer with a
+# centred label; the actual text and tint are written by
+# _update_group_header. Stays narrow (SHRINK_BEGIN horizontally) so
+# the strip reads as a compact stack of group chips, not full-width
+# bands.
+func _make_group_header() -> PanelContainer:
 	var header := PanelContainer.new()
-	header.name = GROUP_BLOCK_NAME_HEADER
+	header.name = GROUP_HEADER_NAME
 	header.custom_minimum_size = GROUP_HEADER_MIN_SIZE
 	header.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	header.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	header.mouse_filter = Control.MOUSE_FILTER_STOP
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = GROUP_HEADER_BG
@@ -522,56 +529,58 @@ func _make_group_block() -> VBoxContainer:
 	header.add_theme_stylebox_override("panel", sb)
 
 	var label := Label.new()
-	label.name = GROUP_BLOCK_NAME_LABEL
+	label.name = GROUP_LABEL_NAME
 	label.add_theme_font_size_override("font_size", GROUP_HEADER_FONT_SIZE)
 	label.add_theme_color_override("font_color", NAME_TEXT_COLOR)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(label)
-	block.add_child(header)
 
+	header.gui_input.connect(_on_group_header_input.bind(header))
+	return header
+
+
+# Build an empty units row. HFlow so a long group wraps to a second
+# row instead of running into the upper-right detail panel. Direct
+# child of the host VBox (no intermediate container) so the wrap
+# height matches the original working layout.
+func _make_group_units() -> HFlowContainer:
 	var units := HFlowContainer.new()
-	units.name = GROUP_BLOCK_NAME_UNITS
+	units.name = GROUP_UNITS_NAME
 	units.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	units.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	units.add_theme_constant_override("h_separation", 6)
 	units.add_theme_constant_override("v_separation", 6)
-	block.add_child(units)
-
-	header.gui_input.connect(_on_group_header_input.bind(block))
-	return block
+	return units
 
 
-func _update_group_block(
-	block: VBoxContainer,
-	group_id: int,
-	sats: Array[Satellite],
-	selected_sat: Satellite,
+func _update_group_header(
+	header: PanelContainer, group_id: int, count: int
 ) -> void:
-	block.set_meta("group", group_id)
-
-	var header := block.get_node_or_null(GROUP_BLOCK_NAME_HEADER) as PanelContainer
-	var units := block.get_node_or_null(GROUP_BLOCK_NAME_UNITS) as HFlowContainer
-	if header == null or units == null:
-		return
-
+	header.set_meta("group", group_id)
 	var expanded: bool = bool(_expanded_groups.get(group_id, false))
 	var sb := header.get_theme_stylebox("panel") as StyleBoxFlat
 	if sb != null:
 		sb.bg_color = GROUP_HEADER_BG_EXPANDED if expanded else GROUP_HEADER_BG
-
-	var label := header.get_node_or_null(GROUP_BLOCK_NAME_LABEL) as Label
+	var label := header.get_node_or_null(GROUP_LABEL_NAME) as Label
 	if label != null:
 		var arrow := "v" if expanded else ">"
 		var gname: String = GROUP_NAMES.get(group_id, "Group ?")
-		label.text = "%s  %s  (%d)" % [arrow, gname, sats.size()]
+		label.text = "%s  %s  (%d)" % [arrow, gname, count]
 
+
+func _update_group_units(
+	units: HFlowContainer,
+	group_id: int,
+	sats: Array[Satellite],
+	selected_sat: Satellite,
+) -> void:
+	units.set_meta("group", group_id)
+	var expanded: bool = bool(_expanded_groups.get(group_id, false))
 	# Match the HFlow's child count to the group's expansion state
-	# (0 when collapsed, sats.size() when expanded). Hiding via
-	# `units.visible = false` instead leaves stale children that bake
-	# their wrap height into the parent VBox layout — subsequent
-	# blocks then overlap visually, and clicks fall through to the
-	# wrong tile.
+	# (0 when collapsed, sats.size() when expanded). Toggling
+	# `visible` instead leaves stale children that bake their wrap
+	# height into the parent VBox layout — subsequent rows then
+	# render at the wrong y and tile clicks miss.
 	var target_count: int = sats.size() if expanded else 0
 	while units.get_child_count() < target_count:
 		units.add_child(_make_box())
@@ -590,18 +599,29 @@ func _update_group_block(
 # immediately so the change feels responsive rather than waiting up
 # to ~100 ms for the next HUD throttle tick. _system is cached every
 # frame by draw_target_lines; planning_mode lives on it.
-func _on_group_header_input(event: InputEvent, block: VBoxContainer) -> void:
+func _on_group_header_input(event: InputEvent, header: PanelContainer) -> void:
 	if not (event is InputEventMouseButton):
 		return
 	var mb: InputEventMouseButton = event
 	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
 		return
-	if not block.has_meta("group"):
+	if not header.has_meta("group"):
 		return
-	var group_id: int = block.get_meta("group") as int
+	var group_id: int = header.get_meta("group") as int
 	_expanded_groups[group_id] = not bool(_expanded_groups.get(group_id, false))
 	if _system != null and is_instance_valid(_system):
 		_update_groups(_system, _system.planning_mode)
+
+
+# True if `sat` belongs to a currently-expanded group. Tab / Shift+Tab
+# cycling consults this so the operator only lands on units that are
+# actually visible in the roster — cycling into a collapsed group
+# would land on a unit the operator can't see.
+func is_in_expanded_group(sat: Satellite) -> bool:
+	if sat == null:
+		return false
+	var g_id := _group_for(sat)
+	return bool(_expanded_groups.get(g_id, false))
 
 
 func _make_box() -> PanelContainer:
