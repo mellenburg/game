@@ -313,6 +313,43 @@ func _exclude_missile_reserved(cands: Array[Satellite]) -> Array[Satellite]:
 	return out
 
 
+## Non-mutating query: does this attacker currently have any
+## reachable missile target? Mirrors the filter chain
+## try_fire_missile_for runs (envelope, dv budget, spawner
+## reservation, Lambert solve) but never spawns a missile. The HUD
+## calls it every detail-panel refresh to colour the FIRE MISSILE
+## button red when a launch would actually fire vs. greyed-out when
+## no enemy is in range.
+##
+## Returns the picked target on success (so the HUD can highlight
+## it in future) or null when nothing is reachable / the launcher
+## isn't ready.
+func has_missile_target_for(
+	attacker: Satellite,
+	satellites: Array[Satellite],
+	sim_time: float,
+) -> Satellite:
+	if attacker == null or not attacker.alive:
+		return null
+	var candidates := _collect_targetable(satellites)
+	for w in attacker.weapons:
+		if not (w is MissileWeapon):
+			continue
+		var mw: MissileWeapon = w
+		if not mw.can_fire(attacker):
+			continue
+		var cands: Array = candidates
+		if (
+			_missile_spawner != null
+			and _missile_spawner.reserved_target_count() > 0
+		):
+			cands = _exclude_missile_reserved(candidates)
+		var target: Satellite = mw.pick_target(attacker, cands, sim_time)
+		if target != null:
+			return target
+	return null
+
+
 ## Manual missile fire: invoked by the HUD's FIRE MISSILE button and
 ## the Z key. Iterates the attacker's MissileWeapons, picks the first
 ## reachable opposing target (lowest dv via the weapon's cached

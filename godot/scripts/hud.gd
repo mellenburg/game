@@ -646,37 +646,98 @@ func _update_unit_detail(orbital_set: Node, planning_mode: bool) -> void:
 	if idx < 0 or idx >= sats.size():
 		unit_detail_panel.visible = false
 		_detail_sat = null
-		_update_fire_missile_button(null, planning_mode)
+		_update_fire_missile_button(null, orbital_set, planning_mode)
 		return
 	var sat: Satellite = sats[idx]
 	if sat == null or not sat.alive or sat.team != Satellite.TEAM_PLAYER:
 		unit_detail_panel.visible = false
 		_detail_sat = null
-		_update_fire_missile_button(null, planning_mode)
+		_update_fire_missile_button(null, orbital_set, planning_mode)
 		return
 	unit_detail_panel.visible = true
 	unit_detail_label.text = _format_unit_detail(sat)
 	_detail_sat = sat
-	_update_fire_missile_button(sat, planning_mode)
+	_update_fire_missile_button(sat, orbital_set, planning_mode)
 
 
-# Show / hide / enable the FIRE MISSILE button based on the selected
-# unit's missile loadout. Hidden when the unit has no missile (saves
-# vertical space). Disabled when the launcher is overheated or out
-# of ammo, OR when the game is in planning-mode pause (firing during
-# a paused sim is confusing — the missile would freeze mid-air).
-func _update_fire_missile_button(sat: Satellite, planning_mode: bool) -> void:
+# FIRE MISSILE button colours. Red tint when the button is actually
+# fireable — high-contrast against the menu's blue palette so the
+# operator's eye finds it immediately. White (default modulate) on
+# every other state so the disabled-grey effect from Button itself
+# remains the dominant cue.
+const _FIRE_READY_TINT := Color(1.0, 0.30, 0.30, 1.0)
+
+
+# Show / hide / enable / label / colour the FIRE MISSILE button based
+# on the selected unit's missile state AND whether a target is in
+# range. The button is only visible when the unit carries a missile;
+# disabled (grey) on every state that prevents launch; tinted red
+# only when ALL gates are clear AND CombatController says at least
+# one enemy is reachable.
+func _update_fire_missile_button(
+	sat: Satellite, orbital_set: Node, planning_mode: bool
+) -> void:
 	if _fire_missile_button == null:
 		return
 	if sat == null or not sat.has_missile():
 		_fire_missile_button.visible = false
 		return
 	_fire_missile_button.visible = true
-	var mw = sat.first_missile_weapon()
-	var can_fire: bool = (
-		mw != null and mw.can_fire(sat) and not planning_mode
+	var state: String = _missile_button_state(sat, orbital_set, planning_mode)
+	_fire_missile_button.text = _missile_button_label(state)
+	_fire_missile_button.disabled = state != "READY"
+	_fire_missile_button.modulate = (
+		_FIRE_READY_TINT if state == "READY" else Color.WHITE
 	)
-	_fire_missile_button.disabled = not can_fire
+
+
+# Decide the launch-button state. Order matters: cheap local gates
+# (planning mode, ammo, heat, energy) run before the
+# CombatController target query so a unit that obviously can't fire
+# never pays the Lambert-solve cost.
+func _missile_button_state(
+	sat: Satellite, orbital_set: Node, planning_mode: bool
+) -> String:
+	if planning_mode:
+		return "PAUSED"
+	var mw = sat.first_missile_weapon()
+	if mw == null:
+		return "NO_MISSILE"
+	if sat.is_surface:
+		return "GROUND_UNIT"
+	if mw.ammo_count <= 0:
+		return "EMPTY"
+	if mw.overheated:
+		return "OVERHEATED"
+	if mw.heat_j > 0.0:
+		return "COOLING"
+	if sat.energy < MissileWeapon.ENERGY_PER_LAUNCH_J:
+		return "CHARGING"
+	# Local gates clear — check the combat controller for a reachable
+	# enemy. Returns null when no opposing body is inside the missile's
+	# dv-budget envelope; the HUD treats that as "NO_TARGET" so the
+	# operator sees why the click would fail.
+	var cc = orbital_set.get("combat_controller")
+	if cc == null:
+		return "READY"  # No controller — fall through; click will no-op safely.
+	if cc.has_missile_target_for(sat, orbital_set.satellites, orbital_set.sim_time) != null:
+		return "READY"
+	return "NO_TARGET"
+
+
+# Operator-facing string for each state. Kept compact so the button
+# stays narrow under the detail panel's ~280 px column.
+static func _missile_button_label(state: String) -> String:
+	match state:
+		"READY":       return "FIRE MISSILE  [Z]"
+		"NO_TARGET":   return "NO TARGET IN RANGE"
+		"PAUSED":      return "PAUSED"
+		"COOLING":     return "COOLING"
+		"OVERHEATED":  return "OVERHEATED"
+		"EMPTY":       return "MAGAZINE EMPTY"
+		"CHARGING":    return "POWER CHARGING"
+		"GROUND_UNIT": return "GROUND UNIT"
+		_:             return "FIRE MISSILE"
 
 
 # Button signal handler. Re-validates the selected sat (the operator
