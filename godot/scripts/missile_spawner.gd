@@ -19,6 +19,20 @@ extends Node3D
 
 const Missile = preload("res://scripts/missile.gd")
 const MassCenterOrbit = preload("res://scripts/mass_center_orbit.gd")
+const ImpactExplosion = preload("res://scripts/impact_explosion.gd")
+
+# Visual radius (km) of the detonation sphere. Calibrated for a
+# 100 MT yield: the physics-grounded lethal X-ray radius is ~50 km
+# (see MissileWeapon.BLAST_RADIUS_KM rationale), but at scene scale
+# 1 unit = 1000 km that's a 5-pixel speck. ImpactExplosion's
+# VISUAL_GAIN bumps asteroid impacts ~4× for the same readability
+# problem; missiles use a fixed exaggerated value so every
+# detonation reads as a dramatic event regardless of the geometry
+# that triggered it. 2500 km sits well below the MAX_RADIUS_KM
+# (4000) cap and roughly matches the asteroid-explosion size for a
+# large impactor — the operator's eye sees them as comparable
+# energy-scale events.
+const DETONATION_RADIUS_KM: float = 2500.0
 
 # Active missiles. The list is the only owner of the Missile Node3D
 # references — when a missile terminates, queue_free runs and we drop
@@ -94,6 +108,14 @@ func tick(sim_delta: float, sim_time: float) -> int:
 			alive.append(m)
 		else:
 			terminated_count += 1
+			# Detonation visual: spawn an exaggerated explosion sphere
+			# at the missile's final position. Only on TERM_DETONATED
+			# — miss / expiry / subsurface terminations get no boom
+			# (no warhead actually went off). The sphere parents to
+			# the spawner so it inherits world-origin transform; it
+			# self-frees after ImpactExplosion.DURATION.
+			if m.last_termination == Missile.TERM_DETONATED:
+				_spawn_detonation(m.orbit.r)
 			# queue_free runs at the end of the physics tick. The
 			# Missile's on_terminate has already fired inside tick
 			# (releases the reservation), so by the time the node is
@@ -101,6 +123,13 @@ func tick(sim_delta: float, sim_time: float) -> int:
 			m.queue_free()
 	_missiles = alive
 	return terminated_count
+
+
+func _spawn_detonation(pos_km: Vector3) -> void:
+	var explosion := ImpactExplosion.new()
+	explosion.peak_radius_km = DETONATION_RADIUS_KM
+	add_child(explosion)
+	explosion.set_impact_position(pos_km)
 
 
 ## Drop every active missile without applying damage. Used by tests

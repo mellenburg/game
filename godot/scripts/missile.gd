@@ -25,11 +25,18 @@ const SCENE_SCALE: float = 1.0 / 1000.0  # km -> scene units (matches Satellite)
 
 # Visual constants. The missile body is rendered as a small bright
 # unshaded cube so it reads against the dark scene without competing
-# with satellite markers. Color picks a saturated amber/orange that
-# matches the predicted-path tint — a hot, threatening hue that's
-# distinct from the cool blues / whites of satellites.
-const BODY_SIDE_SCENE: float = 0.04
-const BODY_COLOR := Color(1.0, 0.55, 0.1)
+# with satellite markers. The cube is deliberately oversized — about
+# 150 km equivalent at this scene scale, far larger than a real
+# missile's tens-of-metres airframe — so the operator can find an
+# in-flight missile against the busy 3D scene without zooming.
+# Flashing red / white at FLASH_PERIOD_SEC keeps the operator's eye
+# on it; the wall-clock-driven flash also tracks consistently
+# regardless of time_factor (a 1000× speed-up wouldn't strobe it
+# into invisibility).
+const BODY_SIDE_SCENE: float = 0.15
+const BODY_COLOR_RED := Color(1.0, 0.10, 0.10)
+const BODY_COLOR_WHITE := Color(1.0, 1.0, 1.0)
+const FLASH_PERIOD_SEC: float = 0.2
 const PATH_COLOR := Color(1.0, 0.6, 0.15, 0.7)
 const PATH_LINE_WIDTH_PX: float = 1.2
 
@@ -86,7 +93,7 @@ func _ready() -> void:
 	_body.mesh = box
 	_body_mat = StandardMaterial3D.new()
 	_body_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_body_mat.albedo_color = BODY_COLOR
+	_body_mat.albedo_color = BODY_COLOR_RED
 	_body.material_override = _body_mat
 	add_child(_body)
 
@@ -99,6 +106,20 @@ func _ready() -> void:
 	if orbit != null:
 		_path.update_orbit(orbit)
 		_sync_body_position()
+
+
+# Flashing red / white driven by wall-clock time so the colour cycle
+# stays consistent regardless of time_factor — at 1000× speed the
+# missile would otherwise strobe so fast it'd look static. Wall-clock
+# also means the cycle survives planning-mode pause: the operator
+# still sees the missile threatening even while the sim is frozen.
+func _process(_delta: float) -> void:
+	if _terminated or _body_mat == null:
+		return
+	var phase: int = int(Time.get_ticks_msec() / int(FLASH_PERIOD_SEC * 1000.0))
+	_body_mat.albedo_color = (
+		BODY_COLOR_WHITE if (phase % 2) == 0 else BODY_COLOR_RED
+	)
 
 
 ## Configure missile state at spawn time. Call BEFORE add_child() so
