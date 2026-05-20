@@ -548,6 +548,8 @@ func _make_group_units() -> HFlowContainer:
 	var units := HFlowContainer.new()
 	units.name = GROUP_UNITS_NAME
 	units.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	units.size_flags_horizontal = Control.SIZE_FILL
+	units.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	units.add_theme_constant_override("h_separation", 6)
 	units.add_theme_constant_override("v_separation", 6)
 	return units
@@ -609,8 +611,41 @@ func _on_group_header_input(event: InputEvent, header: PanelContainer) -> void:
 		return
 	var group_id: int = header.get_meta("group") as int
 	_expanded_groups[group_id] = not bool(_expanded_groups.get(group_id, false))
+	print(
+		"[HUD] header click g=%d expanded=%s" % [
+			group_id, bool(_expanded_groups.get(group_id, false))
+		]
+	)
 	if _system != null and is_instance_valid(_system):
 		_update_groups(_system, _system.planning_mode)
+	# After the layout settles, log every tile's global rect so we can
+	# compare it against the cursor position reported in
+	# _on_box_gui_input. Deferred so the queue_sort triggered by
+	# child mutations runs first.
+	call_deferred("_debug_log_tile_rects")
+
+
+func _debug_log_tile_rects() -> void:
+	if groups_host == null:
+		return
+	for i in range(groups_host.get_child_count()):
+		var child := groups_host.get_child(i)
+		if child is HFlowContainer:
+			var units := child as HFlowContainer
+			var g_meta: int = units.get_meta("group", -1) as int
+			print(
+				"[HUD] units g=%d rect=%s child_count=%d" % [
+					g_meta, units.get_global_rect(), units.get_child_count()
+				]
+			)
+			for j in range(units.get_child_count()):
+				var tile := units.get_child(j) as Control
+				if tile != null:
+					print(
+						"[HUD]   tile[%d] rect=%s filter=%d" % [
+							j, tile.get_global_rect(), tile.mouse_filter
+						]
+					)
 
 
 # True if `sat` belongs to a currently-expanded group. Tab / Shift+Tab
@@ -678,6 +713,17 @@ func _on_box_gui_input(event: InputEvent, box: PanelContainer) -> void:
 	var mb: InputEventMouseButton = event
 	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
 		return
+	var sat_name: String = "<no-meta>"
+	if box.has_meta("sat"):
+		var meta_sat := box.get_meta("sat") as Satellite
+		if meta_sat != null and is_instance_valid(meta_sat):
+			sat_name = meta_sat.unit_name if meta_sat.unit_name != "" else "<unnamed>"
+	var box_global := box.get_global_rect()
+	print(
+		"[HUD] tile click event sat=%s rect=%s cursor=%s" % [
+			sat_name, box_global, mb.global_position
+		]
+	)
 	if not box.has_meta("sat"):
 		return
 	var sat: Satellite = box.get_meta("sat") as Satellite
