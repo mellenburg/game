@@ -4,6 +4,14 @@ extends RefCounted
 ## find the velocity vectors of a conic arc connecting them. Pure
 ## RefCounted so the math can be unit-tested headlessly.
 ##
+## See `docs/missiles.md` for the cross-cutting missile-system
+## reference: architecture map, physics calibration, design tradeoffs,
+## and refactor playbook. Read that doc before swapping the algorithm
+## or changing the search behaviour — the API contract this file
+## exposes (`solve` + `find_best_intercept` returning Dictionaries) is
+## what insulates every other file from the choice of Lambert
+## formulation.
+##
 ## Algorithm: Vallado universal-variable Lambert with bisection on
 ## psi = xi^2 / alpha (Vallado, "Fundamentals of Astrodynamics and
 ## Applications", 4th ed., Algorithm 5.2). Universal variables match

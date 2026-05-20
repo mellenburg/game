@@ -7,6 +7,13 @@ extends "res://scripts/weapons/weapon.gd"
 ## budget), and have a fixed magazine — distinct gameplay shape from
 ## the laser (continuous-fire) and railgun (impulse with travel time).
 ##
+## See `docs/missiles.md` for the cross-cutting reference — physics
+## calibration (100 MT yield, lethal radius derivation), end-to-end
+## fire sequence, reservation lifecycle, design tradeoffs (manual fire,
+## auto-target picking, deferred damage), and refactor playbook. Touch
+## that doc whenever you retune the constants in this file so the
+## physics rationale stays in sync with the code.
+##
 ## The actual orbital-mechanics solve runs in pick_target via
 ## LambertSolver.find_best_intercept. The result is cached per
 ## (target_iid → expiry) so subsequent ticks reuse it; CACHE_TTL_SEC

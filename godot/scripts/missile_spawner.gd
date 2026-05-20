@@ -6,6 +6,11 @@ extends Node3D
 ## succeeds) and to gate target-reservation (one inbound missile per
 ## target, fleet-wide).
 ##
+## See `docs/missiles.md` for the cross-cutting reference — note in
+## particular the "two reservation maps" design decision (railgun and
+## missile reservations are intentionally independent; refactor
+## opportunity to unify them documented there).
+##
 ## Mirrors the role SlugRenderer plays for railgun slugs, but with
 ## the simulation side carrying more weight: SlugRenderer is purely
 ## visual (damage already applied at fire-time); MissileSpawner owns

@@ -7,6 +7,12 @@ extends Node3D
 ## with a sub-blast distance, when its expiry deadline elapses, or
 ## when its orbit decays below the body surface.
 ##
+## See `docs/missiles.md` for the cross-cutting reference — the
+## six-state termination taxonomy is documented there along with the
+## refactor cost estimates for changes that would touch this file
+## (mid-course correction, multi-stage, continuous-burn guidance,
+## anti-missile destructibility).
+##
 ## Distinct from Satellite — a missile has no HP / weapons / planning
 ## state / surface logic. It's a lightweight entity owned by the
 ## MissileSpawner; CombatController doesn't see it as a targetable
