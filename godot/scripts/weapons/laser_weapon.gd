@@ -161,6 +161,19 @@ static func range_factor(distance_km: float) -> float:
 func is_target_in_engagement_envelope(attacker, target) -> bool:
 	if attacker == null or target == null:
 		return false
+	var dist_sq: float = (target.orbit.r - attacker.orbit.r).length_squared()
+	if not _in_envelope_except_los(attacker, target, dist_sq):
+		return false
+	return not LosCheck.is_blocked(attacker.orbit.r, target.orbit.r)
+
+
+# Every envelope condition except the LOS ray test, which is the
+# expensive half. pick_target runs this cheap pre-filter over the whole
+# candidate list and defers LOS to the few candidates that would
+# actually win the ranking. `dist_sq` is the squared attacker→target
+# distance, passed in so callers that already computed it don't pay
+# for it twice.
+func _in_envelope_except_los(attacker, target, dist_sq: float) -> bool:
 	if not attacker.alive or not target.alive:
 		return false
 	if attacker.team == target.team:
@@ -178,13 +191,10 @@ func is_target_in_engagement_envelope(attacker, target) -> bool:
 	# fire control off restores default behaviour (fire at any LOS
 	# enemy out to MAX_RANGE_KM) without forcing the operator to widen
 	# the slider back up first.
-	var distance: float = (target.orbit.r - attacker.orbit.r).length()
 	var cap: float = MAX_RANGE_KM
 	if attacker.fire_control_active:
 		cap = minf(cap, attacker.engagement_range_km)
-	if distance >= cap:
-		return false
-	return not LosCheck.is_blocked(attacker.orbit.r, target.orbit.r)
+	return dist_sq < cap * cap
 
 
 ## Two-key lexicographic ranking. In MAX_DAMAGE mode the primary key is
@@ -208,9 +218,9 @@ func pick_target(attacker, candidates: Array, sim_time: float):
 			continue
 		if other.team == attacker.team:
 			continue
-		if not is_target_in_engagement_envelope(attacker, other):
-			continue
 		var d2: float = (other.orbit.r - attacker.orbit.r).length_squared()
+		if not _in_envelope_except_los(attacker, other, d2):
+			continue
 		var t := INF
 		if max_danger:
 			# Absolute impact time, not relative — a smaller value still
@@ -226,10 +236,19 @@ func pick_target(attacker, candidates: Array, sim_time: float):
 		else:
 			if d2 < best_d2:
 				better = true
-		if better:
-			best_t = t
-			best_d2 = d2
-			best = other
+		if not better:
+			continue
+		# LOS is the expensive half of the envelope check, so it runs
+		# only for candidates that would take the lead. The result is
+		# unchanged: every accepted best is LOS-clear, blocked bodies
+		# are skipped, and the true winner — the best-ranked LOS-clear
+		# candidate — always beats whatever blocked-free best preceded
+		# it, so it gets tested and accepted when reached.
+		if LosCheck.is_blocked(attacker.orbit.r, other.orbit.r):
+			continue
+		best_t = t
+		best_d2 = d2
+		best = other
 	return best
 
 

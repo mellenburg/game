@@ -128,6 +128,13 @@ const HIT_DURATION: float = 0.25
 @onready var unit_detail_label: RichTextLabel = (
 	$UnitDetailPanel/VBox/DetailLabel as RichTextLabel
 )
+# Bottom-left enemy grid, resolved once — update_hud runs at 10 Hz and
+# MassCenterSystem polls every frame, so the repeated string-path
+# get_node lookups were pure overhead. Kept loosely typed (Control +
+# has_method guards) so the HUD still boots in scenes without the grid.
+@onready var tess_grid: Control = (
+	get_node_or_null("TessellationGrid") as Control
+)
 
 var _camera: Camera3D
 var _system: Node = null
@@ -143,6 +150,9 @@ var _hits: Array[Dictionary] = []
 # selected satellite to opposing units render only during that window;
 # hit pulses remain visible regardless.
 var los_visible: bool = false
+# Whether the previous frame painted LOS lines. One extra redraw after
+# the operator releases V clears the last set of lines off the canvas.
+var _los_drawn_prev: bool = false
 
 
 func _ready() -> void:
@@ -201,16 +211,17 @@ func update_hud(
 		return
 	_last_text_update = now
 
+	# Expire hit pulses at the same cadence the roster boxes that read
+	# them are refreshed — pruning used to ride the per-frame _draw,
+	# but nothing samples _hits more often than this rebuild.
+	_prune_hits()
 	_update_info_label(planning_mode, time_factor, dt, sim_time)
 	_update_rosters(orbital_set, planning_mode)
 	_update_kill_stats(orbital_set)
 	_update_unit_detail(orbital_set, planning_mode)
-	var grid_node: Node = null
-	if has_node("TessellationGrid"):
-		grid_node = get_node("TessellationGrid")
-		if grid_node.has_method("update_enemies"):
-			grid_node.update_enemies(orbital_set.satellites, sim_time)
-	_update_asteroid_status(grid_node, sim_time)
+	if tess_grid != null and tess_grid.has_method("update_enemies"):
+		tess_grid.update_enemies(orbital_set.satellites, sim_time)
+	_update_asteroid_status(tess_grid, sim_time)
 
 
 # Render the currently grid-highlighted asteroid into the top-right
@@ -735,13 +746,18 @@ func _color_hex(c: Color) -> String:
 func draw_target_lines(orbital_set: Node, cam: Camera3D) -> void:
 	_camera = cam
 	_system = orbital_set
-	queue_redraw()
+	# Repaint only while LOS lines are showing (they track moving
+	# satellites, so that path stays per-frame) plus one clearing frame
+	# after release. Unconditional queue_redraw invalidated the whole
+	# HUD canvas item every frame for an almost-always-empty _draw.
+	if los_visible or _los_drawn_prev:
+		queue_redraw()
+	_los_drawn_prev = los_visible
 
 
 func _draw() -> void:
 	if _system == null or _camera == null:
 		return
-	_prune_hits()
 	if los_visible:
 		_draw_selected_los_lines()
 

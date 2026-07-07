@@ -485,15 +485,20 @@ func _ready() -> void:
 	_apply_color()
 	_apply_path_style()
 	_sync_marker_position()
+	# _process only exists to expire the hit-flash tint. Hundreds of
+	# bodies can be alive during a wave, and an always-on per-frame
+	# script callback per node adds up — so processing stays off until
+	# flash_hit arms it, and turns itself back off on expiry.
+	set_process(false)
 
 
 func _process(_delta: float) -> void:
-	# Revert the hit-flash tint once its wall-clock window passes. Cheap
-	# enough to do every frame; the alternative (HUD driving it) couples
-	# the visual back into the controller.
+	# Revert the hit-flash tint once its wall-clock window passes, then
+	# stop processing — flash_hit re-enables it on the next pulse.
 	if _flash_until > 0.0 and _wall_now() >= _flash_until:
 		_flash_until = 0.0
 		_apply_color()
+		set_process(false)
 
 
 ## Tint the 3D orbit marker orange for `duration` wall-clock seconds.
@@ -505,6 +510,7 @@ func flash_hit(duration: float) -> void:
 	_flash_until = _wall_now() + duration
 	if _marker_mat != null:
 		_marker_mat.albedo_color = COLOR_HIT
+	set_process(true)
 
 
 func _wall_now() -> float:
@@ -1141,7 +1147,15 @@ func _apply_marker_size() -> void:
 	var box := _marker.mesh as BoxMesh
 	if box == null:
 		return
-	box.size = _marker_box_size()
+	var target := _marker_box_size()
+	# Writing BoxMesh.size regenerates the mesh on the RenderingServer.
+	# Continuous laser fire erodes an asteroid's mass every physics tick,
+	# which would rebuild the mesh 30+ times a second per target for a
+	# change far below what the log-decade scale can show. Skip anything
+	# under a 1% side-length delta; deaths / big hits still land.
+	if absf(target.x - box.size.x) < box.size.x * 0.01:
+		return
+	box.size = target
 
 
 func _base_color() -> Color:

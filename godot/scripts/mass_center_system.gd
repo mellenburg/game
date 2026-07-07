@@ -1190,9 +1190,11 @@ func _apply_map_mode() -> void:
 # survives a fresh threat-detection alert.
 func _auto_switch_map_mode() -> void:
 	var inbound := spawn_director.has_active_waves()
+	# The HUD resolves the grid once at ready; reuse that ref instead of
+	# a string-path node lookup on every frame.
 	var grid_node: Node = null
 	if hud != null:
-		grid_node = hud.get_node_or_null("TessellationGrid")
+		grid_node = hud.tess_grid
 	# Defer to the grid for the freed-instance check — assigning the
 	# typed `highlighted_sat` field into a local Object var across
 	# script boundaries trips Godot when the selected body died this

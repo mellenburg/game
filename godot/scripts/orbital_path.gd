@@ -23,6 +23,13 @@ var _material: ShaderMaterial
 # Base ring points in scene units. One Vector3 per ring; the ribbon's
 # two-sided expansion happens at upload time.
 var _points: PackedVector3Array
+# Expanded ribbon buffers, cached across uploads. Asteroid / spiral
+# trajectories re-upload every orbit-render tick, and allocating three
+# fresh Packed arrays per body per tick is measurable GC pressure in a
+# 250-body wave — resize-in-place instead.
+var _verts: PackedVector3Array
+var _normals: PackedVector3Array
+var _uvs: PackedVector2Array
 var _last_signature := Vector4(NAN, NAN, NAN, NAN)
 var _last_inc := NAN
 var _last_argp := NAN
@@ -584,12 +591,10 @@ func _upload_surface() -> void:
 		return
 	var vert_count := ring_count * 2
 
-	var verts := PackedVector3Array()
-	verts.resize(vert_count)
-	var normals := PackedVector3Array()
-	normals.resize(vert_count)
-	var uvs := PackedVector2Array()
-	uvs.resize(vert_count)
+	if _verts.size() != vert_count:
+		_verts.resize(vert_count)
+		_normals.resize(vert_count)
+		_uvs.resize(vert_count)
 
 	# Last ring inherits the previous segment's tangent so the ribbon
 	# doesn't pinch shut at endpoints (open trajectories) or at the
@@ -608,12 +613,12 @@ func _upload_surface() -> void:
 			tangent = Vector3(1.0, 0.0, 0.0)
 		var left_idx := i * 2
 		var right_idx := left_idx + 1
-		verts[left_idx] = here
-		verts[right_idx] = here
-		normals[left_idx] = tangent
-		normals[right_idx] = tangent
-		uvs[left_idx] = Vector2(-1.0, 0.0)
-		uvs[right_idx] = Vector2(1.0, 0.0)
+		_verts[left_idx] = here
+		_verts[right_idx] = here
+		_normals[left_idx] = tangent
+		_normals[right_idx] = tangent
+		_uvs[left_idx] = Vector2(-1.0, 0.0)
+		_uvs[right_idx] = Vector2(1.0, 0.0)
 
 	# Always rebuild the surface from scratch. The per-vertex layout
 	# (vertex + normal + uv) doesn't lend itself to surface_update_*
@@ -624,9 +629,9 @@ func _upload_surface() -> void:
 	_array_mesh.clear_surfaces()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_VERTEX] = _verts
+	arrays[Mesh.ARRAY_NORMAL] = _normals
+	arrays[Mesh.ARRAY_TEX_UV] = _uvs
 	_array_mesh.add_surface_from_arrays(
 		Mesh.PRIMITIVE_TRIANGLE_STRIP, arrays
 	)
