@@ -99,6 +99,11 @@ func process_combat(
 	for sat in satellites:
 		if not sat.alive:
 			continue
+		# Unarmed bodies (asteroids, fragments, bare enemies) have no
+		# energy consumer, nothing to cool, and nothing to fire — and
+		# they dominate the array during a wave. Skip them wholesale.
+		if sat.weapons.is_empty():
+			continue
 		sat.tick_combat(sim_delta)
 		# Phase 1: cooling. Split the unit's cooling power evenly across
 		# every weapon currently above zero heat; a sole demander gets

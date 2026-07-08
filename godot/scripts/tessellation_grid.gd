@@ -64,6 +64,15 @@ var highlighted_sat: Satellite = null
 const Satellite = preload("res://scripts/satellite.gd")
 
 
+# Size class thresholds shared by the sort in update_enemies and the
+# tile allocator in _recalculate_allocation.
+static func _mass_class(mass: float) -> int:
+	if mass >= 99000000000.0: return 3
+	if mass >= 9900000000.0: return 2
+	if mass >= 10000000.0: return 1
+	return 0
+
+
 # Cheap validity check for cross-script consumers (MassCenterSystem polls
 # this every frame to drive the auto-switch into the asteroid panel).
 # Returning a bool keeps the freed-Satellite check inside the grid —
@@ -102,34 +111,37 @@ func update_enemies(satellites: Array, sim_time: float) -> void:
 			_highlighted_sat_id = 0
 			highlighted_sat = null
 			
-	enemies.sort_custom(func(a, b):
+	# Precompute the sort keys once per body (Schwartzian transform).
+	# Sorting on raw satellites recomputed mass class + ETA — and
+	# allocated a fresh inner Callable — on every one of the O(n log n)
+	# comparisons, which is real work at 10 Hz with a 250-body wave.
+	var keyed = []
+	for sat in enemies:
+		var eta = sat.predict_impact_sim_time(sim_time) - sim_time
+		if not is_finite(eta) or eta <= 0:
+			eta = 99999999.0
+		keyed.append({
+			"sat": sat,
+			"deflected": sat.is_deflected,
+			"stable": sat.is_stable_orbit,
+			"mass_class": _mass_class(sat.mass),
+			"eta": eta,
+		})
+	keyed.sort_custom(func(a, b):
 		# 0. Sort order right-to-left: impacting → stable-orbit (purple) → deflected (green).
-		if a.is_deflected != b.is_deflected:
-			return not a.is_deflected
-		if a.is_stable_orbit != b.is_stable_orbit:
-			return not a.is_stable_orbit
-
-		var get_mass_class = func(mass: float) -> int:
-			if mass >= 99000000000.0: return 3
-			if mass >= 9900000000.0: return 2
-			if mass >= 10000000.0: return 1
-			return 0
-
-		var class_a = get_mass_class.call(a.mass)
-		var class_b = get_mass_class.call(b.mass)
-
+		if a.deflected != b.deflected:
+			return not a.deflected
+		if a.stable != b.stable:
+			return not a.stable
 		# 1. Strict priority to larger shape classes so they don't get fragmented
-		if class_a != class_b:
-			return class_a > class_b
-
-		var eta_a = a.predict_impact_sim_time(sim_time) - sim_time
-		var eta_b = b.predict_impact_sim_time(sim_time) - sim_time
-		if not is_finite(eta_a) or eta_a <= 0: eta_a = 99999999.0
-		if not is_finite(eta_b) or eta_b <= 0: eta_b = 99999999.0
-
+		if a.mass_class != b.mass_class:
+			return a.mass_class > b.mass_class
 		# 2. Within a shape class, put closest (red) on the left, farthest (yellow) on the right
-		return eta_a < eta_b
+		return a.eta < b.eta
 	)
+	enemies.clear()
+	for entry in keyed:
+		enemies.append(entry.sat)
 	_enemies = enemies
 	_current_sim_time = sim_time
 	
@@ -356,8 +368,9 @@ func _recalculate_allocation() -> void:
 		if not is_instance_valid(sat):
 			continue
 		var assigned_polys = []
+		var mclass = _mass_class(sat.mass)
 
-		if sat.mass >= 99000000000.0: # Extra Large
+		if mclass == 3: # Extra Large
 			for hex_id in _sorted_xl_hex_ids:
 				var xl_polys = _xl_groups[hex_id]
 				var can_form = true
@@ -382,7 +395,7 @@ func _recalculate_allocation() -> void:
 						assigned_polys.append_array(base_polys)
 						break
 				
-		elif sat.mass >= 9900000000.0: # Large
+		elif mclass == 2: # Large
 			for hex_id in _sorted_hex_ids:
 				var base_polys = _hex_groups[hex_id]
 				var can_form = true
@@ -394,7 +407,7 @@ func _recalculate_allocation() -> void:
 					assigned_polys.append_array(base_polys)
 					break
 				
-		elif sat.mass >= 10000000.0: # Medium
+		elif mclass == 1: # Medium
 			for group in _medium_groups:
 				var can_form = true
 				for p in group:
@@ -491,12 +504,15 @@ func _draw() -> void:
 				var p2 = poly.pts[(i + 1) % 3]
 				var p1r = Vector2i(round(p1.x * 10.0), round(p1.y * 10.0))
 				var p2r = Vector2i(round(p2.x * 10.0), round(p2.y * 10.0))
-				var key = ""
+				# Vector4i key instead of concatenated strings — this runs
+				# per edge per redraw, and the string building dominated
+				# the border pass's cost.
+				var key: Vector4i
 				if p1r.x < p2r.x or (p1r.x == p2r.x and p1r.y < p2r.y):
-					key = str(p1r) + "_" + str(p2r)
+					key = Vector4i(p1r.x, p1r.y, p2r.x, p2r.y)
 				else:
-					key = str(p2r) + "_" + str(p1r)
-				
+					key = Vector4i(p2r.x, p2r.y, p1r.x, p1r.y)
+
 				if not edge_counts.has(key):
 					edge_counts[key] = {"count": 1, "p1": p1, "p2": p2}
 				else:
