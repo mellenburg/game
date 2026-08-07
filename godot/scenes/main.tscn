@@ -115,29 +115,17 @@ scroll_active = false
 ; Right edge holds back from the screen-right by enough room to host
 ; the upper-right unit detail panel (~300 px) plus a small gap, so a
 ; long roster of friendly tiles can never line up behind the detail
-; box.
+; box. The HUD populates this VBox at runtime with one collapsible
+; GroupBlock per non-empty unit group (header tile + unit row).
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
 offset_left = 10.0
 offset_top = 10.0
 offset_right = -320.0
-offset_bottom = 240.0
+offset_bottom = 520.0
 mouse_filter = 2
-theme_override_constants/separation = 8
-
-[node name="PlayerRoster" type="HFlowContainer" parent="CanvasLayer/HUD/PlayerRosters"]
-; HFlow so a long fleet wraps onto a second / third row instead of
-; spilling past the right edge into the upper-right detail panel.
-mouse_filter = 2
-theme_override_constants/h_separation = 6
-theme_override_constants/v_separation = 6
-
-[node name="SurfacePlayerRoster" type="HFlowContainer" parent="CanvasLayer/HUD/PlayerRosters"]
-visible = false
-mouse_filter = 2
-theme_override_constants/h_separation = 6
-theme_override_constants/v_separation = 6
+theme_override_constants/separation = 6
 
 [node name="TessellationGrid" type="Control" parent="CanvasLayer/HUD"]
 layout_mode = 1

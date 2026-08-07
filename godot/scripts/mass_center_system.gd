@@ -1351,7 +1351,11 @@ func select_prev_ship() -> void:
 
 # Step `direction` (±1) through real_satellites, skipping non-player
 # bodies, and apply the selection-change side effects (planning sync,
-# planning dv drop) shared by Tab / Shift+Tab.
+# planning dv drop) shared by Tab / Shift+Tab. Units whose group is
+# currently collapsed in the HUD are also skipped — cycling onto an
+# off-screen tile is confusing. If every player unit happens to be
+# in a collapsed group, the call is a no-op and the operator stays
+# on whatever's currently selected.
 func _cycle_selected_ship(direction: int) -> void:
 	if real_satellites.is_empty():
 		return
@@ -1359,11 +1363,15 @@ func _cycle_selected_ship(direction: int) -> void:
 	var start := selected_ship
 	for offset in range(1, n + 1):
 		var i: int = posmod(start + direction * int(offset), n)
-		if real_satellites[i].team == Satellite.TEAM_PLAYER:
-			real_satellites[selected_ship].unselect()
-			selected_ship = i
-			real_satellites[selected_ship].select()
-			break
+		var candidate: Satellite = real_satellites[i]
+		if candidate.team != Satellite.TEAM_PLAYER:
+			continue
+		if hud != null and not hud.is_in_expanded_group(candidate):
+			continue
+		real_satellites[selected_ship].unselect()
+		selected_ship = i
+		real_satellites[selected_ship].select()
+		break
 	_after_selection_changed()
 
 
@@ -1395,12 +1403,9 @@ func select_ship_by_ref(sat: Satellite) -> void:
 		real_satellites[selected_ship].unselect()
 	selected_ship = idx
 	real_sat.select()
-	# Picking a unit from the roster opens the planning preview for
-	# that unit. If the operator's already in planning mode the call
-	# is a no-op past the selection swap; otherwise it pauses the sim
-	# and clones the current fleet into planning satellites.
-	if not planning_mode:
-		toggle_planning()
+	# Selection only — entering planning mode is a separate operator
+	# action (toggle_planning keybind). Matches Tab / Shift+Tab
+	# cycling, which never auto-enters planning either.
 	_after_selection_changed()
 
 

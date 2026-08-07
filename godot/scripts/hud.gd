@@ -84,6 +84,30 @@ const WEAPON_ICON_TEXT_COLOR := Color(1.0, 1.0, 1.0, 1.0)
 const LOS_CLEAR := Color(1.0, 0.95, 0.2)        # yellow
 const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 
+# Group bucketing. The assignment from satellite → group is arbitrary
+# placeholder logic (laser / railgun / surface), centralised in
+# `_group_for()` so customisation later swaps one helper without
+# touching the render flow.
+const GROUP_LASER: int = 1
+const GROUP_RAILGUN: int = 2
+const GROUP_SURFACE: int = 3
+const GROUP_NAMES: Dictionary = {
+	GROUP_LASER: "Group 1",
+	GROUP_RAILGUN: "Group 2",
+	GROUP_SURFACE: "Group 3",
+}
+# Render order top-to-bottom. Groups not in this list won't appear
+# even if `_group_for()` returns them, so the list is the source of
+# truth for "which groups exist".
+const GROUP_ORDER: Array[int] = [GROUP_LASER, GROUP_RAILGUN, GROUP_SURFACE]
+const GROUP_HEADER_BG := Color(0.10, 0.30, 0.45, 0.80)
+const GROUP_HEADER_BG_EXPANDED := Color(0.20, 0.55, 0.80, 0.90)
+const GROUP_HEADER_FONT_SIZE: int = 12
+const GROUP_HEADER_MIN_SIZE := Vector2(160.0, 28.0)
+const GROUP_HEADER_NAME: String = "GroupHeader"
+const GROUP_UNITS_NAME: String = "GroupUnits"
+const GROUP_LABEL_NAME: String = "HeaderLabel"
+
 # Wall-clock duration of the hit pulse on the marker / roster box.
 # Wall-clock so the visual feedback survives compression at high
 # time_factor — at time_factor=5000 a sim-second is 0.2 ms, which
@@ -92,15 +116,11 @@ const LOS_BLOCKED := Color(1.0, 0.55, 0.55)     # light red
 const HIT_DURATION: float = 0.25
 
 @onready var info_label: RichTextLabel = $InfoLabel as RichTextLabel
-# Rosters are HFlowContainers so a long fleet wraps onto a second row
-# instead of spilling past the upper-right detail panel. Typed as
-# Container here so the same code can drive either layout if we swap
-# back to HBox later (the Container API is all we use).
-@onready var player_roster: Container = (
-	$PlayerRosters/PlayerRoster as Container
-)
-@onready var surface_player_roster: Container = (
-	$PlayerRosters/SurfacePlayerRoster as Container
+# Top-left strip host: VBoxContainer populated at runtime with one
+# GroupBlock per non-empty group (header tile + unit row). Each group
+# is independently collapsed / expanded by clicking its header.
+@onready var groups_host: VBoxContainer = (
+	$PlayerRosters as VBoxContainer
 )
 @onready var target_container: Control = $TargetContainer as Control
 @onready var kill_stats: RichTextLabel = $KillStats as RichTextLabel
@@ -139,6 +159,12 @@ const HIT_DURATION: float = 0.25
 var _camera: Camera3D
 var _system: Node = null
 var _last_text_update: float = 0.0
+
+# Expansion state per group index (group_id → bool). Absent / false
+# means collapsed (only the header tile renders); true means the unit
+# row is visible below the header. State is operator-driven via the
+# header click handler.
+var _expanded_groups: Dictionary = {}
 
 # Active hit pulses. Drives the roster box red flash and (via
 # Satellite.flash_hit) the 3D marker tint. The actual beam visual
@@ -216,7 +242,7 @@ func update_hud(
 	# but nothing samples _hits more often than this rebuild.
 	_prune_hits()
 	_update_info_label(planning_mode, time_factor, dt, sim_time)
-	_update_rosters(orbital_set, planning_mode)
+	_update_groups(orbital_set, planning_mode)
 	_update_kill_stats(orbital_set)
 	_update_unit_detail(orbital_set, planning_mode)
 	if tess_grid != null and tess_grid.has_method("update_enemies"):
@@ -399,68 +425,249 @@ func _update_kill_stats(orbital_set: Node) -> void:
 	)
 
 
-func _update_rosters(orbital_set: Node, planning_mode: bool) -> void:
-	if player_roster == null:
+func _update_groups(orbital_set: Node, planning_mode: bool) -> void:
+	if groups_host == null:
 		return
 	var satellites: Array = orbital_set.satellites
 	var selected_idx: int = (
 		orbital_set.planning_selected if planning_mode
 		else orbital_set.selected_ship
 	)
+	# Live selection ref. Selection tint follows the satellite into
+	# whichever group bucket holds it; comparing refs instead of indices
+	# avoids tracking per-group local offsets.
+	var selected_sat: Satellite = null
+	if selected_idx >= 0 and selected_idx < satellites.size():
+		var maybe: Satellite = satellites[selected_idx]
+		if (
+			maybe != null
+			and maybe.alive
+			and maybe.team == Satellite.TEAM_PLAYER
+		):
+			selected_sat = maybe
 
-	# Player units are partitioned into orbital and surface so the two
-	# rosters render as separate rows in the top-left strip — orbital
-	# ships above, ground installations below. The selection index
-	# tracks separately for each subset so the green tint follows the
-	# satellite into whichever row holds it.
-	var orbital_players: Array[Satellite] = []
-	var surface_players: Array[Satellite] = []
-	var orbital_selected_in_roster: int = -1
-	var surface_selected_in_roster: int = -1
-
+	# Bucket friendlies by group_id. Empty groups simply don't get
+	# a header so the strip never reserves dead space for them
+	# (matches the prior surface-row visibility behaviour).
+	var buckets: Dictionary = {}
+	for g_id_init: int in GROUP_ORDER:
+		var empty: Array[Satellite] = []
+		buckets[g_id_init] = empty
 	for i in range(satellites.size()):
 		var sat: Satellite = satellites[i]
 		if not sat.alive:
 			continue
 		if sat.team == Satellite.TEAM_ENEMY:
 			continue
-		if sat.is_surface:
-			if i == selected_idx:
-				surface_selected_in_roster = surface_players.size()
-			surface_players.append(sat)
-		else:
-			if i == selected_idx:
-				orbital_selected_in_roster = orbital_players.size()
-			orbital_players.append(sat)
+		var g := _group_for(sat)
+		if not buckets.has(g):
+			continue
+		var lst: Array[Satellite] = buckets[g]
+		lst.append(sat)
 
-	_render_player_roster_into(
-		player_roster, orbital_players, orbital_selected_in_roster
-	)
-	if surface_player_roster != null:
-		_render_player_roster_into(
-			surface_player_roster, surface_players, surface_selected_in_roster
-		)
-		# Hide the surface row entirely when nothing's placed so the HUD
-		# doesn't reserve dead space for an empty container.
-		surface_player_roster.visible = not surface_players.is_empty()
+	var visible_groups: Array[int] = []
+	for g_id: int in GROUP_ORDER:
+		var bucket: Array[Satellite] = buckets[g_id]
+		if not bucket.is_empty():
+			visible_groups.append(g_id)
+
+	# Flat layout: each group occupies two adjacent children of the
+	# host VBox — a clickable header followed by an HFlow of unit
+	# tiles. Earlier revisions wrapped each pair in an extra
+	# VBoxContainer, which made the inner HFlow over-report its
+	# min height; subsequent groups then rendered overlapping the
+	# wrong hit rects and tile clicks fell through to the previous
+	# group. With HFlow as a direct VBox child the wrap calc matches
+	# the original (working) single-row layout.
+	var target_count: int = visible_groups.size() * 2
+	while groups_host.get_child_count() < target_count:
+		groups_host.add_child(_make_group_header())
+		groups_host.add_child(_make_group_units())
+	while groups_host.get_child_count() > target_count:
+		# Remove in pairs so child_count stays even and the
+		# (header, units) interleaving holds.
+		for _step in range(2):
+			if groups_host.get_child_count() == 0:
+				break
+			var stale := groups_host.get_child(groups_host.get_child_count() - 1)
+			groups_host.remove_child(stale)
+			stale.queue_free()
+
+	for i in range(visible_groups.size()):
+		var g_id: int = visible_groups[i]
+		var header := groups_host.get_child(i * 2) as PanelContainer
+		var units := groups_host.get_child(i * 2 + 1) as HFlowContainer
+		if header == null or units == null:
+			continue
+		var members: Array[Satellite] = buckets[g_id]
+		_update_group_header(header, g_id, members.size())
+		_update_group_units(units, g_id, members, selected_sat)
 
 
-# Generic renderer that fills any Container (HFlowContainer in the
-# scene today) with one tile per sat. Both the orbital and surface
-# rosters share this idiom so the per-row UI (selection tint, click
-# handling, weapon icons) stays consistent across both strips.
-func _render_player_roster_into(
-	host: Container, sats: Array[Satellite], selected: int
+# Single source of truth for "which group does this satellite belong
+# to?". The current rules are arbitrary placeholders until per-unit
+# customisation lands: surface → 3, otherwise laser → 1, railgun → 2,
+# anything else falls back to Group 1. Replace this body when groups
+# become operator-customisable.
+func _group_for(sat: Satellite) -> int:
+	if sat.is_surface:
+		return GROUP_SURFACE
+	if sat.has_laser():
+		return GROUP_LASER
+	if sat.has_railgun():
+		return GROUP_RAILGUN
+	return GROUP_LASER
+
+
+# Build an empty group header tile. Clickable PanelContainer with a
+# centred label; the actual text and tint are written by
+# _update_group_header. Stays narrow (SHRINK_BEGIN horizontally) so
+# the strip reads as a compact stack of group chips, not full-width
+# bands.
+func _make_group_header() -> PanelContainer:
+	var header := PanelContainer.new()
+	header.name = GROUP_HEADER_NAME
+	header.custom_minimum_size = GROUP_HEADER_MIN_SIZE
+	header.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	header.mouse_filter = Control.MOUSE_FILTER_STOP
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = GROUP_HEADER_BG
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
+	header.add_theme_stylebox_override("panel", sb)
+
+	var label := Label.new()
+	label.name = GROUP_LABEL_NAME
+	label.add_theme_font_size_override("font_size", GROUP_HEADER_FONT_SIZE)
+	label.add_theme_color_override("font_color", NAME_TEXT_COLOR)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(label)
+
+	header.gui_input.connect(_on_group_header_input.bind(header))
+	return header
+
+
+# Build an empty units row. HFlow so a long group wraps to a second
+# row instead of running into the upper-right detail panel. Direct
+# child of the host VBox (no intermediate container) so the wrap
+# height matches the original working layout.
+func _make_group_units() -> HFlowContainer:
+	var units := HFlowContainer.new()
+	units.name = GROUP_UNITS_NAME
+	units.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	units.size_flags_horizontal = Control.SIZE_FILL
+	units.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	units.add_theme_constant_override("h_separation", 6)
+	units.add_theme_constant_override("v_separation", 6)
+	return units
+
+
+func _update_group_header(
+	header: PanelContainer, group_id: int, count: int
 ) -> void:
-	while host.get_child_count() < sats.size():
-		host.add_child(_make_box())
-	while host.get_child_count() > sats.size():
-		var stale := host.get_child(host.get_child_count() - 1)
-		host.remove_child(stale)
+	header.set_meta("group", group_id)
+	var expanded: bool = bool(_expanded_groups.get(group_id, false))
+	var sb := header.get_theme_stylebox("panel") as StyleBoxFlat
+	if sb != null:
+		sb.bg_color = GROUP_HEADER_BG_EXPANDED if expanded else GROUP_HEADER_BG
+	var label := header.get_node_or_null(GROUP_LABEL_NAME) as Label
+	if label != null:
+		var arrow := "v" if expanded else ">"
+		var gname: String = GROUP_NAMES.get(group_id, "Group ?")
+		label.text = "%s  %s  (%d)" % [arrow, gname, count]
+
+
+func _update_group_units(
+	units: HFlowContainer,
+	group_id: int,
+	sats: Array[Satellite],
+	selected_sat: Satellite,
+) -> void:
+	units.set_meta("group", group_id)
+	var expanded: bool = bool(_expanded_groups.get(group_id, false))
+	# Match the HFlow's child count to the group's expansion state
+	# (0 when collapsed, sats.size() when expanded). Toggling
+	# `visible` instead leaves stale children that bake their wrap
+	# height into the parent VBox layout — subsequent rows then
+	# render at the wrong y and tile clicks miss.
+	var target_count: int = sats.size() if expanded else 0
+	while units.get_child_count() < target_count:
+		units.add_child(_make_box())
+	while units.get_child_count() > target_count:
+		var stale := units.get_child(units.get_child_count() - 1)
+		units.remove_child(stale)
 		stale.queue_free()
+	if not expanded:
+		return
 	for i in range(sats.size()):
-		var box := host.get_child(i) as PanelContainer
-		_update_box(box, sats[i], i == selected)
+		var box := units.get_child(i) as PanelContainer
+		_update_box(box, sats[i], sats[i] == selected_sat)
+
+
+# Header click: toggle the group's expansion state, then refresh
+# immediately so the change feels responsive rather than waiting up
+# to ~100 ms for the next HUD throttle tick. _system is cached every
+# frame by draw_target_lines; planning_mode lives on it.
+func _on_group_header_input(event: InputEvent, header: PanelContainer) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mb: InputEventMouseButton = event
+	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if not header.has_meta("group"):
+		return
+	var group_id: int = header.get_meta("group") as int
+	_expanded_groups[group_id] = not bool(_expanded_groups.get(group_id, false))
+	print(
+		"[HUD] header click g=%d expanded=%s" % [
+			group_id, bool(_expanded_groups.get(group_id, false))
+		]
+	)
+	if _system != null and is_instance_valid(_system):
+		_update_groups(_system, _system.planning_mode)
+	# After the layout settles, log every tile's global rect so we can
+	# compare it against the cursor position reported in
+	# _on_box_gui_input. Deferred so the queue_sort triggered by
+	# child mutations runs first.
+	call_deferred("_debug_log_tile_rects")
+
+
+func _debug_log_tile_rects() -> void:
+	if groups_host == null:
+		return
+	for i in range(groups_host.get_child_count()):
+		var child := groups_host.get_child(i)
+		if child is HFlowContainer:
+			var units := child as HFlowContainer
+			var g_meta: int = units.get_meta("group", -1) as int
+			print(
+				"[HUD] units g=%d rect=%s child_count=%d" % [
+					g_meta, units.get_global_rect(), units.get_child_count()
+				]
+			)
+			for j in range(units.get_child_count()):
+				var tile := units.get_child(j) as Control
+				if tile != null:
+					print(
+						"[HUD]   tile[%d] rect=%s filter=%d" % [
+							j, tile.get_global_rect(), tile.mouse_filter
+						]
+					)
+
+
+# True if `sat` belongs to a currently-expanded group. Tab / Shift+Tab
+# cycling consults this so the operator only lands on units that are
+# actually visible in the roster — cycling into a collapsed group
+# would land on a unit the operator can't see.
+func is_in_expanded_group(sat: Satellite) -> bool:
+	if sat == null:
+		return false
+	var g_id := _group_for(sat)
+	return bool(_expanded_groups.get(g_id, false))
 
 
 func _make_box() -> PanelContainer:
@@ -517,6 +724,17 @@ func _on_box_gui_input(event: InputEvent, box: PanelContainer) -> void:
 	var mb: InputEventMouseButton = event
 	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
 		return
+	var sat_name: String = "<no-meta>"
+	if box.has_meta("sat"):
+		var meta_sat := box.get_meta("sat") as Satellite
+		if meta_sat != null and is_instance_valid(meta_sat):
+			sat_name = meta_sat.unit_name if meta_sat.unit_name != "" else "<unnamed>"
+	var box_global := box.get_global_rect()
+	print(
+		"[HUD] tile click event sat=%s rect=%s cursor=%s" % [
+			sat_name, box_global, mb.global_position
+		]
+	)
 	if not box.has_meta("sat"):
 		return
 	var sat: Satellite = box.get_meta("sat") as Satellite
